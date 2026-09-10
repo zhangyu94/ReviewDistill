@@ -1,0 +1,255 @@
+import json
+
+from fastapi.testclient import TestClient
+from sqlmodel import select
+
+from reviewdistill.cli.init import init_project
+from reviewdistill.coding.coder import code_uncoded_comments
+from reviewdistill.coding.validation import disappeared_items, inbox_items
+from reviewdistill.config import HomeConfig, write_home_config
+from reviewdistill.db.models import Coding, ProofreadingComment
+from reviewdistill.db.session import get_session
+from reviewdistill.extraction.incremental import extract_project
+from reviewdistill.llm.mock import MockLLMProvider
+from reviewdistill.taxonomy.operations import create_issue_type
+from reviewdistill.web.app import create_app
+
+
+def _seed(tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{This seems too strong given the experiment.}\n")
+    extract_project(repo)
+    issue = create_issue_type(
+        code="OVERCLAIM",
+        name="Overclaiming",
+        category="Argumentation",
+        definition="too strong",
+    )
+    code_uncoded_comments(
+        provider=MockLLMProvider(
+            scripted_response=json.dumps(
+                {
+                    "recommendation": "existing",
+                    "issue_type_id": issue.id,
+                    "confidence": 0.91,
+                    "rationale": "Objects to claim strength.",
+                }
+            )
+        )
+    )
+    return issue
+
+
+def test_inbox_lists_proposed_comments(db, tmp_path):
+    _seed(tmp_path)
+    item = inbox_items()[0]
+    comment = item.comment
+    client = TestClient(create_app())
+    response = client.get("/api/inbox")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["view"] == "uncoded"
+    assert body["uncoded_count"] == 1
+    assert body["disappeared_count"] == 0
+    assert body["items"][0]["comment"]["id"] == comment.id
+    assert body["items"][0]["comment"]["raw_text"] == comment.raw_text
+    assert body["items"][0]["comment"]["file_path"] == comment.file_path
+    assert body["items"][0]["comment"]["line_number"] == comment.line_number
+    assert body["items"][0]["comment"]["source_command"] == comment.source_command
+    assert body["items"][0]["comment"]["source_type"] == comment.source_type
+    assert body["items"][0]["comment"]["status"] == comment.status
+    assert body["items"][0]["comment"]["fingerprint"] == comment.fingerprint
+    assert body["items"][0]["project_name"] == "paper-01"
+    assert body["items"][0]["guess"] is None
+    assert body["items"][0]["coding"]["kind"] == "existing"
+    assert body["items"][0]["coding"]["confidence"] == 0.91
+    assert any(row["name"] == "Overclaiming" for row in body["issues"])
+    other = client.get("/api/inbox?view=nope")
+    assert other.json()["view"] == "uncoded"
+
+
+def test_accept_post_leaves_inbox(db, tmp_path):
+    _seed(tmp_path)
+    item = inbox_items()[0]
+    client = TestClient(create_app())
+    response = client.post(f"/api/inbox/{item.comment.id}/accept")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    body = client.get("/api/inbox").json()
+    assert body["uncoded_count"] == 0
+
+
+def test_disappeared_view_and_keep_post(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Gone soon.}\n")
+    extract_project(repo)
+    (repo / "main.tex").write_text("no comments\n")
+    extract_project(repo)
+    item = disappeared_items()[0]
+    client = TestClient(create_app())
+    response = client.get("/api/inbox?view=disappeared")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["view"] == "disappeared"
+    assert body["items"][0]["comment"]["raw_text"] == "Gone soon."
+    assert body["items"][0]["guess"]
+    assert body["items"][0]["coding"] is None
+    keep = client.post(f"/api/inbox/{item.comment.id}/keep")
+    assert keep.status_code == 200
+    with get_session() as session:
+        assert session.get(ProofreadingComment, item.comment.id).status == "kept"
+    uncoded = client.get("/api/inbox").json()
+    assert uncoded["uncoded_count"] == 1
+
+
+def test_retract_post_excludes_from_uncoded(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Pull this.}\n")
+    extract_project(repo)
+    (repo / "main.tex").write_text("no comments\n")
+    extract_project(repo)
+    item = disappeared_items()[0]
+    client = TestClient(create_app())
+    client.post(f"/api/inbox/{item.comment.id}/retract")
+    uncoded = client.get("/api/inbox").json()
+    assert uncoded["uncoded_count"] == 0
+    disappeared = client.get("/api/inbox?view=disappeared").json()
+    assert disappeared["disappeared_count"] == 0
+
+
+def test_inbox_unknown_llm_provider_is_null_not_500(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Needs a real suggestion.}\n")
+    extract_project(repo)
+    write_home_config(HomeConfig(llm_provider="nope"))
+    client = TestClient(create_app())
+    response = client.get("/api/inbox")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["llm_provider"] is None
+    assert body["uncoded_count"] == 1
+
+
+def test_inbox_hides_mock_proposal_and_counts_it_as_pending(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Needs a real suggestion.}\n")
+    extract_project(repo)
+    comment_id = inbox_items()[0].comment.id
+    with get_session() as session:
+        session.add(
+            Coding(
+                id="mock-proposed",
+                comment_id=comment_id,
+                coder_type="ai",
+                status="proposed",
+                proposed_issue_name="Mock issue",
+                rationale="Mock provider used in tests.",
+                confidence=0.5,
+            )
+        )
+        session.commit()
+    client = TestClient(create_app())
+    body = client.get("/api/inbox").json()
+    assert body["items"][0]["coding"] is None
+    assert body["pending_code_count"] == 1
+    assert body["llm_provider"] is None
+
+
+def test_post_inbox_code_without_provider_is_400(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Needs a provider.}\n")
+    extract_project(repo)
+    client = TestClient(create_app())
+    response = client.post("/api/inbox/code")
+    assert response.status_code == 400
+    assert "LLM" in response.json()["detail"]
+
+
+def test_post_inbox_code_proposes_all_uncoded(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text(
+        "\\myremark{This seems too strong given the experiment.}\n"
+        "\\myremark{Why this method?}\n"
+    )
+    extract_project(repo)
+    write_home_config(HomeConfig(llm_provider="mock"))
+    client = TestClient(create_app())
+    listed = client.get("/api/inbox").json()
+    assert listed["pending_code_count"] == 2
+    assert listed["llm_provider"] == "mock"
+    assert "privacy_warning" not in listed
+    assert all(item["coding"] is None for item in listed["items"])
+    response = client.post("/api/inbox/code")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["coded"] == 2
+    assert body["failed"] == 0
+    after = client.get("/api/inbox").json()
+    assert after["pending_code_count"] == 0
+    assert after["uncoded_count"] == 2
+    assert all(item["coding"] is not None for item in after["items"])
+    again = client.post("/api/inbox/code")
+    assert again.json()["coded"] == 0
+
+
+def test_post_inbox_code_http_error_is_400(db, tmp_path, monkeypatch):
+    import httpx
+
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Needs coding.}\n")
+    extract_project(repo)
+
+    class _Down:
+        name = "openai"
+
+        def generate(self, prompt: str) -> str:
+            raise httpx.HTTPStatusError(
+                "bad",
+                request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+                response=httpx.Response(503, request=httpx.Request("POST", "https://example.com")),
+            )
+
+    monkeypatch.setattr("reviewdistill.web.api.get_provider", lambda: _Down())
+    monkeypatch.setattr("reviewdistill.coding.coder.get_provider", lambda: _Down())
+    client = TestClient(create_app())
+    response = client.post("/api/inbox/code")
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail == "LLM request failed"
+    assert "openai.com" not in detail
+    assert "sk-" not in detail
+
+
+def test_inbox_json_strips_credentials_from_stored_git_url(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Too strong.}\n")
+    extract_project(repo)
+    with get_session() as session:
+        row = session.exec(select(ProofreadingComment)).first()
+        row.git_url = "https://user:ghp_secret@github.com/example/paper.git"
+        session.add(row)
+        session.commit()
+    client = TestClient(create_app())
+    body = client.get("/api/inbox").json()
+    git_url = body["items"][0]["comment"]["git_url"]
+    assert git_url == "https://github.com/example/paper.git"
+    assert "ghp_secret" not in git_url

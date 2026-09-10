@@ -1,0 +1,59 @@
+[project]
+name = "reviewdistill"
+version = "0.1.0"
+description = "Local-first tool for distilling human proofreading comments into reusable skills for agents."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+  { name = "Yu Zhang" },
+]
+requires-python = ">=3.11"
+dependencies = [
+  "typer>=0.12",
+  "sqlmodel>=0.0.22",
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "pyyaml>=6.0",
+  "httpx>=0.27",
+  "watchfiles>=1.0",
+  "python-dotenv>=1.0",
+  "litellm>=1.77",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[project.urls]
+Homepage = "https://github.com/zhangyu94/ReviewDistill"
+Repository = "https://github.com/zhangyu94/ReviewDistill"
+
+[project.scripts]
+reviewdistill = "reviewdistill.cli.app:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["reviewdistill*"]
+
+[tool.setuptools.package-data]
+reviewdistill = ["web/static/**"]
+
+[tool.setuptools.cmdclass]
+build_py = "studio_build.build_py"
+sdist = "studio_build.sdist"
+editable_wheel = "studio_build.editable_wheel"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+"reviewdistill/cli/app.py" = ["B008"]

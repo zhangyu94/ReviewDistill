@@ -1,0 +1,3 @@
+include studio_build.py
+graft reviewdistill/web/static
+global-exclude .DS_Store

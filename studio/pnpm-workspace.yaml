@@ -1,0 +1,3 @@
+# Single-package project settings (not a multi-package workspace).
+allowBuilds:
+  vue-demi: false

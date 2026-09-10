@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges" role="img" aria-label="ReviewDistill">
+  <title>ReviewDistill</title>
+  <path fill="#171717" fill-rule="evenodd" d="
+    M2,1 h12 v1 H2 z
+    M1,2 h14 v8 H1 z
+    M2,10 h12 v1 H2 z
+    M5,11 h6 v1 H5 z
+    M6,12 h4 v1 H6 z
+    M7,13 h2 v1 H7 z
+    M3,3 h10 v2 H3 z
+    M3,6 h10 v2 H3 z
+  "/>
+</svg>
