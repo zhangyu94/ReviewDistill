@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.5"]
+dev = ["pytest>=8.0", "ruff>=0.5", "setuptools>=68"]
 
 [project.urls]
 Homepage = "https://github.com/zhangyu94/ReviewDistill"
