@@ -195,7 +195,7 @@ async function saveDefinition() {
               <input v-model="editCategory" class="ch-input" placeholder="e.g. Argumentation">
             </dd>
             <dt class="ch-muted-text">
-              Accepted comments
+              Labeled comments
             </dt>
             <dd>{{ selectedCount }}</dd>
           </dl>
@@ -248,7 +248,7 @@ async function saveDefinition() {
               </p>
             </template>
             <p class="ch-muted-text mt-2">
-              Accepted comments in the Comments panel are the coding examples for this type.
+              Labeled comments in the Comments panel are the examples for this type.
             </p>
           </template>
           <template v-else>
@@ -264,7 +264,7 @@ async function saveDefinition() {
             Split into two types
           </summary>
           <p class="ch-muted-text mt-2 mb-2">
-            Replace this type with two more specific ones. This type is deactivated; accepted comments return to Uncoded so you can recode them.
+            Replace this type with two more specific ones. This type is deactivated; labeled comments return to Unlabeled so you can assign types again.
           </p>
           <div class="grid gap-3 sm:grid-cols-2">
             <div>

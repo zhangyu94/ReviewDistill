@@ -7,10 +7,16 @@ from uuid import uuid4
 from reviewdistill.coding.coder import effective_provider_name, hide_placeholder_coding
 from reviewdistill.context.manuscript import extract_context, split_stored_context
 from reviewdistill.db.models import (
-    WORKING_COMMENT_STATUSES,
+    QUALITY_DROPPED,
+    QUALITY_UNREVIEWED,
+    QUALITY_VERIFIED,
     Coding,
     IssueExample,
+    IssueType,
     ProofreadingComment,
+    comment_quality,
+    in_manuscript,
+    in_working_set,
 )
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.history import dump_row, record
@@ -21,50 +27,71 @@ from reviewdistill.taxonomy.operations import (
     get_issue_type,
 )
 
-KEEP_MANUSCRIPT_CHANGED = "Keep (nearby manuscript changed)"
-RETRACT_UNCHANGED = "Retract (nearby manuscript unchanged)"
-KEEP_FILE_MISSING = "Keep (source file missing)"
-# Non-binding Disappeared guess: first line of stored context vs current file at the last line number.
+VERIFY_MANUSCRIPT_CHANGED = "Verify (nearby manuscript changed)"
+DROP_UNCHANGED = "Drop (nearby manuscript unchanged)"
+VERIFY_FILE_MISSING = "Verify (source file missing)"
+# Non-binding hint when the comment is not in the manuscript.
 CONTEXT_CHANGE_THRESHOLD = 0.8
+
+
+@dataclass
+class InboxIssue:
+    id: str
+    code: str
+    name: str
+    category: str
 
 
 @dataclass
 class InboxItem:
     comment: ProofreadingComment
     coding: Coding | None
+    labeled: bool
+    issue: InboxIssue | None = None
+
+
+def _is_labeled(session, comment_id: str) -> bool:
+    return any(
+        row.status == "accepted" and row.issue_type_id
+        for row in session.find(Coding, comment_id=comment_id)
+    )
+
+
+def _accepted_issue(session, comment_id: str) -> InboxIssue | None:
+    for row in session.find(Coding, comment_id=comment_id, status="accepted"):
+        if not row.issue_type_id:
+            continue
+        issue = session.get(IssueType, row.issue_type_id)
+        if issue is None:
+            continue
+        return InboxIssue(id=issue.id, code=issue.code, name=issue.name, category=issue.category)
+    return None
 
 
 def inbox_items() -> list[InboxItem]:
     init_db()
     provider_name = effective_provider_name()
     with get_session() as session:
-        comments = session.find(
-            ProofreadingComment, status=WORKING_COMMENT_STATUSES, order_by="created_at"
-        )
+        comments = session.find(ProofreadingComment, order_by="created_at")
         items: list[InboxItem] = []
         for comment in comments:
-            codings = session.find(Coding, comment_id=comment.id)
-            if any(row.status in {"accepted", "rejected", "modified"} for row in codings):
+            labeled = _is_labeled(session, comment.id)
+            needs_quality = (not in_manuscript(comment)) and comment_quality(comment) == QUALITY_UNREVIEWED
+            unlabeled_in_set = in_working_set(comment) and not labeled
+            if not (unlabeled_in_set or needs_quality):
                 continue
             proposed = _latest_proposed(
                 session, comment.id, provider_name=provider_name, skip_placeholders=True
             )
-            visible = [
-                row
-                for row in codings
-                if not hide_placeholder_coding(row, provider_name=provider_name)
-            ]
-            if proposed is None and visible:
-                continue
-            items.append(InboxItem(comment=comment, coding=proposed))
+            items.append(
+                InboxItem(
+                    comment=comment,
+                    coding=proposed,
+                    labeled=labeled,
+                    issue=_accepted_issue(session, comment.id) if labeled else None,
+                )
+            )
         return items
-
-
-def disappeared_items() -> list[InboxItem]:
-    init_db()
-    with get_session() as session:
-        comments = session.find(ProofreadingComment, status="pending_disappeared", order_by="created_at")
-        return [InboxItem(comment=comment, coding=None) for comment in comments]
 
 
 def _existing_example(issue_type_id: str, comment_id: str) -> IssueExample | None:
@@ -82,43 +109,45 @@ def _log_event(event_type: str, payload: dict) -> None:
         session.commit()
 
 
-def keep_comment(comment_id: str) -> None:
+def verify_comment(comment_id: str) -> None:
     with get_session() as session:
         comment = session.get(ProofreadingComment, comment_id)
         if comment is None:
             raise ValueError(f"Unknown comment {comment_id}")
-        if comment.status != "pending_disappeared":
-            raise ValueError("Keep requires a pending_disappeared comment")
-        comment.status = "kept"
+        previous = comment_quality(comment)
+        if previous == QUALITY_VERIFIED:
+            return
+        comment.quality = QUALITY_VERIFIED
         session.add(comment)
         session.commit()
-    _log_event("keep", {"comment_id": comment_id})
+    _log_event("verify", {"comment_id": comment_id, "previous_quality": previous})
 
 
-def retract_comment(comment_id: str) -> None:
+def drop_comment(comment_id: str) -> None:
     with get_session() as session:
         comment = session.get(ProofreadingComment, comment_id)
         if comment is None:
             raise ValueError(f"Unknown comment {comment_id}")
-        if comment.status != "pending_disappeared":
-            raise ValueError("Retract requires a pending_disappeared comment")
-        comment.status = "retracted"
+        previous = comment_quality(comment)
+        if previous == QUALITY_DROPPED:
+            return
+        comment.quality = QUALITY_DROPPED
         session.add(comment)
         session.commit()
-    _log_event("retract", {"comment_id": comment_id})
+    _log_event("drop", {"comment_id": comment_id, "previous_quality": previous})
 
 
 def disappearance_guess(comment: ProofreadingComment, *, source: str | None) -> str:
     if source is None:
-        return KEEP_FILE_MISSING
+        return VERIFY_FILE_MISSING
     current = extract_context(source, comment.line_number, command=comment.source_command).context_text
     stored = split_stored_context(comment.context_text)[0]
     left = " ".join(stored.split())
     right = " ".join(current.split())
     ratio = SequenceMatcher(None, left, right).ratio()
     if ratio < CONTEXT_CHANGE_THRESHOLD:
-        return KEEP_MANUSCRIPT_CHANGED
-    return RETRACT_UNCHANGED
+        return VERIFY_MANUSCRIPT_CHANGED
+    return DROP_UNCHANGED
 
 
 def _latest_proposed(
@@ -206,11 +235,23 @@ def change_coding(comment_id: str, *, issue_type_id: str) -> Coding:
         if comment is None:
             raise ValueError(f"Unknown comment {comment_id}")
         raw_text = comment.raw_text
+        current_accepted = list(session.find(Coding, comment_id=comment_id, status="accepted"))
+        if any(row.issue_type_id == issue_type_id for row in current_accepted):
+            raise ValueError(f"Comment {comment_id} is already labeled with this type")
         proposed = _latest_proposed(session, comment_id)
         proposed_id = proposed.id if proposed is not None else None
         if proposed is not None:
             proposed.status = "modified"
             session.add(proposed)
+        retired_accepted = []
+        for row in current_accepted:
+            retired_accepted.append(dump_row(row))
+            row.status = "modified"
+            session.add(row)
+        deleted_examples = []
+        for example in list(session.find(IssueExample, source_comment_id=comment_id)):
+            deleted_examples.append(dump_row(example))
+            session.delete(example)
         human = Coding(
             id=str(uuid4()),
             comment_id=comment_id,
@@ -236,43 +277,11 @@ def change_coding(comment_id: str, *, issue_type_id: str) -> Coding:
             "example_id": example.id,
             "example_created": created,
             "example": dump_row(example) if created else None,
+            "retired_accepted": retired_accepted,
+            "deleted_examples": deleted_examples,
         },
     )
     return human
-
-
-def reject_coding(comment_id: str) -> Coding:
-    with get_session() as session:
-        proposed = _latest_proposed(session, comment_id)
-        created = proposed is None
-        previous_status = None if created else proposed.status
-        if proposed is None:
-            proposed = Coding(
-                id=str(uuid4()),
-                comment_id=comment_id,
-                issue_type_id=None,
-                coder_type="human",
-                status="rejected",
-                rationale="Human rejected without an AI proposal.",
-            )
-            session.add(proposed)
-        else:
-            proposed.status = "rejected"
-            session.add(proposed)
-        session.commit()
-        session.refresh(proposed)
-        dump = dump_row(proposed)
-    _log_event(
-        "reject",
-        {
-            "comment_id": comment_id,
-            "coding_id": proposed.id,
-            "previous_status": previous_status,
-            "created": created,
-            "coding": dump,
-        },
-    )
-    return proposed
 
 
 def _slug_code(name: str) -> str:

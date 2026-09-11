@@ -5,6 +5,7 @@ import type { CommentsLayout } from '../workbench/workbenchMode.ts'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  ApiError,
   changeInbox,
   fetchInbox,
   fetchIssue,
@@ -20,21 +21,25 @@ import GroupsPanel from '../components/workbench/GroupsPanel.vue'
 import IssueInspector from '../components/workbench/IssueInspector.vue'
 import SelectorsBar from '../components/workbench/SelectorsBar.vue'
 import { inboxLocationRows, safeHttpHref } from '../inboxLocation.ts'
-import { nextSelectedId } from '../select.ts'
+import { selectedIdAfterAction } from '../select.ts'
 import { splitContextText } from '../workbench/contextParts.ts'
 import { dropAction } from '../workbench/dropAction.ts'
 import {
   activeSelector,
   allowChangeDrop,
-  disappearedHref,
+  clearIssueBeforeLoad,
   dismissTypeHref,
   entryMode,
   groupIdFromRoute,
   inboxItemFromObservation,
+  issueLoadErrorView,
+  labeledTypeIdForComment,
+  nextChangeId,
+  shouldApplyIssueLoad,
   taxonClickHref,
   thisTypeHref,
   typeSelectorLabel,
-  uncodedHref,
+  unlabeledHref,
 } from '../workbench/workbenchMode.ts'
 
 function queryStr(value: unknown): string {
@@ -52,6 +57,7 @@ const inbox = ref<InboxResponse | null>(null)
 const taxonomy = ref<TaxonomyListResponse | null>(null)
 const issue = ref<TaxonomyDetail | null>(null)
 const missing = ref(false)
+let issueLoadGen = 0
 const error = ref('')
 const notice = ref('')
 const loading = ref(false)
@@ -113,7 +119,13 @@ const selectedObservation = computed(() => {
   const rows = issue.value?.comments ?? []
   const id = listSelectedId.value
   const row = rows.find((item) => item.id === id) ?? rows[0]
-  return row ? inboxItemFromObservation(row) : undefined
+  if (!row || !issue.value) { return undefined }
+  return inboxItemFromObservation(row, {
+    id: issue.value.id,
+    code: issue.value.code,
+    name: issue.value.name,
+    category: issue.value.category,
+  })
 })
 
 const inspectorItem = computed(() =>
@@ -121,9 +133,8 @@ const inspectorItem = computed(() =>
 )
 
 const inspectorView = computed(() => {
-  if (mode.value === 'disappeared') { return 'disappeared' as const }
   if (mode.value === 'observations') { return 'observation' as const }
-  return 'uncoded' as const
+  return 'unlabeled' as const
 })
 
 const commentTotal = computed(() =>
@@ -174,28 +185,55 @@ const canRequestSuggestions = computed(() =>
 
 function codeAllTitle(): string {
   if (!inbox.value?.llm_provider) { return 'Configure llm.provider and .reviewdistill/.env first' }
-  if (!inbox.value.pending_code_count) { return 'No uncoded comments need suggestions' }
-  return 'Ask the LLM to propose issue types for every uncoded comment'
+  if (!inbox.value.pending_code_count) { return 'No unlabeled comments need suggestions' }
+  return 'Ask the LLM to propose issue types for every unlabeled comment'
 }
 
 async function loadInbox() {
-  inbox.value = await fetchInbox(mode.value === 'disappeared' ? 'disappeared' : 'uncoded')
-  if (inbox.value.issues[0] && !changeId.value) { changeId.value = inbox.value.issues[0].id }
+  inbox.value = await fetchInbox()
 }
+
+watch(
+  [inbox, inspectorItem],
+  () => {
+    changeId.value = nextChangeId(
+      inbox.value?.issues ?? [],
+      inspectorItem.value?.issue?.id ?? null,
+      changeId.value,
+    )
+  },
+)
 
 async function loadTaxonomy() {
   taxonomy.value = await fetchTaxonomy()
 }
 
 async function loadIssue() {
-  missing.value = false
-  issue.value = null
-  if (!groupId.value) { return }
-  try {
-    issue.value = await fetchIssue(groupId.value)
+  const id = groupId.value
+  const gen = ++issueLoadGen
+  if (clearIssueBeforeLoad(issue.value?.id ?? '', id)) {
+    issue.value = null
   }
-  catch {
-    missing.value = true
+  if (!id) { return }
+  try {
+    const next = await fetchIssue(id)
+    if (!shouldApplyIssueLoad(gen, issueLoadGen)) { return }
+    issue.value = next
+    missing.value = false
+    error.value = ''
+  }
+  catch (err) {
+    if (!shouldApplyIssueLoad(gen, issueLoadGen)) { return }
+    const status = err instanceof ApiError ? err.status : null
+    if (issueLoadErrorView(status) === 'missing') {
+      issue.value = null
+      missing.value = true
+      error.value = ''
+    }
+    else {
+      missing.value = false
+      error.value = err instanceof Error ? err.message : String(err)
+    }
   }
 }
 
@@ -254,17 +292,33 @@ async function codeAll() {
   }
 }
 
-async function act(action: 'accept' | 'reject' | 'keep' | 'retract') {
-  const current = selectedComment.value
+function commentQueueIds(): string[] {
+  if (mode.value === 'observations') {
+    return (issue.value?.comments ?? []).map((row) => row.id)
+  }
+  return queueItems.value.map((item) => item.comment.id)
+}
+
+function afterCommentAction(next?: string) {
+  if (mode.value === 'observations') {
+    selectedObservationId.value = next
+    return
+  }
+  void router.replace({ query: typeQuery(next) })
+}
+
+async function act(action: 'accept' | 'verify' | 'drop') {
+  const current = inspectorItem.value
   if (!current) { return }
   error.value = ''
-  const next = nextSelectedId(queueItems.value.map((item) => item.comment.id), current.comment.id)
+  const actedId = current.comment.id
+  const idsBefore = commentQueueIds()
   try {
-    await postInbox(current.comment.id, action)
+    await postInbox(actedId, action)
     await loadInbox()
     await loadTaxonomy()
-    if (action === 'accept') { await loadIssue() }
-    await router.replace({ query: typeQuery(next) })
+    await loadIssue()
+    afterCommentAction(selectedIdAfterAction(idsBefore, actedId, commentQueueIds()))
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -272,16 +326,17 @@ async function act(action: 'accept' | 'reject' | 'keep' | 'retract') {
 }
 
 async function change() {
-  const current = selectedComment.value
+  const current = inspectorItem.value
   if (!current || !changeId.value) { return }
   error.value = ''
-  const next = nextSelectedId(queueItems.value.map((item) => item.comment.id), current.comment.id)
+  const actedId = current.comment.id
+  const idsBefore = commentQueueIds()
   try {
-    await changeInbox(current.comment.id, changeId.value)
+    await changeInbox(actedId, changeId.value)
     await loadInbox()
     await loadTaxonomy()
     await loadIssue()
-    await router.replace({ query: typeQuery(next) })
+    afterCommentAction(selectedIdAfterAction(idsBefore, actedId, commentQueueIds()))
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -289,18 +344,23 @@ async function change() {
 }
 
 async function onDrop(payload: DragPayload, target: DropTarget) {
-  const action = dropAction(payload, target)
+  const labeledTypeId = payload.kind === 'comment'
+    ? labeledTypeIdForComment(queueItems.value, payload.id)
+    : null
+  const action = dropAction(payload, target, labeledTypeId)
   if (action.type === 'ignore' || !allowChangeDrop(mode.value, action.type)) { return }
   error.value = ''
   try {
     if (action.type === 'change') {
-      const ids = queueItems.value.map((item) => item.comment.id)
-      const next = nextSelectedId(ids, action.commentId)
-      await changeInbox(action.commentId, action.issueTypeId)
+      const actedId = action.commentId
+      const idsBefore = queueItems.value.map((item) => item.comment.id)
+      await changeInbox(actedId, action.issueTypeId)
       await loadInbox()
       await loadTaxonomy()
       await loadIssue()
-      await router.replace({ query: typeQuery(next) })
+      await router.replace({
+        query: typeQuery(selectedIdAfterAction(idsBefore, actedId, commentQueueIds())),
+      })
       return
     }
     if (action.type === 'merge') {
@@ -329,7 +389,7 @@ async function onIssueRemoved() {
   error.value = ''
   lastTypeId.value = ''
   await loadTaxonomy()
-  await router.push(selector.value === 'disappeared' ? '/inbox/disappeared' : '/')
+  await router.push('/')
 }
 
 function onCommentsLayout(layout: CommentsLayout) {
@@ -386,17 +446,15 @@ watch(groupId, () => { void loadIssue() })
   <div class="flex h-full min-h-0 flex-col">
     <SelectorsBar
       :selector="selector"
-      :uncoded-count="inbox?.uncoded_count ?? 0"
-      :disappeared-count="inbox?.disappeared_count ?? 0"
+      :unlabeled-count="inbox?.unlabeled_count ?? 0"
       :type-href="thisTypeHref(chipTypeId)"
       :type-label="typeChipLabel"
       :type-title="chipTypeName"
-      :uncoded-href="uncodedHref(chipTypeId)"
-      :disappeared-href="disappearedHref(chipTypeId)"
+      :unlabeled-href="unlabeledHref(chipTypeId)"
       :coding="coding"
       :can-request-suggestions="canRequestSuggestions"
       :code-all-title="codeAllTitle()"
-      :show-code-all="mode === 'uncoded'"
+      :show-code-all="mode === 'unlabeled'"
       @code-all="codeAll"
       @dismiss-type="onDismissType"
     />
@@ -458,13 +516,11 @@ watch(groupId, () => { void loadIssue() })
             :context-parts="contextParts"
             :suggestion-title="suggestionTitle"
             :change-id="changeId"
-            :issues-empty="!(inbox?.issues.length)"
             @update:change-id="changeId = $event"
             @accept="act('accept')"
-            @reject="act('reject')"
             @change="change"
-            @keep="act('keep')"
-            @retract="act('retract')"
+            @verify="act('verify')"
+            @drop="act('drop')"
             @configure-llm="openSettings"
           />
           <p v-else class="ch-muted-text">

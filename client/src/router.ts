@@ -11,8 +11,6 @@ export const router = createRouter({
       component: AppShell,
       children: [
         { path: '', name: 'inbox', component: WorkbenchPage },
-        { path: 'inbox/disappeared', name: 'disappeared', component: WorkbenchPage },
-        { path: 'taxonomy', redirect: '/' },
         { path: 'taxonomy/:id', name: 'issue', component: WorkbenchPage },
         { path: 'history', name: 'history', component: HistoryPage },
       ],

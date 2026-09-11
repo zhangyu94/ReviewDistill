@@ -46,7 +46,7 @@ def require_api_key(provider_name: str) -> str:
     raise RuntimeError(
         f"No api key configured for {provider_name}. "
         f"Set {env_name} in the process environment or the paper's "
-        ".reviewdistill/.env, or llm.api_key in config.yaml."
+        ".reviewdistill/.env."
     )
 
 

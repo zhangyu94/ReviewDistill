@@ -1,9 +1,10 @@
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 from reviewdistill.cli.init import init_project
 from reviewdistill.coding.coder import code_uncoded_comments
-from reviewdistill.coding.validation import disappeared_items, inbox_items
+from reviewdistill.coding.validation import accept_coding, inbox_items
 from reviewdistill.config import HomeConfig, write_home_config
 from reviewdistill.db.models import Coding, ProofreadingComment
 from reviewdistill.db.session import get_session
@@ -62,9 +63,7 @@ def test_inbox_lists_proposed_comments(db, tmp_path):
     response = client.get("/api/inbox")
     assert response.status_code == 200
     body = response.json()
-    assert body["view"] == "uncoded"
-    assert body["uncoded_count"] == 1
-    assert body["disappeared_count"] == 0
+    assert body["unlabeled_count"] == 1
     assert body["items"][0]["comment"]["id"] == comment.id
     assert body["items"][0]["comment"]["raw_text"] == comment.raw_text
     assert body["items"][0]["comment"]["file_path"] == comment.file_path
@@ -72,14 +71,17 @@ def test_inbox_lists_proposed_comments(db, tmp_path):
     assert body["items"][0]["comment"]["source_command"] == comment.source_command
     assert body["items"][0]["comment"]["source_type"] == comment.source_type
     assert body["items"][0]["comment"]["status"] == comment.status
+    assert body["items"][0]["comment"]["quality"] == "unreviewed"
+    assert body["items"][0]["in_manuscript"] is True
     assert body["items"][0]["comment"]["fingerprint"] == comment.fingerprint
     assert body["items"][0]["project_name"] == "paper-01"
     assert body["items"][0]["guess"] is None
     assert body["items"][0]["coding"]["kind"] == "existing"
     assert body["items"][0]["coding"]["confidence"] == 0.91
+    assert body["items"][0]["labeled"] is False
+    assert body["items"][0]["issue"] is None
     assert any(row["name"] == "Overclaiming" for row in body["issues"])
-    other = client.get("/api/inbox?view=nope")
-    assert other.json()["view"] == "uncoded"
+    assert "view" not in body
 
 
 def test_accept_post_leaves_inbox(db, tmp_path):
@@ -90,10 +92,30 @@ def test_accept_post_leaves_inbox(db, tmp_path):
     assert response.status_code == 200
     assert response.json() == {"ok": True}
     body = client.get("/api/inbox").json()
-    assert body["uncoded_count"] == 0
+    assert body["unlabeled_count"] == 0
 
 
-def test_disappeared_view_and_keep_post(db, tmp_path):
+def test_inbox_json_marks_labeled_absent_unreviewed(db, tmp_path):
+    issue = _seed(tmp_path)
+    comment_id = inbox_items()[0].comment.id
+    accept_coding(comment_id)
+    (tmp_path / "paper" / "main.tex").write_text("no comments\n")
+    extract_project(tmp_path / "paper")
+    client = TestClient(create_app())
+    body = client.get("/api/inbox").json()
+    assert body["unlabeled_count"] == 1
+    item = body["items"][0]
+    assert item["comment"]["id"] == comment_id
+    assert item["comment"]["status"] == "pending_disappeared"
+    assert item["comment"]["quality"] == "unreviewed"
+    assert item["in_manuscript"] is False
+    assert item["labeled"] is True
+    assert item["issue"]["id"] == issue.id
+    assert item["issue"]["code"] == "OVERCLAIM"
+    assert item["issue"]["name"] == "Overclaiming"
+
+
+def test_absent_comment_verify_post(db, tmp_path):
     repo = tmp_path / "paper"
     repo.mkdir()
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
@@ -101,24 +123,65 @@ def test_disappeared_view_and_keep_post(db, tmp_path):
     extract_project(repo)
     (repo / "main.tex").write_text("no comments\n")
     extract_project(repo)
-    item = disappeared_items()[0]
+    item = inbox_items()[0]
     client = TestClient(create_app())
-    response = client.get("/api/inbox?view=disappeared")
+    response = client.get("/api/inbox")
     assert response.status_code == 200
     body = response.json()
-    assert body["view"] == "disappeared"
     assert body["items"][0]["comment"]["raw_text"] == "Gone soon."
+    assert body["items"][0]["in_manuscript"] is False
     assert body["items"][0]["guess"]
     assert body["items"][0]["coding"] is None
-    keep = client.post(f"/api/inbox/{item.comment.id}/keep")
-    assert keep.status_code == 200
+    verified = client.post(f"/api/inbox/{item.comment.id}/verify")
+    assert verified.status_code == 200
     with get_session() as session:
-        assert session.get(ProofreadingComment, item.comment.id).status == "kept"
-    uncoded = client.get("/api/inbox").json()
-    assert uncoded["uncoded_count"] == 1
+        assert session.get(ProofreadingComment, item.comment.id).quality == "verified"
+    unlabeled = client.get("/api/inbox").json()
+    assert unlabeled["unlabeled_count"] == 1
 
 
-def test_retract_post_excludes_from_uncoded(db, tmp_path):
+def test_inbox_rejects_unknown_quality(db, tmp_path, rd_home):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Too strong.}\n")
+    extract_project(repo)
+    with get_session() as session:
+        comment_id = session.first(ProofreadingComment).id
+    issue = create_issue_type(
+        code="OVERCLAIM",
+        name="Overclaiming",
+        category="Argumentation",
+        definition="too strong",
+    )
+    path = rd_home / "comments.jsonl"
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace('"unreviewed"', '"kept"', 1), encoding="utf-8")
+    with pytest.raises(ValueError, match="Unknown comment quality"):
+        inbox_items()
+    client = TestClient(create_app(), raise_server_exceptions=False)
+    requests = [
+        ("GET", "/api/inbox"),
+        ("GET", "/api/taxonomy"),
+        ("GET", f"/api/taxonomy/{issue.id}"),
+        ("GET", "/api/taxonomy/export"),
+        ("GET", "/api/history"),
+        ("POST", f"/api/inbox/{comment_id}/verify"),
+    ]
+    for method, url in requests:
+        response = client.request(method, url)
+        assert response.status_code == 500, url
+        assert "Unknown comment quality" in response.json()["detail"]
+
+
+def test_verify_unknown_comment_is_404(db):
+    client = TestClient(create_app())
+    response = client.post("/api/inbox/missing/verify")
+    assert response.status_code == 404
+    assert "Unknown comment" in response.json()["detail"]
+
+
+def test_drop_post_excludes_from_unlabeled(db, tmp_path):
     repo = tmp_path / "paper"
     repo.mkdir()
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
@@ -126,13 +189,11 @@ def test_retract_post_excludes_from_uncoded(db, tmp_path):
     extract_project(repo)
     (repo / "main.tex").write_text("no comments\n")
     extract_project(repo)
-    item = disappeared_items()[0]
+    item = inbox_items()[0]
     client = TestClient(create_app())
-    client.post(f"/api/inbox/{item.comment.id}/retract")
-    uncoded = client.get("/api/inbox").json()
-    assert uncoded["uncoded_count"] == 0
-    disappeared = client.get("/api/inbox?view=disappeared").json()
-    assert disappeared["disappeared_count"] == 0
+    client.post(f"/api/inbox/{item.comment.id}/drop")
+    unlabeled = client.get("/api/inbox").json()
+    assert unlabeled["unlabeled_count"] == 0
 
 
 def test_inbox_unknown_llm_provider_is_null_not_500(db, tmp_path):
@@ -147,7 +208,7 @@ def test_inbox_unknown_llm_provider_is_null_not_500(db, tmp_path):
     assert response.status_code == 200
     body = response.json()
     assert body["llm_provider"] is None
-    assert body["uncoded_count"] == 1
+    assert body["unlabeled_count"] == 1
 
 
 def test_inbox_hides_mock_proposal_and_counts_it_as_pending(db, tmp_path):
@@ -213,7 +274,7 @@ def test_post_inbox_code_proposes_all_uncoded(db, tmp_path):
     assert body["failed"] == 0
     after = client.get("/api/inbox").json()
     assert after["pending_code_count"] == 0
-    assert after["uncoded_count"] == 2
+    assert after["unlabeled_count"] == 2
     assert all(item["coding"] is not None for item in after["items"])
     again = client.post("/api/inbox/code")
     assert again.json()["coded"] == 0

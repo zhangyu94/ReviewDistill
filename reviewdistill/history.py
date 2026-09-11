@@ -35,9 +35,8 @@ INVERTIBLE = frozenset(
         "propose",
         "accept",
         "change",
-        "reject",
-        "keep",
-        "retract",
+        "verify",
+        "drop",
     }
 )
 
@@ -100,15 +99,13 @@ def event_summary(event_type: str, payload: dict) -> str:
         n = len(payload.get("created") or [])
         return f"Get AI suggestions ({n})"
     if event_type == "accept":
-        return "Accept coding"
+        return "Accept label"
     if event_type == "change":
-        return "Change coding"
-    if event_type == "reject":
-        return "Reject coding"
-    if event_type == "keep":
-        return "Keep comment"
-    if event_type == "retract":
-        return "Retract comment"
+        return "Change label"
+    if event_type == "verify":
+        return "Verify comment"
+    if event_type == "drop":
+        return "Drop comment"
     return event_type
 
 
@@ -226,6 +223,8 @@ def _invert(session, event: TaxonomyEvent) -> None:
         issue.status = "active"
         issue.updated_at = utcnow()
         session.add(issue)
+        for row in payload.get("deleted_codings") or []:
+            session.add(coding_from_dump(row))
         return
     if kind == "merge":
         _invert_merge(session, payload)
@@ -263,19 +262,21 @@ def _invert(session, event: TaxonomyEvent) -> None:
             example = session.get(IssueExample, payload["example_id"])
             if example is not None:
                 session.delete(example)
-        return
-    if kind == "reject":
-        coding = session.get(Coding, payload["coding_id"])
-        if payload.get("created"):
+        for row in payload.get("retired_accepted") or []:
+            coding = session.get(Coding, row["id"])
             if coding is not None:
-                session.delete(coding)
-        elif coding is not None:
-            coding.status = payload.get("previous_status") or "proposed"
-            session.add(coding)
+                coding.status = row.get("status") or "accepted"
+                session.add(coding)
+        for row in payload.get("deleted_examples") or []:
+            session.add(example_from_dump(row))
         return
-    if kind in {"keep", "retract"}:
+    if kind in {"verify", "drop"}:
         comment = session.get(ProofreadingComment, payload["comment_id"])
-        comment.status = "pending_disappeared"
+        previous = payload.get("previous_quality")
+        if previous:
+            comment.quality = previous
+        else:
+            comment.quality = "unreviewed"
         session.add(comment)
         return
     raise ValueError(f"Cannot invert {kind}")
@@ -318,6 +319,10 @@ def _apply(session, event: TaxonomyEvent) -> None:
         issue.status = "inactive"
         issue.updated_at = utcnow()
         session.add(issue)
+        for row in payload.get("deleted_codings") or []:
+            existing = session.get(Coding, row["id"])
+            if existing is not None:
+                session.delete(existing)
         return
     if kind == "merge":
         _apply_merge(session, payload)
@@ -348,26 +353,27 @@ def _apply(session, event: TaxonomyEvent) -> None:
             if proposed is not None:
                 proposed.status = "modified"
                 session.add(proposed)
+        for row in payload.get("retired_accepted") or []:
+            coding = session.get(Coding, row["id"])
+            if coding is not None:
+                coding.status = "modified"
+                session.add(coding)
         session.add(coding_from_dump(payload["coding"]))
         if payload.get("example_created") and payload.get("example"):
             session.add(example_from_dump(payload["example"]))
+        for row in payload.get("deleted_examples") or []:
+            example = session.get(IssueExample, row["id"])
+            if example is not None:
+                session.delete(example)
         return
-    if kind == "reject":
-        if payload.get("created"):
-            session.add(coding_from_dump(payload["coding"]))
-        else:
-            coding = session.get(Coding, payload["coding_id"])
-            coding.status = "rejected"
-            session.add(coding)
-        return
-    if kind == "keep":
+    if kind == "verify":
         comment = session.get(ProofreadingComment, payload["comment_id"])
-        comment.status = "kept"
+        comment.quality = "verified"
         session.add(comment)
         return
-    if kind == "retract":
+    if kind == "drop":
         comment = session.get(ProofreadingComment, payload["comment_id"])
-        comment.status = "retracted"
+        comment.quality = "dropped"
         session.add(comment)
         return
     raise ValueError(f"Cannot redo {kind}")

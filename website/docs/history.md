@@ -2,7 +2,7 @@
 
 The **History** page lists taxonomy and coding events you can **Undo** and **Redo**.
 
-Typical events: coding a comment, merging or splitting a group, moving a type, renaming, deactivating. No-op moves are not logged.
+Typical events: labeling a comment, Verify / Drop, merging or splitting a group, moving a type, renaming, deactivating. No-op moves are not logged.
 
 Use this when a suggestion or a drag-and-drop went to the wrong type. Extract-driven revisions of comment text are source updates, not history undos.
 

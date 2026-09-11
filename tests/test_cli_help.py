@@ -108,7 +108,12 @@ def test_reviewdistill_code_command_removed():
     assert result.exit_code != 0
 
 
-def test_cluster_hidden_alias_still_runs(db):
+def test_reviewdistill_watch_command_removed():
+    result = runner.invoke(app, ["watch"])
+    assert result.exit_code != 0
+
+
+def test_cluster_command_runs(db):
     result = runner.invoke(app, ["cluster"])
     assert result.exit_code == 0, result.stdout
     assert "No recurring clusters found." in result.stdout

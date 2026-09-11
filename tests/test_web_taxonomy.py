@@ -147,7 +147,7 @@ def test_merged_source_observations_appear_on_target_detail(db):
     assert any(row["raw_text"] == "observation from A" for row in body["comments"])
 
 
-def test_taxonomy_omits_retracted_observations_and_counts(db):
+def test_taxonomy_omits_dropped_observations_and_counts(db):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
@@ -170,15 +170,16 @@ def test_taxonomy_omits_retracted_observations_and_counts(db):
         )
         session.add(
             ProofreadingComment(
-                id="c-retracted",
+                id="c-dropped",
                 project_id="p",
                 source_type="latex_command",
                 source_command="myremark",
                 file_path="main.tex",
                 line_number=2,
-                raw_text="too strong retracted",
-                fingerprint="fp-retracted",
-                status="retracted",
+                raw_text="too strong dropped",
+                fingerprint="fp-dropped",
+                status="active",
+                quality="dropped",
             )
         )
         session.add(
@@ -192,8 +193,8 @@ def test_taxonomy_omits_retracted_observations_and_counts(db):
         )
         session.add(
             Coding(
-                id="coding-retracted",
-                comment_id="c-retracted",
+                id="coding-dropped",
+                comment_id="c-dropped",
                 issue_type_id=issue.id,
                 coder_type="human",
                 status="accepted",
@@ -206,7 +207,7 @@ def test_taxonomy_omits_retracted_observations_and_counts(db):
     assert row["count"] == 1
     detail = client.get(f"/api/taxonomy/{issue.id}").json()
     assert [comment["id"] for comment in detail["comments"]] == ["c-live"]
-    assert all(comment["raw_text"] != "too strong retracted" for comment in detail["comments"])
+    assert all(comment["raw_text"] != "too strong dropped" for comment in detail["comments"])
 
 
 def test_rename_post_json(db):

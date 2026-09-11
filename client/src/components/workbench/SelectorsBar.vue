@@ -3,13 +3,11 @@ import type { SelectorId } from '../../workbench/workbenchMode.ts'
 
 defineProps<{
   selector: SelectorId
-  uncodedCount: number
-  disappearedCount: number
+  unlabeledCount: number
   typeHref: string
   typeLabel: string
   typeTitle: string
-  uncodedHref: string
-  disappearedHref: string
+  unlabeledHref: string
   coding: boolean
   canRequestSuggestions: boolean
   codeAllTitle: string
@@ -56,13 +54,10 @@ function chipClass(active: boolean): string {
           type="button"
           :disabled="coding || !canRequestSuggestions"
           @click="emit('codeAll')"
-        >{{ coding ? 'Coding…' : 'Get AI suggestions' }}</button>
+        >{{ coding ? 'Suggesting…' : 'Get AI suggestions' }}</button>
       </span>
-      <RouterLink :class="chipClass(selector === 'uncoded')" :to="uncodedHref" title="Comments that still need an issue type">
-        Uncoded ({{ uncodedCount }})
-      </RouterLink>
-      <RouterLink :class="chipClass(selector === 'disappeared')" :to="disappearedHref" title="Comments gone from the source files">
-        Disappeared ({{ disappearedCount }})
+      <RouterLink :class="chipClass(selector === 'unlabeled')" :to="unlabeledHref" title="Unlabeled comments, plus comments not in the manuscript that still need Verify or Drop">
+        Unlabeled ({{ unlabeledCount }})
       </RouterLink>
     </div>
   </div>

@@ -8,6 +8,12 @@ describe('dropAction', () => {
     ).toEqual({ type: 'change', commentId: 'c1', issueTypeId: 't1' })
   })
 
+  it('ignores a comment dropped on the type it already has', () => {
+    expect(
+      dropAction({ kind: 'comment', id: 'c1' }, { kind: 'issue', id: 't1' }, 't1'),
+    ).toEqual({ type: 'ignore' })
+  })
+
   it('merges an issue dropped on a different issue', () => {
     expect(
       dropAction({ kind: 'issue', id: 'src' }, { kind: 'issue', id: 'dst' }),

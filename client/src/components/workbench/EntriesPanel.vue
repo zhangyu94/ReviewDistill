@@ -10,7 +10,7 @@ const props = defineProps<{
   mode: EntryMode
   layout: CommentsLayout
   items: InboxItemJson[]
-  observationTexts: { id: string, raw_text: string }[]
+  observationTexts: { id: string, raw_text: string, status?: string }[]
   selectedId: string | undefined
   totalCount: number
   selectedCount: number
@@ -44,9 +44,8 @@ function onCommentDragStart(event: DragEvent, id: string) {
 }
 
 function emptyCopy(mode: EntryMode): string {
-  if (mode === 'disappeared') { return 'No disappeared comments.' }
-  if (mode === 'observations') { return 'No accepted comments on this type yet.' }
-  return 'No uncoded observations.'
+  if (mode === 'observations') { return 'No labeled comments on this type yet.' }
+  return 'No unlabeled observations.'
 }
 
 function pct(item: InboxItemJson): string | null {
@@ -110,6 +109,9 @@ function toggleClass(active: boolean): string {
           <div class="line-clamp-2">
             {{ row.raw_text }}
           </div>
+          <div v-if="row.status && row.status !== 'active'" class="ch-muted-text mt-0.5">
+            not in manuscript
+          </div>
         </button>
         <p v-if="!loading && observationTexts.length === 0" class="ch-muted-text p-2">
           {{ emptyCopy(mode) }}
@@ -123,17 +125,17 @@ function toggleClass(active: boolean): string {
           class="block w-full border-b border-[var(--ch-color-border)] px-2 py-1.5 text-left text-xs"
           :class="item.comment.id === selectedId ? 'bg-[var(--ch-color-background-muted)]' : ''"
           :title="item.comment.raw_text"
-          :draggable="mode === 'uncoded'"
+          :draggable="mode === 'unlabeled'"
           @click="emit('select', item.comment.id)"
-          @dragstart="mode === 'uncoded' ? onCommentDragStart($event, item.comment.id) : undefined"
+          @dragstart="mode === 'unlabeled' ? onCommentDragStart($event, item.comment.id) : undefined"
         >
           <div class="line-clamp-2">
             {{ item.comment.raw_text }}
           </div>
           <div class="ch-muted-text mt-0.5">
             {{ item.project_name }} · {{ item.comment.file_path }}:{{ item.comment.line_number }}
-            <span v-if="mode === 'uncoded' && pct(item)"> · {{ pct(item) }}</span>
-            <span v-else-if="mode === 'disappeared'"> · {{ item.guess }}</span>
+            <span v-if="!item.in_manuscript"> · not in manuscript</span>
+            <span v-if="mode === 'unlabeled' && pct(item)"> · {{ pct(item) }}</span>
           </div>
         </button>
         <p v-if="!loading && items.length === 0" class="ch-muted-text p-2">

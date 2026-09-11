@@ -17,27 +17,27 @@ from reviewdistill.config import (
 from reviewdistill.paths import home_config_path, project_config_path, project_env_path
 
 
-def test_load_home_config_reads_api_key(rd_home):
+def test_load_home_config_ignores_yaml_api_key(rd_home):
     home_config_path().write_text(
         "llm:\n  provider: deepseek\n  model: deepseek-chat\n  api_key: sk-from-yaml\n"
     )
     config = load_home_config()
     assert config.llm_provider == "deepseek"
     assert config.llm_model == "deepseek-chat"
-    assert config.llm_api_key == "sk-from-yaml"
+    assert config.llm_api_key is None
 
 
-def test_write_home_config_round_trips_api_key(rd_home):
+def test_write_home_config_does_not_write_api_key(rd_home):
     write_home_config(
         HomeConfig(llm_provider="openai", llm_model="gpt-4o-mini", llm_api_key="sk-written")
     )
     config = load_home_config()
-    assert config.llm_api_key == "sk-written"
-    assert "api_key: sk-written" in home_config_path().read_text()
+    assert config.llm_api_key is None
+    assert "api_key" not in home_config_path().read_text()
 
 
 def test_load_llm_config_uses_project_yaml_over_home(rd_home, tmp_path, monkeypatch):
-    write_home_config(HomeConfig(llm_provider="mock", llm_api_key="sk-from-home"))
+    write_home_config(HomeConfig(llm_provider="mock"))
     repo = tmp_path / "paper"
     repo.mkdir()
     monkeypatch.chdir(repo)
@@ -48,15 +48,16 @@ def test_load_llm_config_uses_project_yaml_over_home(rd_home, tmp_path, monkeypa
     path = repo / ".reviewdistill" / "config.yaml"
     path.write_text(
         path.read_text()
-        + "llm:\n  provider: deepseek\n  model: deepseek-chat\n  api_key: sk-from-project\n"
+        + "llm:\n  provider: deepseek\n  model: deepseek-chat\n"
     )
+    (repo / ".reviewdistill" / ".env").write_text("DEEPSEEK_API_KEY=sk-from-dotenv\n")
     config = load_llm_config()
     assert config.llm_provider == "deepseek"
     assert config.llm_model == "deepseek-chat"
-    assert config.llm_api_key == "sk-from-project"
+    assert config.llm_api_key == "sk-from-dotenv"
 
 
-def test_write_project_config_preserves_llm_block(rd_home, tmp_path):
+def test_write_project_config_preserves_llm_block_without_api_key(rd_home, tmp_path):
     repo = tmp_path / "paper"
     repo.mkdir()
     write_project_config(repo, ProjectConfig(id="p", name="paper"))
@@ -66,7 +67,8 @@ def test_write_project_config_preserves_llm_block(rd_home, tmp_path):
     )
     write_project_config(repo, ProjectConfig(id="p", name="renamed"))
     text = path.read_text()
-    assert "sk-keep" in text
+    assert "provider: deepseek" in text
+    assert "api_key" not in text
     assert "renamed" in text
 
 

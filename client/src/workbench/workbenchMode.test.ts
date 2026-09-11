@@ -1,140 +1,162 @@
 import { describe, expect, it } from 'vitest'
-import { activeSelector, allowChangeDrop, disappearedHref, dismissTypeHref, entryMode, groupIdFromRoute, inboxItemFromObservation, inspectorKind, taxonClickHref, thisTypeHref, typeSelectorLabel, uncodedHref } from './workbenchMode.ts'
+import { activeSelector, allowChangeDrop, changeIssueOptions, clearIssueBeforeLoad, dismissTypeHref, entryMode, groupIdFromRoute, inboxItemFromObservation, inspectorKind, issueLoadErrorView, labeledTypeIdForComment, nextChangeId, shouldApplyIssueLoad, showAssignType, taxonClickHref, thisTypeHref, typeSelectorLabel, unlabeledHref } from './workbenchMode.ts'
 
-describe('entryMode', () => {
-  it('uses the uncoded queue on the inbox route', () => {
-    expect(entryMode('inbox')).toBe('uncoded')
+describe('workbenchMode', () => {
+  it('uses the unlabeled queue on the inbox route', () => {
+    expect(entryMode('inbox')).toBe('unlabeled')
   })
 
-  it('uses disappeared comments on the disappeared route', () => {
-    expect(entryMode('disappeared')).toBe('disappeared')
-  })
-
-  it('uses type observations on taxonomy routes', () => {
-    expect(entryMode('taxonomy')).toBe('observations')
+  it('uses observations on the issue route', () => {
     expect(entryMode('issue')).toBe('observations')
   })
-})
 
-describe('inspectorKind', () => {
-  it('shows the comment inspector on inbox routes', () => {
+  it('picks the inspector from the route', () => {
     expect(inspectorKind('inbox')).toBe('comment')
-    expect(inspectorKind('disappeared')).toBe('comment')
-  })
-
-  it('shows the issue inspector on taxonomy routes', () => {
-    expect(inspectorKind('taxonomy')).toBe('issue')
     expect(inspectorKind('issue')).toBe('issue')
   })
-})
 
-describe('allowChangeDrop', () => {
-  it('allows comment-to-type drops only while uncoded', () => {
-    expect(allowChangeDrop('uncoded', 'change')).toBe(true)
-    expect(allowChangeDrop('disappeared', 'change')).toBe(false)
+  it('allows comment-to-type drops only while unlabeled', () => {
+    expect(allowChangeDrop('unlabeled', 'change')).toBe(true)
     expect(allowChangeDrop('observations', 'change')).toBe(false)
+    expect(allowChangeDrop('unlabeled', 'merge')).toBe(true)
+    expect(allowChangeDrop('observations', 'merge')).toBe(true)
   })
 
-  it('allows merge and move in every entry mode', () => {
-    expect(allowChangeDrop('disappeared', 'merge')).toBe(true)
-    expect(allowChangeDrop('observations', 'move')).toBe(true)
-  })
-})
-
-describe('activeSelector', () => {
-  it('selects Uncoded on the inbox route', () => {
-    expect(activeSelector('inbox', '')).toBe('uncoded')
+  it('selects Unlabeled on the inbox route', () => {
+    expect(activeSelector('inbox', '')).toBe('unlabeled')
   })
 
-  it('selects Disappeared on the disappeared route', () => {
-    expect(activeSelector('disappeared', 't1')).toBe('disappeared')
-  })
-
-  it('selects This type on an issue route with an id', () => {
+  it('selects the type chip on an issue route', () => {
     expect(activeSelector('issue', 't1')).toBe('type')
   })
 
-  it('falls back to Uncoded when taxonomy has no selected type', () => {
-    expect(activeSelector('taxonomy', '')).toBe('uncoded')
-  })
-})
-
-describe('groupIdFromRoute', () => {
-  it('prefers the taxonomy path id', () => {
-    expect(groupIdFromRoute('t1', 't2')).toBe('t1')
+  it('prefers the path id over ?type=', () => {
+    expect(groupIdFromRoute('from-path', 'from-query')).toBe('from-path')
+    expect(groupIdFromRoute('', 'from-query')).toBe('from-query')
   })
 
-  it('reads type from the query when the path has no id', () => {
-    expect(groupIdFromRoute('', 't2')).toBe('t2')
-  })
-})
-
-describe('selector hrefs', () => {
-  it('keeps the selected group when switching Uncoded and Disappeared', () => {
-    expect(uncodedHref('t1')).toBe('/?type=t1')
-    expect(disappearedHref('t1')).toBe('/inbox/disappeared?type=t1')
+  it('keeps the selected group on the unlabeled href', () => {
+    expect(unlabeledHref('t1')).toBe('/?type=t1')
+    expect(unlabeledHref('')).toBe('/')
   })
 
-  it('omits type when no group is selected', () => {
-    expect(uncodedHref('')).toBe('/')
-    expect(disappearedHref('')).toBe('/inbox/disappeared')
-  })
-
-  it('opens This type on the taxonomy path', () => {
+  it('opens a type from the groups panel on /taxonomy/:id', () => {
+    expect(taxonClickHref('t1')).toBe('/taxonomy/t1')
     expect(thisTypeHref('t1')).toBe('/taxonomy/t1')
     expect(thisTypeHref('')).toBe('')
   })
-})
 
-describe('taxonClickHref', () => {
-  it('selects the type instead of only adding a selector chip', () => {
-    expect(taxonClickHref('t1')).toBe('/taxonomy/t1')
-  })
-})
-
-describe('dismissTypeHref', () => {
-  it('returns Uncoded when dismissing from Uncoded or a type chip', () => {
-    expect(dismissTypeHref('uncoded')).toBe('/')
+  it('returns Unlabeled when dismissing a type chip', () => {
+    expect(dismissTypeHref('unlabeled')).toBe('/')
     expect(dismissTypeHref('type')).toBe('/')
   })
 
-  it('stays on Disappeared when dismissing from Disappeared', () => {
-    expect(dismissTypeHref('disappeared')).toBe('/inbox/disappeared')
+  it('labels the type chip with code and count', () => {
+    expect(typeSelectorLabel('OVERCLAIM', 3)).toBe('OVERCLAIM (3)')
   })
-})
 
-describe('typeSelectorLabel', () => {
-  it('uses the issue code and accepted count', () => {
-    expect(typeSelectorLabel('MISSINGINTRODUCT', 3)).toBe('MISSINGINTRODUCT (3)')
+  it('offers Accept only for unlabeled comments', () => {
+    expect(showAssignType('unlabeled', false)).toBe(true)
+    expect(showAssignType('unlabeled', true)).toBe(false)
+    expect(showAssignType('observation', false)).toBe(false)
+    expect(showAssignType('observation', true)).toBe(false)
   })
-})
 
-describe('inboxItemFromObservation', () => {
-  it('maps a taxonomy comment onto the inbox item shape for the detail view', () => {
+  it('marks synthetic type-chip items as labeled with the current type', () => {
+    const issue = {
+      id: 't1',
+      code: 'OVERCLAIM',
+      name: 'Overclaiming',
+      category: 'Argumentation',
+    }
     const item = inboxItemFromObservation({
       id: 'c1',
-      project_id: 'p',
+      project_id: 'p1',
       source_type: 'latex_command',
       source_command: 'myremark',
       file_path: 'main.tex',
-      line_number: 4,
-      raw_text: 'add an overview',
-      context_text: 'Section 2\nlabel=sec:2',
-      section: 'Background',
-      git_commit: 'abc1234deadbeef',
-      git_url: 'https://example.com/repo.git',
+      line_number: 1,
+      raw_text: 'Too strong.',
+      context_text: '',
+      section: null,
+      git_commit: null,
+      git_url: null,
       fingerprint: 'fp',
       status: 'active',
+      quality: 'unreviewed',
       supersedes_id: null,
-      created_at: '2026-01-01T00:00:00',
+      created_at: '2024-01-01T00:00:00Z',
       project_name: 'paper',
-      permalink: 'https://example.com/blob/main.tex#L4',
-    })
-    expect(item.comment.raw_text).toBe('add an overview')
-    expect(item.comment.context_text).toContain('Section 2')
-    expect(item.comment.file_path).toBe('main.tex')
-    expect(item.project_name).toBe('paper')
-    expect(item.permalink).toContain('main.tex')
-    expect(item.coding).toBeNull()
+      permalink: null,
+    }, issue)
+    expect(item.labeled).toBe(true)
+    expect(item.issue).toEqual(issue)
+    expect(item.comment.quality).toBe('unreviewed')
+  })
+
+  it('keeps the type-chip inspector while reloading the same issue', () => {
+    expect(clearIssueBeforeLoad('t1', 't1')).toBe(false)
+    expect(clearIssueBeforeLoad('t1', 't2')).toBe(true)
+    expect(clearIssueBeforeLoad('t1', '')).toBe(true)
+    expect(clearIssueBeforeLoad('', 't1')).toBe(true)
+  })
+
+  it('ignores stale issue loads', () => {
+    expect(shouldApplyIssueLoad(1, 2)).toBe(false)
+    expect(shouldApplyIssueLoad(2, 2)).toBe(true)
+  })
+
+  it('shows not-found only for 404; other failures are errors', () => {
+    expect(issueLoadErrorView(404)).toBe('missing')
+    expect(issueLoadErrorView(500)).toBe('error')
+    expect(issueLoadErrorView(null)).toBe('error')
+  })
+
+  it('looks up the labeled type for a dragged comment', () => {
+    const item = inboxItemFromObservation({
+      id: 'c1',
+      project_id: 'p1',
+      source_type: 'latex_command',
+      source_command: 'myremark',
+      file_path: 'main.tex',
+      line_number: 1,
+      raw_text: 'Too strong.',
+      context_text: '',
+      section: null,
+      git_commit: null,
+      git_url: null,
+      fingerprint: 'fp',
+      status: 'active',
+      quality: 'unreviewed',
+      supersedes_id: null,
+      created_at: '2024-01-01T00:00:00Z',
+      project_name: 'paper',
+      permalink: null,
+    }, { id: 't1', code: 'OVERCLAIM', name: 'Overclaiming', category: 'Argumentation' })
+    expect(labeledTypeIdForComment([item], 'c1')).toBe('t1')
+    expect(labeledTypeIdForComment([item], 'missing')).toBeNull()
+    expect(labeledTypeIdForComment([{ ...item, issue: null }], 'c1')).toBeNull()
+  })
+
+  it('omits the current type from Change options', () => {
+    const issues = [
+      { id: 'a', code: 'A', name: 'A', category: 'X' },
+      { id: 'b', code: 'B', name: 'B', category: 'X' },
+    ]
+    expect(changeIssueOptions(issues, 'a').map((row) => row.id)).toEqual(['b'])
+    expect(changeIssueOptions(issues, null).map((row) => row.id)).toEqual(['a', 'b'])
+  })
+
+  it('defaults Change to another type when the current one is selected', () => {
+    const issues = [
+      { id: 'a', code: 'A', name: 'A', category: 'X' },
+      { id: 'b', code: 'B', name: 'B', category: 'X' },
+    ]
+    expect(nextChangeId(issues, 'a', 'a')).toBe('b')
+    expect(nextChangeId(issues, 'a', 'b')).toBe('b')
+    expect(nextChangeId(issues, null, 'a')).toBe('a')
+    expect(nextChangeId(issues, 'a', '')).toBe('b')
+    expect(nextChangeId(issues, 'a', 'missing')).toBe('b')
+    expect(nextChangeId([issues[0]], 'a', 'a')).toBe('')
   })
 })

@@ -2,9 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   acceptTooltip,
   changeTooltip,
-  keepTooltip,
-  rejectTooltip,
-  retractTooltip,
+  dropTooltip,
+  verifyTooltip,
 } from './inboxTooltips.ts'
 
 describe('inboxTooltips', () => {
@@ -18,19 +17,14 @@ describe('inboxTooltips', () => {
     expect(acceptTooltip(false)).toMatch(/Get AI suggestions/i)
   })
 
-  it('explains Reject as leaving the comment unassigned', () => {
-    expect(rejectTooltip()).toMatch(/not assign/i)
-    expect(rejectTooltip()).toMatch(/Uncoded/i)
-  })
-
   it('explains Change as assigning the selected issue type', () => {
     expect(changeTooltip(true)).toMatch(/dropdown/i)
     expect(changeTooltip(false)).toMatch(/no issue types/i)
   })
 
-  it('explains Keep and Retract', () => {
-    expect(keepTooltip()).toMatch(/working dataset/i)
-    expect(retractTooltip()).toMatch(/working dataset/i)
-    expect(retractTooltip()).toMatch(/history/i)
+  it('explains Verify and Drop', () => {
+    expect(verifyTooltip()).toMatch(/quality/i)
+    expect(dropTooltip()).toMatch(/distill/i)
+    expect(dropTooltip()).toMatch(/history/i)
   })
 })

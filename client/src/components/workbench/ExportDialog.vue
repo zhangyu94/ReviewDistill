@@ -151,7 +151,7 @@ defineExpose({ show })
         Deactivate a group
       </h3>
       <p class="ch-muted-text mb-2">
-        Hide a type from the active taxonomy. History and past coding remain. It will not be offered for new comments.
+        Hide a type from the active taxonomy. Labeled comments return to Unlabeled. Undo restores the labels.
       </p>
       <Select :model-value="deactivateId || undefined" @update:model-value="onDeactivateId">
         <SelectTrigger class="mb-2 w-full" title="Issue type to hide from the active taxonomy">

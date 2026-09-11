@@ -3,12 +3,12 @@ from __future__ import annotations
 from uuid import uuid4
 
 from reviewdistill.db.models import (
-    WORKING_COMMENT_STATUSES,
     Coding,
     IssueCounterexample,
     IssueExample,
     IssueType,
     ProofreadingComment,
+    in_working_set,
     utcnow,
 )
 from reviewdistill.db.session import get_session, init_db
@@ -118,20 +118,34 @@ def add_counterexample(
 def list_examples(issue_type_id: str) -> list[IssueExample]:
     with get_session() as session:
         rows = session.find(IssueExample, issue_type_id=issue_type_id)
-        return [row for row in rows if _source_in_working_dataset(session, row.source_comment_id)]
+        return [
+            row
+            for row in rows
+            if _source_in_working_set(session, row.source_comment_id)
+            and _example_matches_current_label(session, row)
+        ]
 
 
 def list_counterexamples(issue_type_id: str) -> list[IssueCounterexample]:
     with get_session() as session:
         rows = session.find(IssueCounterexample, issue_type_id=issue_type_id)
-        return [row for row in rows if _source_in_working_dataset(session, row.source_comment_id)]
+        return [row for row in rows if _source_in_working_set(session, row.source_comment_id)]
 
 
-def _source_in_working_dataset(session, source_comment_id: str | None) -> bool:
+def _source_in_working_set(session, source_comment_id: str | None) -> bool:
     if source_comment_id is None:
         return True
     comment = session.get(ProofreadingComment, source_comment_id)
-    return comment is not None and comment.status in WORKING_COMMENT_STATUSES
+    return comment is not None and in_working_set(comment)
+
+
+def _example_matches_current_label(session, example: IssueExample) -> bool:
+    if example.source_comment_id is None:
+        return True
+    return any(
+        coding.status == "accepted" and coding.issue_type_id == example.issue_type_id
+        for coding in session.find(Coding, comment_id=example.source_comment_id)
+    )
 
 
 def accepted_counts_by_issue_type() -> dict[str, int]:
@@ -141,7 +155,7 @@ def accepted_counts_by_issue_type() -> dict[str, int]:
         for coding in session.find(Coding, status="accepted"):
             if not coding.issue_type_id:
                 continue
-            if not _source_in_working_dataset(session, coding.comment_id):
+            if not _source_in_working_set(session, coding.comment_id):
                 continue
             counts[coding.issue_type_id] = counts.get(coding.issue_type_id, 0) + 1
     return counts
@@ -156,7 +170,7 @@ def list_working_observations(issue_type_id: str) -> list[ProofreadingComment]:
             if coding.comment_id in seen:
                 continue
             comment = session.get(ProofreadingComment, coding.comment_id)
-            if comment is None or comment.status not in WORKING_COMMENT_STATUSES:
+            if comment is None or not in_working_set(comment):
                 continue
             seen.add(comment.id)
             comments.append(comment)
@@ -253,9 +267,27 @@ def deactivate_issue_type(issue_type_id: str) -> IssueType:
         issue = session.get(IssueType, issue_type_id)
         if issue is None:
             raise ValueError(f"Unknown issue type {issue_type_id}")
+        comment_ids = {
+            coding.comment_id
+            for coding in session.find(Coding, issue_type_id=issue_type_id)
+            if coding.status == "accepted"
+        }
+        deleted_codings = []
+        for comment_id in comment_ids:
+            for row in list(session.find(Coding, comment_id=comment_id)):
+                deleted_codings.append(dump_row(row))
+                session.delete(row)
         issue.status = "inactive"
         issue.updated_at = utcnow()
-        _log(session, "deactivate", {"issue_type_id": issue_type_id, "code": issue.code})
+        _log(
+            session,
+            "deactivate",
+            {
+                "issue_type_id": issue_type_id,
+                "code": issue.code,
+                "deleted_codings": deleted_codings,
+            },
+        )
         session.add(issue)
         session.commit()
         session.refresh(issue)

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from reviewdistill.db.models import WORKING_COMMENT_STATUSES, Project, ProofreadingComment
+from reviewdistill.db.models import Project, ProofreadingComment, comment_quality
 from reviewdistill.db.session import get_session, init_db
 
 
@@ -52,42 +52,94 @@ def test_comment_raw_text_persists(rd_home):
     assert "demonstrate" in line
 
 
-def test_init_db_migrates_legacy_comment_statuses(db):
+def test_unknown_quality_is_rejected():
+    comment = ProofreadingComment(
+        id="c-bad",
+        project_id="p1",
+        source_type="latex_command",
+        source_command="myremark",
+        file_path="main.tex",
+        line_number=1,
+        raw_text="Too strong.",
+        fingerprint="fp",
+        quality="kept",
+    )
+    with pytest.raises(ValueError, match="Unknown comment quality"):
+        comment_quality(comment)
+
+
+def test_add_rejects_unknown_quality(rd_home):
+    init_db()
+    with pytest.raises(ValueError, match="Unknown comment quality"):
+        with get_session() as session:
+            session.add(
+                ProofreadingComment(
+                    id="c-bad",
+                    project_id="p1",
+                    source_type="latex_command",
+                    source_command="myremark",
+                    file_path="main.tex",
+                    line_number=1,
+                    raw_text="Too strong.",
+                    fingerprint="fp",
+                    quality="kept",
+                )
+            )
+
+
+def test_commit_rejects_unknown_quality(rd_home):
+    init_db()
     with get_session() as session:
+        session.add(Project(id="p1", name="paper-01", root_path="/tmp/paper"))
+        comment = ProofreadingComment(
+            id="c-bad",
+            project_id="p1",
+            source_type="latex_command",
+            source_command="myremark",
+            file_path="main.tex",
+            line_number=1,
+            raw_text="Too strong.",
+            fingerprint="fp",
+            quality="unreviewed",
+        )
+        session.add(comment)
+        session.commit()
+        comment.quality = "kept"
+        with pytest.raises(ValueError, match="Unknown comment quality"):
+            session.commit()
+    assert '"unreviewed"' in (rd_home / "comments.jsonl").read_text(encoding="utf-8")
+    assert '"kept"' not in (rd_home / "comments.jsonl").read_text(encoding="utf-8")
+
+
+def test_store_load_rejects_unknown_quality(rd_home):
+    init_db()
+    with get_session() as session:
+        session.add(Project(id="p1", name="paper-01", root_path="/tmp/paper"))
         session.add(
             ProofreadingComment(
-                id="old-del",
-                project_id="p",
+                id="c-bad",
+                project_id="p1",
                 source_type="latex_command",
                 source_command="myremark",
                 file_path="main.tex",
                 line_number=1,
-                raw_text="gone",
-                fingerprint="a",
-                status="deleted",
-            )
-        )
-        session.add(
-            ProofreadingComment(
-                id="old-mod",
-                project_id="p",
-                source_type="latex_command",
-                source_command="myremark",
-                file_path="main.tex",
-                line_number=2,
-                raw_text="old wording",
-                fingerprint="b",
-                status="modified",
+                raw_text="Too strong.",
+                fingerprint="fp",
+                quality="unreviewed",
             )
         )
         session.commit()
-    with get_session() as session:
-        deleted = session.get(ProofreadingComment, "old-del")
-        modified = session.get(ProofreadingComment, "old-mod")
-        assert deleted.status == "pending_disappeared"
-        assert modified.status == "superseded"
-        assert deleted.status not in WORKING_COMMENT_STATUSES
-        assert modified.status not in WORKING_COMMENT_STATUSES
+    path = rd_home / "comments.jsonl"
+    text = path.read_text(encoding="utf-8")
+    assert '"unreviewed"' in text
+    path.write_text(text.replace('"unreviewed"', '"kept"', 1), encoding="utf-8")
+    assert '"kept"' in path.read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="Unknown comment quality"):
+        with get_session():
+            pass
+    with pytest.raises(ValueError, match="Unknown comment quality"):
+        with get_session():
+            pass
 
 
 def _seed_project_and_comment(*, name: str, raw_text: str) -> None:

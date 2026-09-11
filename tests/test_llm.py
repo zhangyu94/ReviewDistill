@@ -100,19 +100,15 @@ def test_litellm_errors_become_runtime_error(rd_home, monkeypatch):
     assert "upstream down" not in str(caught.value)
 
 
-def test_resolve_api_key_uses_config_when_env_missing(rd_home, monkeypatch):
+def test_resolve_api_key_ignores_yaml_api_key(rd_home, monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    write_home_config(HomeConfig(llm_provider="deepseek", llm_api_key="sk-from-yaml"))
-    assert resolve_api_key("deepseek") == "sk-from-yaml"
+    from reviewdistill.paths import home_config_path
+
+    home_config_path().write_text("llm:\n  provider: deepseek\n  api_key: sk-from-yaml\n")
+    assert resolve_api_key("deepseek") is None
 
 
-def test_resolve_api_key_prefers_env_over_config(rd_home, monkeypatch):
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-from-env")
-    write_home_config(HomeConfig(llm_provider="deepseek", llm_api_key="sk-from-yaml"))
-    assert resolve_api_key("deepseek") == "sk-from-env"
-
-
-def test_factory_and_key_use_project_llm_yaml(rd_home, tmp_path, monkeypatch):
+def test_factory_uses_project_provider_and_dotenv(rd_home, tmp_path, monkeypatch):
     monkeypatch.delenv("REVIEWDISTILL_LLM_PROVIDER", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     repo = tmp_path / "paper"
@@ -121,12 +117,13 @@ def test_factory_and_key_use_project_llm_yaml(rd_home, tmp_path, monkeypatch):
     (repo / ".reviewdistill" / "config.yaml").write_text(
         "project:\n  id: p\n  name: paper\n"
         "comments:\n  latex_commands: [myremark]\n"
-        "llm:\n  provider: deepseek\n  model: deepseek-chat\n  api_key: sk-from-project\n"
+        "llm:\n  provider: deepseek\n  model: deepseek-chat\n"
     )
+    (repo / ".reviewdistill" / ".env").write_text("DEEPSEEK_API_KEY=sk-from-dotenv\n")
     monkeypatch.chdir(repo)
     provider = get_provider()
     assert isinstance(provider, LiteLLMProvider)
-    assert resolve_api_key("deepseek") == "sk-from-project"
+    assert resolve_api_key("deepseek") == "sk-from-dotenv"
 
 
 def test_factory_uses_registered_project_llm_when_cwd_is_elsewhere(rd_home, tmp_path, monkeypatch):
@@ -138,8 +135,9 @@ def test_factory_uses_registered_project_llm_when_cwd_is_elsewhere(rd_home, tmp_
     (repo / ".reviewdistill" / "config.yaml").write_text(
         "project:\n  id: p\n  name: paper\n"
         "comments:\n  latex_commands: [myremark]\n"
-        "llm:\n  provider: deepseek\n  model: deepseek-chat\n  api_key: sk-from-registered\n"
+        "llm:\n  provider: deepseek\n  model: deepseek-chat\n"
     )
+    (repo / ".reviewdistill" / ".env").write_text("DEEPSEEK_API_KEY=sk-from-registered\n")
     from reviewdistill.db.models import Project
     from reviewdistill.db.session import get_session, init_db
 
@@ -213,6 +211,8 @@ def test_factory_ignores_registered_llm_when_multiple_papers_have_keys(rd_home, 
     monkeypatch.delenv("REVIEWDISTILL_LLM_PROVIDER", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    from reviewdistill.config import PROVIDER_ENV_KEYS
+
     papers = []
     for name, provider, key in (
         ("paper-a", "deepseek", "sk-a"),
@@ -224,8 +224,9 @@ def test_factory_ignores_registered_llm_when_multiple_papers_have_keys(rd_home, 
         (repo / ".reviewdistill" / "config.yaml").write_text(
             f"project:\n  id: {name}\n  name: {name}\n"
             "comments:\n  latex_commands: [myremark]\n"
-            f"llm:\n  provider: {provider}\n  api_key: {key}\n"
+            f"llm:\n  provider: {provider}\n"
         )
+        (repo / ".reviewdistill" / ".env").write_text(f"{PROVIDER_ENV_KEYS[provider]}={key}\n")
         papers.append(repo)
     from reviewdistill.db.models import Project
     from reviewdistill.db.session import get_session, init_db

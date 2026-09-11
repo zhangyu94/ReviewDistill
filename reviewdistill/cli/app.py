@@ -10,8 +10,6 @@ from reviewdistill.cli.init import init_project
 from reviewdistill.taxonomy.export import export_rubric
 
 app = typer.Typer(help="ReviewDistill: distill informal review comments into reusable review knowledge.")
-taxonomy_app = typer.Typer(hidden=True, help="Hidden alias for `export`.")
-app.add_typer(taxonomy_app, name="taxonomy")
 paths_app = typer.Typer(help="Show or change the data folder.")
 app.add_typer(paths_app, name="paths")
 
@@ -59,17 +57,8 @@ def export_cmd(
 
 @app.command(hidden=True)
 def cluster() -> None:
-    """Hidden alias. Discover recurring patterns among comments."""
+    """Discover recurring patterns among comments."""
     run_cluster()
-
-
-@taxonomy_app.command("export")
-def taxonomy_export(
-    format: str = typer.Option("md", "--format", help="md | yaml | json"),
-    output: Path | None = typer.Option(None, "--output", "-o"),
-) -> None:
-    """Hidden alias for `export`."""
-    _write_export(format, output)
 
 
 @paths_app.callback(invoke_without_command=True)
@@ -132,9 +121,3 @@ def serve_cmd(
     from reviewdistill.cli.serve import run_serve
 
     run_serve(host=host, port=port)
-
-
-@app.command("watch", hidden=True)
-def watch_cmd() -> None:
-    """Hidden alias for `extract --watch`."""
-    run_extract(watch=True)

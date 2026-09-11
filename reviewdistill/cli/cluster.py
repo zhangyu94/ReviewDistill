@@ -3,16 +3,18 @@ from __future__ import annotations
 import typer
 
 from reviewdistill.coding.clustering import cluster_texts
-from reviewdistill.db.models import WORKING_COMMENT_STATUSES, ProofreadingComment
+from reviewdistill.db.models import ProofreadingComment, in_working_set
 from reviewdistill.db.session import get_session, init_db
 
 
 def run_cluster() -> None:
     init_db()
     with get_session() as session:
-        comments = session.find(
-            ProofreadingComment, status=WORKING_COMMENT_STATUSES, order_by="created_at"
-        )
+        comments = [
+            comment
+            for comment in session.find(ProofreadingComment, order_by="created_at")
+            if in_working_set(comment)
+        ]
     clusters = cluster_texts(comments)
     if not clusters:
         typer.echo("No recurring clusters found.")

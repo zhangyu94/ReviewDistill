@@ -79,7 +79,7 @@ Primary goals
 3. Preserve the original comments and manuscript context.
 4. Use AI to inductively code comments into recurring issue types.
 5. Maintain an evolving taxonomy of review issues.
-6. Allow the expert to quickly validate, reject, modify, merge, and split AI-generated codes.
+6. Allow the expert to quickly validate, modify, merge, and split AI-generated labels.
 7. Accumulate examples and counterexamples for each issue type.
 8. Export the resulting review knowledge in a format usable by coding agents.
 
@@ -172,9 +172,9 @@ ReviewDistill identifies new comments and extracts:
 
 Step 4 — AI-assisted coding
 
-In `reviewdistill serve`, Uncoded → **Get AI suggestions**.
+In `reviewdistill serve`, Unlabeled → **Get AI suggestions**.
 
-Workbench **Settings** (header, next to Export) has two panels. **Assistant** writes `llm.provider` / `llm.model` to the chosen paper’s `.reviewdistill/config.yaml` and the matching API key to that paper’s `.reviewdistill/.env` (gitignored). **Data** shows the home folder (same as `reviewdistill paths`) and does not Save. Opening Settings always lands on Assistant. The Uncoded empty state **Configure LLM** opens the same dialog. GET `/api/llm-settings` never returns the secret (`key_set` only). File editing still works. Process environment still wins over `.env`. Do not write `llm.api_key` into YAML; do not store keys in the JSONL store.
+Workbench **Settings** (header, next to Export) has two panels. **Assistant** writes `llm.provider` / `llm.model` to the chosen paper’s `.reviewdistill/config.yaml` and the matching API key to that paper’s `.reviewdistill/.env` (gitignored). **Data** shows the home folder (same as `reviewdistill paths`) and does not Save. Opening Settings always lands on Assistant. The Unlabeled empty state **Configure LLM** opens the same dialog. GET `/api/llm-settings` never returns the secret (`key_set` only). File editing still works. Process environment still wins over `.env`. Do not write `llm.api_key` into YAML; do not store keys in the JSONL store.
 
 `reviewdistill paths use DIR` persists `DIR` in `~/.config/reviewdistill/home` so later CLI commands use that folder. `reviewdistill paths move DIR` copies the current home (JSONL files) into an empty `DIR`, then uses it; it leaves the old folder in place and refuses if the store is busy.
 
@@ -225,7 +225,9 @@ Assign type
 NEW ISSUE TYPE
 Insufficient methodological justification
 Confidence: 0.78
-[Accept] [Reject] [Change]
+[Accept] [Change]
+Quality
+[Verify] [Drop]
 ────────────────────────────────────────
 
 The user should be able to validate a suggestion with minimal interaction.
@@ -271,6 +273,7 @@ ProofreadingComment(
     git_url,
     fingerprint,
     status,
+    quality,
     supersedes_id,
     created_at
 )
@@ -307,7 +310,6 @@ Possible status:
 
 proposed
 accepted
-rejected
 modified
 
 A comment may eventually have multiple codings.
@@ -399,7 +401,7 @@ Move an issue type between higher-level categories.
 
 Deactivate
 
-Retain historical codings but prevent the issue from being suggested for new observations.
+The group leaves the live taxonomy. Labeled comments return to Unlabeled. Codings are stored on the history event so undo restores them.
 
 Historical data must never be silently deleted when the taxonomy changes.
 
@@ -633,7 +635,7 @@ Example:
 ```
 ReviewDistill · Workbench · History · Export
 ────────────────────────────────────────
-Selectors  [MISSINGINTRODUCT (17) ×]                    [Uncoded (8)] [Disappeared (1)]
+Selectors  [MISSINGINTRODUCT (17) ×]                    [Unlabeled (8)]
 ────────────────────────────────────────
 Issue Taxonomy  Issue Details        Comments
 Argumentation   Overclaiming         17 total · 1 selected
@@ -642,11 +644,11 @@ Argumentation   Overclaiming         17 total · 1 selected
 Clarity
 ```
 
-The top bar switches Workbench and History, and opens Export (format plus deactivate). Selectors are a second header: a dismissable chip named with the issue **code** once a group is selected, and persistent Uncoded / Disappeared chips on the right. Uncoded, Disappeared, and issue groups share this one screen.
+The top bar switches Workbench and History, and opens Export (format plus deactivate). Selectors are a second header: a dismissable chip named with the issue **code** once a group is selected, and a persistent Unlabeled chip on the right. Unlabeled and issue groups share this one screen.
 
 Column order is always Issue Taxonomy | Issue Details | Comments. Clicking a type selects it: Issue Details shows that type, Comments filters to its accepted comments, and its code chip becomes the active selector. The Comments header shows total and selected counts.
 
-The Comments panel can switch between a list of comments and a single comment. The list shows truncated text so you can scan. The single-comment view shows the full text, manuscript context, location, and record metadata. Accept, Change, Reject, Keep, and Retract stay in that single-comment view when Uncoded or Disappeared is selected.
+The Comments panel can switch between a list of comments and a single comment. The list shows truncated text so you can scan, and marks comments that are not in the manuscript. The single-comment view shows the full text, manuscript context, location, and record metadata. **Accept** and **Change** assign or change the issue type (there is no Reject: not accepting a suggestion leaves the comment unlabeled). **Verify** and **Drop** stamp quality, independent of the label.
 
 Selector chips are mutually exclusive. Sure/Unsure confidence chips are not in this product. Counterexamples are not collected in Issue Details (they are not available from LaTeX annotations). Deactivate a group from the Export dialog, not from Issue Details.
 
@@ -654,18 +656,18 @@ Selector chips are mutually exclusive. Sure/Unsure confidence chips are not in t
 
 15. Taxonomy View
 
-The same workbench is the taxonomy view. Issue Taxonomy stays on the left; Issue Details stays in the middle. Clicking an issue type selects it: Issue Details shows the definition, Comments shows that type’s accepted working-dataset comments, and a selector chip named with its code (for example `MISSINGINTRODUCT (17)`) becomes active.
+The same workbench is the taxonomy view. Issue Taxonomy stays on the left; Issue Details stays in the middle. Clicking an issue type selects it: Issue Details shows the definition, Comments shows that type’s labeled working-set comments, and a selector chip named with its code (for example `MISSINGINTRODUCT (17)`) becomes active.
 
 ```
-Selectors  [MISSINGINTRODUCT (17) ×]                    [Uncoded] [Disappeared]
+Selectors  [MISSINGINTRODUCT (17) ×]                    [Unlabeled]
 Issue Taxonomy         Issue Details             Comments
 Argumentation          Overclaiming              17 total · 1 selected
   Overclaiming    17   Definition
 ```
 
-Issue Details does not repeat comment text and does not collect counterexamples. Accepted comments in the Comments panel are the coding examples. Export (and deactivate) live in the header Export dialog.
+Issue Details does not repeat comment text and does not collect counterexamples. Labeled comments in the Comments panel are the examples. Export (and deactivate) live in the header Export dialog.
 
-Drag an uncoded comment onto a type: same as Change.
+Drag an unlabeled comment onto a type: same as Change.
 Drag a type onto another type: merge (source into target).
 Drag a type onto a category heading: move (`POST /api/taxonomy/{id}/move` with `{ "category" }` so the drag does not round-trip definition fields).
 Split stays in Issue Details. Rename and definition editing are in-place on the Issue type and Definition panels. Deactivate is chosen in Export.
@@ -691,15 +693,14 @@ Get AI suggestions is one `propose` event for the batch. Accept of a newly creat
 | `rename` | Name/code change | Restore `before` |
 | `edit` | Definition/notes | Restore `before` |
 | `move` | Category change only (`from` ≠ `to`) | Move back to `from` |
-| `deactivate` | Deactivate | Reactivate |
+| `deactivate` | Deactivate (labeled comments return to Unlabeled) | Reactivate; restore labels |
 | `merge` | Merge (payload includes reassigned ids) | Reactivate sources; move rows back |
 | `split` | Split (payload includes deleted coding dumps) | Reactivate source; deactivate created types; restore codings |
 | `propose` | Get AI suggestions | Delete created proposed rows; restore any it replaced |
 | `accept` | Accept | Coding back to proposed; delete example if this accept created it |
 | `change` | Change | Delete human coding; restore proposal; delete example if created |
-| `reject` | Reject | Restore previous coding status (or delete stub reject) |
-| `keep` | Keep | Comment status `pending_disappeared` |
-| `retract` | Retract | Comment status `pending_disappeared` |
+| `verify` | Verify | Restore `previous_quality` |
+| `drop` | Drop | Restore `previous_quality` |
 
 `GET /api/history` — events newest first, each with `undone` and `summary`; top-level `can_undo`, `can_redo`. `POST /api/history/undo` and `POST /api/history/redo` — `{ ok: true }` or 400 if nothing to do / cannot invert.
 
@@ -864,9 +865,9 @@ Extraction must be idempotent.
 
 Running `reviewdistill extract` twice must not duplicate comments that are still present.
 
-Identity (new, revision, move, disappeared, Keep vs Retract) is defined in [`comment-identity.md`](comment-identity.md). The stored project and comment rows are [`data-schema.md`](data-schema.md).
+Identity (new, revision, move, gone from the source, Verify vs Drop) is defined in [`comment-identity.md`](comment-identity.md). The stored project and comment rows are [`data-schema.md`](data-schema.md).
 
-`reviewdistill extract --watch` runs the same extraction after LaTeX sources settle. It does not run coding and does not Keep or Retract.
+`reviewdistill extract --watch` runs the same extraction after LaTeX sources settle. It does not run labeling and does not Verify or Drop.
 
 The AI never overwrites the reviewer’s comment text. Source-driven revision of a still-present comment updates that observation’s wording in place.
 
@@ -1070,7 +1071,7 @@ The prototype is successful if the following workflow works end-to-end:
 6. It extracts manuscript context.
 7. In the workbench, Get AI suggestions.
 8. AI proposes codes using the accumulated taxonomy.
-9. The reviewer rapidly accepts/changes/rejects them.
+9. The reviewer rapidly labels comments (Accept / Change) and stamps quality (Verify / Drop).
 10. The taxonomy accumulates examples and definitions.
 11. Review a second paper.
 12. The accumulated taxonomy improves the coding of its comments.

@@ -15,8 +15,15 @@ export type DropAction
     | { type: 'ignore' }
 
 /** Map HTML5 drag payload + drop target to Change / merge / move. No extra DnD library. */
-export function dropAction(payload: DragPayload, target: DropTarget): DropAction {
-  if (payload.kind === 'comment' && target.kind === 'issue') { return { type: 'change', commentId: payload.id, issueTypeId: target.id } }
+export function dropAction(
+  payload: DragPayload,
+  target: DropTarget,
+  labeledTypeId: string | null = null,
+): DropAction {
+  if (payload.kind === 'comment' && target.kind === 'issue') {
+    if (labeledTypeId && target.id === labeledTypeId) { return { type: 'ignore' } }
+    return { type: 'change', commentId: payload.id, issueTypeId: target.id }
+  }
   if (payload.kind === 'issue' && target.kind === 'issue') {
     if (payload.id === target.id) { return { type: 'ignore' } }
     return { type: 'merge', sourceId: payload.id, targetId: target.id }

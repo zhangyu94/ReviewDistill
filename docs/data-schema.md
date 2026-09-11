@@ -6,7 +6,7 @@ Identity (when a source comment is new, a revision, a move, or gone) is defined 
 
 Implementation: one JSONL file per collection in the ReviewDistill home folder (default `~/.reviewdistill`): `projects.jsonl`, `comments.jsonl`, `codings.jsonl`, `issue_types.jsonl`, `issue_examples.jsonl`, `issue_counterexamples.jsonl`, `taxonomy_events.jsonl`, `git_commits.jsonl`. One JSON object per line, sorted by `id`. `reviewdistill paths use` / `move` choose that folder. `comments.project_id` is the `projects.id` of the paper.
 
-The JSON object under `comment` in `GET /api/inbox` (workbench Uncoded / Disappeared) is the comment row (`created_at` as ISO-8601). Response extras (`project_name`, `permalink`, `guess`, `coding`) are not columns on `comments`; `project_name` is `projects.name`.
+The JSON object under `comment` in `GET /api/inbox` (workbench Unlabeled) is the comment row (`created_at` as ISO-8601). Response extras (`project_name`, `permalink`, `guess`, `in_manuscript`, `coding`) are not columns on `comments`; `project_name` is `projects.name`. `in_manuscript` is `status == "active"`.
 
 ---
 
@@ -69,6 +69,7 @@ Time the row was first inserted. Not updated when `name` or `root_path` change.
 | `git_url` | string | yes | `null` | no |
 | `fingerprint` | string | no | — | yes |
 | `status` | string | no | `"active"` | yes |
+| `quality` | string | no | `"unreviewed"` | no |
 | `supersedes_id` | string | yes | `null` | no |
 | `created_at` | datetime (UTC) | no | now | no |
 
@@ -78,7 +79,7 @@ Time the row was first inserted. Not updated when `name` or `root_path` change.
 
 #### `id`
 
-Stable identity of the observation. Assigned once on insert (`uuid4`). Survives revision, move, disappearance, Keep, and Retract.
+Stable identity of the observation. Assigned once on insert (`uuid4`). Survives revision, move, absence from the source, Verify, and Drop.
 
 #### `project_id`
 
@@ -115,7 +116,7 @@ Built as:
 1. Local prose around the comment (headings and following paragraph when the comment sits alone between sectioning commands; comment-command lines themselves are omitted). Line breaks match the source: consecutive TeX lines stay on separate lines; a blank line in the source becomes a blank line in `context_text`.
 2. Optional last line of harvested keys from that same local text: `Citations: …` and/or `Refs: …`, joined with ` | `.
 
-Citations and refs are **not** separate columns. Disappearance guessing compares the prose (everything except that last extras line) to a fresh extract of `{root_path}/{file_path}` at `line_number`.
+Citations and refs are **not** separate columns. When the comment is not in the manuscript, a non-binding guess compares the prose (everything except that last extras line) to a fresh extract of `{root_path}/{file_path}` at `line_number`.
 
 #### `section`
 
@@ -135,40 +136,55 @@ SHA-256 hex of `source_command + NUL + normalized raw_text`, UTF-8. Normalizatio
 
 #### `status`
 
-Lifecycle of the observation. See [Statuses](#statuses).
+Presence of the observation in the manuscript source. See [Presence](#presence).
+
+#### `quality`
+
+Human stamp on the observation itself, independent of the issue type. See [Quality](#quality).
 
 #### `supersedes_id`
 
-Unused by current extract. Kept on the row for older data and possible future chaining. Do not infer identity from it.
+Unused by current extract. Do not infer identity from it.
 
 #### `created_at`
 
-Time the row was first inserted. Not updated on revision, move, or status change.
+Time the row was first inserted. Not updated on revision, move, presence change, or quality stamp.
 
-### Statuses
+### Presence
 
-| Status | Still in the manuscript source? | Working dataset? | How it is set |
-| --- | --- | --- | --- |
-| `active` | yes | yes | New extract; resurrect of `pending_disappeared` or `kept` when the same fingerprint returns |
-| `pending_disappeared` | no | no | Extract: present comment unmatched as revision/move |
-| `kept` | no | yes | Human Keep in the workbench (Disappeared) |
-| `retracted` | no | no | Human Retract in the workbench (Disappeared) |
-| `superseded` | n/a | no | One-time migration of legacy `modified` rows only |
+`status` is extract-managed presence, not a workbench queue.
 
-**Working dataset** (`WORKING_COMMENT_STATUSES`): `active` and `kept`. Coding, clustering, taxonomy examples, taxonomy counts, recent observations, and rubric export use only these. `pending_disappeared`, `retracted`, and `superseded` are retained as history.
+| Status | Still in the manuscript source? | How it is set |
+| --- | --- | --- |
+| `active` | yes | New extract; resurrect when the same fingerprint returns |
+| `pending_disappeared` | no | Extract: present comment unmatched as revision/move |
+
+Extract never Verify/Drops. Exception: a wording revision clears `verified` to `unreviewed`. Dropped rows with the same wording still in the file keep the same `id` (no new row).
+
+### Quality
+
+| Quality | Meaning | How it is set |
+| --- | --- | --- |
+| `unreviewed` | Default after extract; revision of wording also clears `verified` back to this | Extract (new / revision) |
+| `verified` | Observation is quality-assured. Does not confirm the issue type | Workbench **Verify** |
+| `dropped` | Do not distill (too local or bad extract). History is kept | Workbench **Drop** |
+
+Unknown values are rejected on `add`, `commit`, and load (`Unknown comment quality`). Corrupt `comments.jsonl` fails fast; rows are not skipped.
+
+### Working set
+
+A comment is in the **working set** when it is not `dropped`, and either in the manuscript (`status=active`) or `verified`.
+
+AI suggestions, clustering, taxonomy examples, type-chip counts, recent observations, and rubric export use only the working set.
 
 Workbench views:
 
-- **Uncoded** — working-dataset comments that still need Accept / Change / Reject.
-- **Disappeared** — `pending_disappeared` only (Keep / Retract).
-
-Extract never chooses Keep or Retract. It never resurrects `retracted` or `superseded`.
-
-Legacy values rewritten on `init_db`: `deleted` → `pending_disappeared`, `modified` → `superseded`.
+- **Unlabeled** — working-set comments with no issue type, plus absent + `unreviewed` (so you can Verify or Drop). No Reject: not accepting a suggestion leaves the comment unlabeled.
+- **Type chip** — that type’s labeled comments in the working set.
 
 ### What extract updates in place
 
-On unchanged, revised, moved, or resurrected rows, extract refreshes location and git, and rebuilds `context_text` / `section`. On revision it also updates `raw_text`, `fingerprint`, `source_command`, and `source_type`. It does not change `id`, `project_id`, `created_at`, or `supersedes_id`.
+On unchanged, revised, moved, or resurrected rows, extract refreshes location and git, and rebuilds `context_text` / `section`. On revision it also updates `raw_text`, `fingerprint`, `source_command`, and `source_type`, and clears `verified` to `unreviewed`. It does not change `id`, `project_id`, `created_at`, `supersedes_id`, or `dropped`.
 
 ---
 
@@ -181,4 +197,4 @@ On unchanged, revised, moved, or resurrected rows, extract refreshes location an
 | `taxonomy_events` | append-only history (`event_type`, `payload_json`, `undone`); Undo/Redo set `undone` rather than inserting a new row |
 | `git_commits` | per-project commit log (`git_commits.project_id`); not a foreign key from `comments` |
 
-A comment may have several `codings` over time (`proposed`, `accepted`, `rejected`, `modified`). The observation row stays the evidence; coding rows stay the interpretation.
+A comment may have several `codings` over time (`proposed`, `accepted`, `modified`). The observation row stays the evidence; coding rows stay the interpretation. Not accepting a suggestion leaves the comment unlabeled.

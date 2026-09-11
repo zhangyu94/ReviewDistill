@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import httpx
 from reviewdistill.coding.retrieval import retrieve_candidates
-from reviewdistill.db.models import WORKING_COMMENT_STATUSES, Coding, ProofreadingComment
+from reviewdistill.db.models import Coding, ProofreadingComment, in_working_set
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.history import dump_row, record
 from reviewdistill.llm.base import LLMProvider, get_provider, privacy_warning
@@ -122,12 +122,14 @@ def uncoded_comments(*, provider_name: str | None | object = _UNSET) -> list[Pro
         resolved = None
     init_db()
     with get_session() as session:
-        comments = session.find(
-            ProofreadingComment, status=WORKING_COMMENT_STATUSES, order_by="created_at"
-        )
+        comments = [
+            comment
+            for comment in session.find(ProofreadingComment, order_by="created_at")
+            if in_working_set(comment)
+        ]
         resolved_ids: set[str] = set()
         for coding in session.find(Coding):
-            if coding.status in {"accepted", "rejected", "modified"}:
+            if coding.status == "accepted" and coding.issue_type_id:
                 resolved_ids.add(coding.comment_id)
             elif coding.status == "proposed" and not hide_placeholder_coding(
                 coding, provider_name=resolved

@@ -66,7 +66,7 @@ def test_retrieval_ignores_inactive_issues(db):
     assert ranked == []
 
 
-def test_retrieval_ignores_examples_from_retracted_comments(db):
+def test_retrieval_ignores_examples_from_dropped_comments(db):
     from reviewdistill.db.models import ProofreadingComment as Row
     from reviewdistill.db.session import get_session
 
@@ -79,22 +79,23 @@ def test_retrieval_ignores_examples_from_retracted_comments(db):
     with get_session() as session:
         session.add(
             Row(
-                id="retracted-src",
+                id="dropped-src",
                 project_id="p1",
                 source_type="latex_command",
                 source_command="myremark",
                 file_path="main.tex",
                 line_number=1,
-                raw_text="UNIQUE_RETRACTED_TOKEN",
+                raw_text="UNIQUE_DROPPED_TOKEN",
                 fingerprint="fp-r",
-                status="retracted",
+                status="active",
+                quality="dropped",
             )
         )
         session.commit()
-    add_example(issue.id, text="UNIQUE_RETRACTED_TOKEN is too strong", source_comment_id="retracted-src")
-    ranked = retrieve_candidates(_comment("UNIQUE_RETRACTED_TOKEN is too strong"))
+    add_example(issue.id, text="UNIQUE_DROPPED_TOKEN is too strong", source_comment_id="dropped-src")
+    ranked = retrieve_candidates(_comment("UNIQUE_DROPPED_TOKEN is too strong"))
     assert list_examples(issue.id) == []
-    assert all("UNIQUE_RETRACTED_TOKEN" not in (item.issue.definition or "") for item in ranked)
+    assert all("UNIQUE_DROPPED_TOKEN" not in (item.issue.definition or "") for item in ranked)
 
 
 def test_retrieve_candidates_loads_store_once(db, monkeypatch):

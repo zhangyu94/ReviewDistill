@@ -4,20 +4,33 @@ from datetime import UTC, datetime
 
 from sqlmodel import Field, SQLModel
 
-WORKING_COMMENT_STATUSES = ("active", "kept")  # AI coding, cluster, export; pending_disappeared is workbench Disappeared only
+# Presence: ``active`` = in the manuscript, ``pending_disappeared`` = not.
+# Quality is a separate field. Working set = not dropped, and (present or verified).
 
-_STATUS_ALIASES = {
-    "deleted": "pending_disappeared",
-    "modified": "superseded",
-}
+QUALITY_UNREVIEWED = "unreviewed"
+QUALITY_VERIFIED = "verified"
+QUALITY_DROPPED = "dropped"
 
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def migrate_comment_status(status: str) -> str:
-    return _STATUS_ALIASES.get(status, status)
+def comment_quality(comment: ProofreadingComment) -> str:
+    quality = comment.quality
+    if quality not in {QUALITY_UNREVIEWED, QUALITY_VERIFIED, QUALITY_DROPPED}:
+        raise ValueError(f"Unknown comment quality {quality!r}")
+    return quality
+
+
+def in_manuscript(comment: ProofreadingComment) -> bool:
+    return comment.status == "active"
+
+
+def in_working_set(comment: ProofreadingComment) -> bool:
+    if comment_quality(comment) == QUALITY_DROPPED:
+        return False
+    return in_manuscript(comment) or comment_quality(comment) == QUALITY_VERIFIED
 
 
 class Project(SQLModel):
@@ -41,6 +54,7 @@ class ProofreadingComment(SQLModel):
     git_url: str | None = None
     fingerprint: str
     status: str = "active"
+    quality: str = "unreviewed"
     supersedes_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 

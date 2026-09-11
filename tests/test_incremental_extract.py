@@ -107,6 +107,27 @@ def test_similar_body_change_updates_same_row(db, tmp_path: Path):
         assert rows[0].supersedes_id is None
 
 
+def test_revision_clears_verified_quality(db, tmp_path: Path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    _write_tex(repo, "\\myremark{Too strong.}\n")
+    extract_project(repo)
+    with get_session() as session:
+        row = session.first(ProofreadingComment)
+        row.quality = "verified"
+        session.add(row)
+        session.commit()
+        original_id = row.id
+    _write_tex(repo, "\\myremark{Too strong given the experiment.}\n")
+    summary = extract_project(repo)
+    assert summary.revised == 1
+    with get_session() as session:
+        row = session.first(ProofreadingComment)
+        assert row.id == original_id
+        assert row.quality == "unreviewed"
+
+
 def test_dissimilar_body_change_is_disappeared_and_new(db, tmp_path: Path):
     repo = tmp_path / "paper"
     repo.mkdir()
@@ -237,7 +258,7 @@ def test_unclosed_comment_does_not_enqueue_disappearance(db, tmp_path: Path):
         assert row.raw_text == "Keep me."
 
 
-def test_kept_reappears_same_id(db, tmp_path: Path):
+def test_verified_reappears_same_id(db, tmp_path: Path):
     repo = tmp_path / "paper"
     repo.mkdir()
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
@@ -245,7 +266,8 @@ def test_kept_reappears_same_id(db, tmp_path: Path):
     extract_project(repo)
     with get_session() as session:
         row = session.first(ProofreadingComment)
-        row.status = "kept"
+        row.status = "pending_disappeared"
+        row.quality = "verified"
         session.add(row)
         session.commit()
         kept_id = row.id
@@ -256,9 +278,10 @@ def test_kept_reappears_same_id(db, tmp_path: Path):
         assert len(rows) == 1
         assert rows[0].id == kept_id
         assert rows[0].status == "active"
+        assert rows[0].quality == "verified"
 
 
-def test_retracted_same_text_is_new_id(db, tmp_path: Path):
+def test_dropped_same_text_stays_same_id(db, tmp_path: Path):
     repo = tmp_path / "paper"
     repo.mkdir()
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
@@ -266,16 +289,17 @@ def test_retracted_same_text_is_new_id(db, tmp_path: Path):
     extract_project(repo)
     with get_session() as session:
         row = session.first(ProofreadingComment)
-        row.status = "retracted"
+        row.quality = "dropped"
         session.add(row)
         session.commit()
-        retracted_id = row.id
+        dropped_id = row.id
     extract_project(repo)
     with get_session() as session:
         rows = session.find(ProofreadingComment)
-        assert len(rows) == 2
-        assert any(row.id == retracted_id and row.status == "retracted" for row in rows)
-        assert any(row.status == "active" and row.id != retracted_id for row in rows)
+        assert len(rows) == 1
+        assert rows[0].id == dropped_id
+        assert rows[0].status == "active"
+        assert rows[0].quality == "dropped"
 
 
 def test_duplicate_texts_are_not_merged(db, tmp_path: Path):
@@ -307,6 +331,29 @@ def test_moved_comment_updates_location(db, tmp_path: Path):
         assert rows[0].file_path == "other.tex"
         assert rows[0].status == "active"
         assert rows[0].raw_text == "Moved comment."
+
+
+def test_move_keeps_verified_quality(db, tmp_path: Path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    _write_tex(repo, "line1\n\\myremark{Moved comment.}\n")
+    extract_project(repo)
+    with get_session() as session:
+        row = session.first(ProofreadingComment)
+        row.quality = "verified"
+        session.add(row)
+        session.commit()
+        original_id = row.id
+    (repo / "other.tex").write_text("\\myremark{Moved comment.}\n")
+    (repo / "main.tex").write_text("no comments\n")
+    summary = extract_project(repo)
+    assert summary.moved == 1
+    with get_session() as session:
+        row = session.first(ProofreadingComment)
+        assert row.id == original_id
+        assert row.file_path == "other.tex"
+        assert row.quality == "verified"
 
 
 def test_extract_records_git_remote_url(db, tmp_path: Path):

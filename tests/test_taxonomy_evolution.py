@@ -9,6 +9,7 @@ from reviewdistill.taxonomy.operations import (
     deactivate_issue_type,
     edit_issue_type,
     list_active_issue_types,
+    list_working_observations,
     merge_issue_types,
     move_issue_type,
     rename_issue_type,
@@ -59,6 +60,112 @@ def test_deactivate_hides_from_active_list(db):
     assert list_active_issue_types() == []
     with get_session() as session:
         assert session.get(IssueType, issue.id).status == "inactive"
+
+
+def test_deactivate_returns_accepted_comments_to_unlabeled(db):
+    from reviewdistill.coding.validation import inbox_items
+    from reviewdistill.history import redo, undo
+
+    issue = create_issue_type(
+        code="OVERCLAIM",
+        name="Overclaiming",
+        category="Argumentation",
+        definition="too strong",
+    )
+    other = create_issue_type(
+        code="WEAK",
+        name="Weak evidence",
+        category="Argumentation",
+        definition="evidence is thin",
+    )
+    with get_session() as session:
+        session.add(
+            ProofreadingComment(
+                id="c-deact",
+                project_id="p",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=1,
+                raw_text="Too strong.",
+                fingerprint="fp-deact",
+                status="active",
+            )
+        )
+        session.add(
+            Coding(
+                id="coding-deact",
+                comment_id="c-deact",
+                issue_type_id=issue.id,
+                coder_type="human",
+                status="accepted",
+            )
+        )
+        session.add(
+            Coding(
+                id="coding-deact-old",
+                comment_id="c-deact",
+                issue_type_id=issue.id,
+                coder_type="ai",
+                status="modified",
+            )
+        )
+        session.add(
+            ProofreadingComment(
+                id="c-other",
+                project_id="p",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=2,
+                raw_text="Weak evidence.",
+                fingerprint="fp-other",
+                status="active",
+            )
+        )
+        session.add(
+            Coding(
+                id="coding-other",
+                comment_id="c-other",
+                issue_type_id=other.id,
+                coder_type="human",
+                status="accepted",
+            )
+        )
+        session.add(
+            Coding(
+                id="coding-other-old",
+                comment_id="c-other",
+                issue_type_id=issue.id,
+                coder_type="ai",
+                status="modified",
+            )
+        )
+        session.commit()
+
+    deactivate_issue_type(issue.id)
+    items = inbox_items()
+    assert [item.comment.id for item in items] == ["c-deact"]
+    assert items[0].labeled is False
+    with get_session() as session:
+        assert session.find(Coding, comment_id="c-deact") == []
+        other_codings = {row.id: row.status for row in session.find(Coding, comment_id="c-other")}
+        assert other_codings == {"coding-other": "accepted", "coding-other-old": "modified"}
+    assert [row.id for row in list_working_observations(other.id)] == ["c-other"]
+    undo()
+    assert inbox_items() == []
+    with get_session() as session:
+        restored = session.get(Coding, "coding-deact")
+        assert restored is not None
+        assert restored.status == "accepted"
+        assert session.get(Coding, "coding-deact-old").status == "modified"
+        assert session.get(IssueType, issue.id).status == "active"
+        assert session.get(Coding, "coding-other").status == "accepted"
+    redo()
+    assert [item.comment.id for item in inbox_items()] == ["c-deact"]
+    with get_session() as session:
+        assert session.find(Coding, comment_id="c-deact") == []
+        assert session.get(Coding, "coding-other").status == "accepted"
 
 
 def test_merge_moves_codings_examples_and_counterexamples_to_target(db):
@@ -133,7 +240,7 @@ def test_split_deactivates_source_and_creates_two_active_types(db):
         assert right.id != source.id
 
 
-def test_split_returns_accepted_comments_to_uncoded(db):
+def test_split_returns_accepted_comments_to_unlabeled(db):
     from reviewdistill.coding.validation import inbox_items
 
     source = create_issue_type(

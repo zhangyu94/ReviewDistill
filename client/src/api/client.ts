@@ -19,6 +19,7 @@ export interface CommentJson {
   git_url: string | null
   fingerprint: string
   status: string
+  quality: string
   supersedes_id: string | null
   created_at: string
 }
@@ -38,17 +39,40 @@ export interface InboxItemJson {
   project_name: string
   permalink: string | null
   guess: string | null
+  in_manuscript: boolean
+  labeled: boolean
+  issue: IssueOption | null
   coding: CodingJson | null
 }
 
 export interface InboxResponse {
-  view: 'uncoded' | 'disappeared'
-  uncoded_count: number
-  disappeared_count: number
+  unlabeled_count: number
   pending_code_count: number
   llm_provider: string | null
   issues: IssueOption[]
   items: InboxItemJson[]
+}
+
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+async function throwHttpError(response: Response): Promise<never> {
+  let detail = response.statusText
+  try {
+    const body = await response.json() as { detail?: unknown }
+    if (typeof body.detail === 'string') { detail = body.detail }
+  }
+  catch {
+    // keep statusText
+  }
+  throw new ApiError(detail, response.status)
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -60,24 +84,16 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     },
   })
   if (!response.ok) {
-    let detail = response.statusText
-    try {
-      const body = await response.json() as { detail?: unknown }
-      if (typeof body.detail === 'string') { detail = body.detail }
-    }
-    catch {
-      // keep statusText
-    }
-    throw new Error(detail)
+    await throwHttpError(response)
   }
   return await response.json() as T
 }
 
-export function fetchInbox(view: 'uncoded' | 'disappeared'): Promise<InboxResponse> {
-  return api<InboxResponse>(`/api/inbox?view=${view}`)
+export function fetchInbox(): Promise<InboxResponse> {
+  return api<InboxResponse>('/api/inbox')
 }
 
-export function postInbox(commentId: string, action: 'accept' | 'reject' | 'keep' | 'retract'): Promise<{ ok: true }> {
+export function postInbox(commentId: string, action: 'accept' | 'verify' | 'drop'): Promise<{ ok: true }> {
   return api(`/api/inbox/${commentId}/${action}`, { method: 'POST' })
 }
 
@@ -201,15 +217,7 @@ export function exportFilename(fmt: ExportFormat): string {
 export async function fetchExport(fmt: ExportFormat): Promise<string> {
   const response = await fetch(`/api/taxonomy/export?format=${fmt}`)
   if (!response.ok) {
-    let detail = response.statusText
-    try {
-      const body = await response.json() as { detail?: unknown }
-      if (typeof body.detail === 'string') { detail = body.detail }
-    }
-    catch {
-      // keep statusText
-    }
-    throw new Error(detail)
+    await throwHttpError(response)
   }
   return await response.text()
 }

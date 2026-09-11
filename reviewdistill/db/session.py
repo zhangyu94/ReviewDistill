@@ -19,7 +19,7 @@ from reviewdistill.db.models import (
     Project,
     ProofreadingComment,
     TaxonomyEvent,
-    migrate_comment_status,
+    comment_quality,
 )
 from reviewdistill.paths import LOCK_NAME, STAGING_DIRNAME, home_dir
 
@@ -60,16 +60,25 @@ class StoreSession:
         self._home.mkdir(parents=True, exist_ok=True)
         self._lock_fp = (self._home / LOCK_NAME).open("a+")
         fcntl.flock(self._lock_fp, fcntl.LOCK_EX)
-        self._load()
+        try:
+            self._load()
+        except Exception:
+            self._unlock()
+            raise
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
+        self._unlock()
+
+    def _unlock(self) -> None:
         if self._lock_fp is not None:
             fcntl.flock(self._lock_fp, fcntl.LOCK_UN)
             self._lock_fp.close()
             self._lock_fp = None
 
     def add(self, obj: object) -> None:
+        if isinstance(obj, ProofreadingComment):
+            comment_quality(obj)
         self._tables[type(obj)][obj.id] = obj  # type: ignore[attr-defined]
 
     def delete(self, obj: object) -> None:
@@ -119,12 +128,14 @@ class StoreSession:
                 if not line:
                     continue
                 data = json.loads(line)
-                if model is ProofreadingComment and "status" in data:
-                    data["status"] = migrate_comment_status(data["status"])
                 row = model.model_validate(data)
+                if model is ProofreadingComment:
+                    comment_quality(row)
                 self._tables[model][row.id] = row
 
     def _save(self) -> None:
+        for row in self._tables[ProofreadingComment].values():
+            comment_quality(row)  # type: ignore[arg-type]
         self._home.mkdir(parents=True, exist_ok=True)
         apply_pending_commit(self._home)
         staging = self._home / STAGING_DIRNAME

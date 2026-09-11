@@ -1,6 +1,6 @@
 # Comment identity
 
-How ReviewDistill decides whether a proofreading comment is **new**, a **revision** of an existing observation, a **move**, or **gone from the source** — and what you do when it is gone.
+How ReviewDistill decides whether a proofreading comment is **new**, a **revision** of an existing observation, a **move**, or **gone from the source** — and how presence and quality combine.
 
 The stored columns of a project and observation are in [`data-schema.md`](data-schema.md). Product spec: [`spec.md`](spec.md).
 
@@ -19,22 +19,27 @@ A project may use a different command name, or several. ReviewDistill treats all
 
 ## Why this exists
 
-Each comment is a lasting observation: the wording you wrote, the manuscript around it, and any coding that followed. The manuscript keeps changing. You edit a comment’s body, cut it, put a different remark where an old one used to be, or save while a comment is only half typed.
+Each comment is a lasting **observation**: the wording you wrote, the manuscript around it, and its location. The observation is not the issue type. The manuscript keeps changing. You edit a comment’s body, cut it, put a different remark where an old one used to be, or save while a comment is only half typed.
 
-**Line number is not identity.** A new comment on the line where an old one used to live is a new observation. The old one is gone from the source and needs a human decision.
+**Line number is not identity.** A new comment on the line where an old one used to live is a new observation. The old one is gone from the source.
 
-## Working dataset
+Presence and quality are independent. Extract only updates presence (and wording on revision). It never stamps quality and never assigns an issue type.
 
-The **working dataset** is the set of comments that count for AI coding, clustering, taxonomy examples, and rubric export.
+## Working set
 
-| State | Still in the manuscript source? | In the working dataset? |
-| --- | --- | --- |
-| Present | yes | yes |
-| Pending disappearance | no | no (waiting on you) |
-| Kept | no | yes |
-| Retracted | no | no (history is kept; it is not used) |
+The **working set** is the set of comments that count for AI suggestions, clustering, taxonomy examples, type chips, and rubric export.
 
-Extract never discards an observation. It never chooses Keep or Retract for you.
+A comment is **in the working set** when it is not `dropped`, and it is either **in the manuscript** or **verified**.
+
+| Quality | In the working set? |
+| --- | --- |
+| `unreviewed` (default after extract) | only while the comment is still in the manuscript. If it has left the `.tex` file, it is not in the working set, but Unlabeled still lists it so you can Verify or Drop |
+| `verified` | yes, whether or not it is still in the manuscript |
+| `dropped` | no (history is kept; same wording in the file does not mint a new row) |
+
+`verified` means the observation itself is quality-assured (wording, context, worth keeping as evidence). It does **not** confirm the issue type. A verified comment that later leaves the `.tex` file stays in the working set: the passage was fixed, and the problem was real.
+
+`dropped` means do not distill (too local, or a bad extract). Undo Drop from History if you need the row back in the workbench.
 
 ## Events
 
@@ -42,13 +47,13 @@ Extract never discards an observation. It never chooses Keep or Retract for you.
 
 A comment in the source that does not match an observation already treated as present.
 
-It becomes a new observation and appears in the workbench as Uncoded.
+It becomes a new observation (`quality=unreviewed`) and appears in the workbench as Unlabeled.
 
 ### Revision
 
 The comment **stayed in the source** and its wording changed **similarly**: an edit of the same remark, not a different remark.
 
-That **same observation** is updated to the new wording and surrounding manuscript context. Any coding already attached to it stays attached. The AI never overwrites what you wrote; only your source edits do.
+That **same observation** is updated to the new wording and surrounding manuscript context. Any label already attached to it stays attached. A `verified` stamp is cleared back to `unreviewed` (the wording changed). A move that does not change wording keeps the stamp. The AI never overwrites what you wrote; only your source edits do.
 
 Examples of revisions:
 
@@ -64,28 +69,32 @@ The same wording is still in the project, but not in the same place:
 
 A *different* remark that happens to sit on the old line is **not** a move.
 
-### Disappeared
+### Gone from the source
 
 A present comment is no longer in the source, and it was not a revision or a move.
 
-The observation is **not** discarded. It leaves the working dataset and waits in the workbench under **Disappeared** until you Keep or Retract it.
+The observation is **not** discarded. Presence becomes “not in the manuscript” (`status=pending_disappeared`). Extract does not set quality.
+
+- If the comment was already **verified**, it stays in the working set (fixed passage; the problem was real).
+- If it is still **unreviewed**, it stays on the **Unlabeled** chip (same Comments list) with a **not in manuscript** mark so you can **Verify** or **Drop**. There is no Disappeared queue.
+- If it is **dropped**, it stays out of the working set.
 
 Two common meanings of “gone”:
 
-1. **The manuscript was fixed** (or the comment is still a useful teaching example). **Keep** — it stays in the working dataset even though the comment command is gone from the source.
-2. **The comment was retracted or wrong.** **Retract** — it leaves the working dataset. The observation and any coding are retained as history; they are not used for future coding, clustering, or export.
+1. **The manuscript was fixed** (or the comment is still useful evidence). **Verify** — quality-assured; it stays in the working set even though the comment command is gone.
+2. **Too local, or a bad extract.** **Drop** — it leaves the working set. History is kept.
 
-Each disappeared item shows a **guess**. The guess is never applied automatically:
+Each absent unreviewed item can show a **guess**. The guess is never applied automatically:
 
-- Nearby manuscript text changed a lot → guess **Keep** (likely resolved).
-- Nearby manuscript text looks the same → guess **Retract** (likely pulled without fixing the passage).
-- The source file itself is gone → guess **Keep**.
+- Nearby manuscript text changed a lot → guess **Verify** (likely resolved).
+- Nearby manuscript text looks the same → guess **Drop** (likely pulled without fixing the passage).
+- The source file itself is gone → guess **Verify**.
 
 ### Same line after a gap
 
-If a comment disappears, and later a comment appears on that line (or any line) with different wording, that is **two observations**: the old one stays in Disappeared until you decide; the new one is uncoded.
+If a comment leaves the source, and later a comment appears on that line (or any line) with different wording, that is **two observations**: the old one is not in the manuscript; the new one is unlabeled.
 
-If you Retract, then later write the same words again, that later comment is **new**. If you have not decided yet, or you Kept it, and the same wording returns in the source, the **same observation** becomes present again.
+If the **same wording** returns in the source, the **same observation** becomes present again (including a dropped row: no new id). A revision of the text (fingerprint change) clears `verified` back to `unreviewed`.
 
 ## One save, no observed gap
 
@@ -120,18 +129,17 @@ This avoids treating a half-typed brace as “the comment vanished.”
 
 `reviewdistill extract --watch` stays in the project and watches its LaTeX sources. After you pause editing, it extracts the same way a one-shot `reviewdistill extract` does.
 
-It does not run AI coding. It does not Keep or Retract. It follows the files as you edit them, not only when you commit.
+It does not run AI labeling. It does not Verify or Drop. It follows the files as you edit them, not only when you commit.
 
 `reviewdistill extract` without `--watch` is the same extraction, run once.
 
 ## Workbench
 
-In `reviewdistill serve`, the workbench selector bar has two persistent chips on the right, plus a dismissable type chip on the left when a group is selected:
+In `reviewdistill serve`, the workbench selector bar has a persistent **Unlabeled** chip on the right, plus a dismissable type chip on the left when a group is selected:
 
-- **Uncoded** — present and kept comments that still need Accept / Change / Reject.
-- **Disappeared** — comments waiting on Keep or Retract. Coding actions are not shown here.
-- **Type chip** — named with the issue code (for example `MISSINGINTRODUCT (3)`). Clicking a type in Issue Taxonomy selects this chip and filters Comments to that type’s accepted working-dataset comments. Dismiss it with × to drop the type filter and clear Issue Details. Persistent Uncoded / Disappeared stay.
+- **Unlabeled** — working-set comments with no issue type, **plus** absent + unreviewed comments so you can Verify or Drop. There is no Reject button: not accepting a suggestion leaves the comment unlabeled.
+- **Type chip** — named with the issue code (for example `MISSINGINTRODUCT (3)`). Clicking a type in Issue Taxonomy selects this chip and filters Comments to that type’s **labeled** working-set comments. Dismiss it with × to drop the type filter and clear Issue Details.
 
-The Comments panel switches between a list and a single comment. The single-comment view shows manuscript context, location, and record metadata.
+**Verify** and **Drop** are quality stamps on the comment inspector (every comment). They are independent of the label. **Accept** / **Change** assign or change the issue type.
 
-Each disappeared item shows the stored comment, its last context and metadata, and the guess.
+The Comments panel switches between a list and a single comment. The list marks rows that are not in the manuscript. The single-comment view shows manuscript context, location, record metadata (including quality), and the guess when the comment is absent.

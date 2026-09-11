@@ -12,11 +12,9 @@ from reviewdistill.coding.validation import (
     accept_coding,
     change_coding,
     disappearance_guess,
-    disappeared_items,
+    drop_comment,
     inbox_items,
-    keep_comment,
-    reject_coding,
-    retract_comment,
+    verify_comment,
 )
 from reviewdistill.config import (
     LLM_SETTINGS_PROVIDERS,
@@ -30,7 +28,7 @@ from reviewdistill.config import (
     upsert_env_var,
     write_project_llm,
 )
-from reviewdistill.db.models import Project, ProofreadingComment
+from reviewdistill.db.models import Project, ProofreadingComment, in_manuscript
 from reviewdistill.db.session import get_session
 from reviewdistill.gitinfo import context_permalink, sanitize_remote_url
 from reviewdistill.history import list_history, redo, undo
@@ -101,56 +99,77 @@ def _guess(comment: ProofreadingComment) -> str:
 
 
 @router.get("/inbox")
-def get_inbox(view: str = "uncoded"):
-    view = view if view == "disappeared" else "uncoded"
-    with get_session():
-        uncoded = inbox_items()
-        disappeared = disappeared_items()
-        items = disappeared if view == "disappeared" else uncoded
-        issues = [
-            {"id": issue.id, "code": issue.code, "name": issue.name, "category": issue.category}
-            for issue in list_active_issue_types()
-        ]
-        payload = []
-        for item in items:
-            payload.append(
-                {
-                    "comment": _comment_json(item.comment),
-                    "project_name": _project_name(item.comment.project_id),
-                    "permalink": context_permalink(
-                        item.comment.git_url,
-                        item.comment.git_commit,
-                        item.comment.file_path,
-                        item.comment.line_number,
-                    ),
-                    "guess": _guess(item.comment) if view == "disappeared" else None,
-                    "coding": _coding_json(item.coding),
-                }
-            )
-        pending = len(uncoded_comments())
-        llm_name = None
-        try:
-            llm_name = get_provider().name
-        except RuntimeError:
-            pass
-        return {
-            "view": view,
-            "uncoded_count": len(uncoded),
-            "disappeared_count": len(disappeared),
-            "pending_code_count": pending,
-            "llm_provider": llm_name,
-            "issues": issues,
-            "items": payload,
-        }
+def get_inbox():
+    try:
+        with get_session():
+            unlabeled = inbox_items()
+            issues = [
+                {"id": issue.id, "code": issue.code, "name": issue.name, "category": issue.category}
+                for issue in list_active_issue_types()
+            ]
+            payload = []
+            for item in unlabeled:
+                payload.append(
+                    {
+                        "comment": _comment_json(item.comment),
+                        "project_name": _project_name(item.comment.project_id),
+                        "permalink": context_permalink(
+                            item.comment.git_url,
+                            item.comment.git_commit,
+                            item.comment.file_path,
+                            item.comment.line_number,
+                        ),
+                        "guess": _guess(item.comment) if not in_manuscript(item.comment) else None,
+                        "in_manuscript": in_manuscript(item.comment),
+                        "labeled": item.labeled,
+                        "issue": (
+                            {
+                                "id": item.issue.id,
+                                "code": item.issue.code,
+                                "name": item.issue.name,
+                                "category": item.issue.category,
+                            }
+                            if item.issue is not None
+                            else None
+                        ),
+                        "coding": _coding_json(item.coding),
+                    }
+                )
+            pending = len(uncoded_comments())
+            llm_name = None
+            try:
+                llm_name = get_provider().name
+            except RuntimeError:
+                pass
+            return {
+                "unlabeled_count": len(unlabeled),
+                "pending_code_count": pending,
+                "llm_provider": llm_name,
+                "issues": issues,
+                "items": payload,
+            }
+    except ValueError as exc:
+        raise _value_error_http(exc, mutate=False) from exc
+
+
+def _value_error_http(exc: ValueError, *, mutate: bool) -> HTTPException:
+    msg = str(exc)
+    if "Unknown comment quality" in msg:
+        status = 500
+    elif msg.startswith("Unknown export format"):
+        status = 400
+    elif msg.startswith("Unknown"):
+        status = 404
+    else:
+        status = 400 if mutate else 500
+    return HTTPException(status_code=status, detail=msg)
 
 
 def _mutate(fn):
     try:
         fn()
     except ValueError as exc:
-        msg = str(exc)
-        status = 404 if msg.startswith("Unknown") else 400
-        raise HTTPException(status_code=status, detail=msg) from exc
+        raise _value_error_http(exc, mutate=True) from exc
     return {"ok": True}
 
 
@@ -163,7 +182,7 @@ _LLM_FAILED = "LLM request failed"
 
 @router.post("/inbox/code")
 def post_code():
-    """Propose issue types for every uncoded working-dataset comment. There is no CLI ``code`` command."""
+    """Propose issue types for every unlabeled working-set comment. There is no CLI ``code`` command."""
     try:
         summary = code_uncoded_comments()
     except httpx.HTTPError as exc:
@@ -174,7 +193,7 @@ def post_code():
             raise HTTPException(status_code=400, detail=_LLM_FAILED) from exc
         raise HTTPException(status_code=400, detail=msg) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _value_error_http(exc, mutate=True) from exc
     return {
         "ok": True,
         "coded": summary.coded,
@@ -188,24 +207,19 @@ def post_accept(comment_id: str):
     return _mutate(lambda: accept_coding(comment_id))
 
 
-@router.post("/inbox/{comment_id}/reject")
-def post_reject(comment_id: str):
-    return _mutate(lambda: reject_coding(comment_id))
-
-
 @router.post("/inbox/{comment_id}/change")
 def post_change(comment_id: str, body: ChangeBody):
     return _mutate(lambda: change_coding(comment_id, issue_type_id=body.issue_type_id))
 
 
-@router.post("/inbox/{comment_id}/keep")
-def post_keep(comment_id: str):
-    return _mutate(lambda: keep_comment(comment_id))
+@router.post("/inbox/{comment_id}/verify")
+def post_verify(comment_id: str):
+    return _mutate(lambda: verify_comment(comment_id))
 
 
-@router.post("/inbox/{comment_id}/retract")
-def post_retract(comment_id: str):
-    return _mutate(lambda: retract_comment(comment_id))
+@router.post("/inbox/{comment_id}/drop")
+def post_drop(comment_id: str):
+    return _mutate(lambda: drop_comment(comment_id))
 
 
 class RenameBody(BaseModel):
@@ -246,20 +260,23 @@ class SplitBody(BaseModel):
 
 @router.get("/taxonomy")
 def get_taxonomy():
-    with get_session():
-        issues = list_active_issue_types()
-        counts = accepted_counts_by_issue_type()
-        grouped: dict[str, list] = {}
-        for issue in issues:
-            grouped.setdefault(issue.category, []).append(
-                {
-                    "id": issue.id,
-                    "code": issue.code,
-                    "name": issue.name,
-                    "count": counts.get(issue.id, 0),
-                }
-            )
-        return {"grouped": grouped}
+    try:
+        with get_session():
+            issues = list_active_issue_types()
+            counts = accepted_counts_by_issue_type()
+            grouped: dict[str, list] = {}
+            for issue in issues:
+                grouped.setdefault(issue.category, []).append(
+                    {
+                        "id": issue.id,
+                        "code": issue.code,
+                        "name": issue.name,
+                        "count": counts.get(issue.id, 0),
+                    }
+                )
+            return {"grouped": grouped}
+    except ValueError as exc:
+        raise _value_error_http(exc, mutate=False) from exc
 
 
 @router.post("/taxonomy/merge")
@@ -272,7 +289,7 @@ def get_export(format: str = "md"):
     try:
         text = export_rubric(fmt=format)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _value_error_http(exc, mutate=False) from exc
     media = "text/markdown; charset=utf-8"
     if format == "yaml":
         media = "application/yaml; charset=utf-8"
@@ -290,10 +307,13 @@ def get_paths():
 @router.get("/llm-settings")
 def get_llm_settings(project_id: str | None = None):
     """Paper list + selected YAML/``.env`` state. Never includes the API key (``key_set`` only)."""
-    projects = list_registered_project_rows()
-    default_id = default_registered_project_id()
-    selected_id = project_id or default_id
-    selected = llm_selected_payload(selected_id) if selected_id else None
+    try:
+        projects = list_registered_project_rows()
+        default_id = default_registered_project_id()
+        selected_id = project_id or default_id
+        selected = llm_selected_payload(selected_id) if selected_id else None
+    except ValueError as exc:
+        raise _value_error_http(exc, mutate=False) from exc
     if project_id and selected is None:
         raise HTTPException(status_code=404, detail="Unknown project")
     return {
@@ -316,8 +336,11 @@ def post_llm_settings(body: LlmSettingsBody):
     provider = body.provider.lower().strip()
     if provider not in LLM_SETTINGS_PROVIDERS:
         raise HTTPException(status_code=400, detail="Unknown LLM provider")
-    with get_session() as session:
-        project = session.get(Project, body.project_id)
+    try:
+        with get_session() as session:
+            project = session.get(Project, body.project_id)
+    except ValueError as exc:
+        raise _value_error_http(exc, mutate=False) from exc
     if project is None:
         raise HTTPException(status_code=404, detail="Unknown project")
     root = Path(project.root_path)
@@ -338,35 +361,38 @@ def post_llm_settings(body: LlmSettingsBody):
 
 @router.get("/taxonomy/{issue_id}")
 def get_issue(issue_id: str):
-    with get_session():
-        issue = get_issue_type(issue_id)
-        if issue is None:
-            raise HTTPException(status_code=404, detail=f"Unknown issue type {issue_id}")
-        examples = [{"id": row.id, "text": row.text} for row in list_examples(issue_id)]
-        counterexamples = [{"id": row.id, "text": row.text} for row in list_counterexamples(issue_id)]
-        comments = []
-        for comment in list_working_observations(issue_id):
-            row = _comment_json(comment)
-            row["project_name"] = _project_name(comment.project_id)
-            row["permalink"] = context_permalink(
-                comment.git_url,
-                comment.git_commit,
-                comment.file_path,
-                comment.line_number,
-            )
-            comments.append(row)
-        return {
-            "id": issue.id,
-            "code": issue.code,
-            "name": issue.name,
-            "category": issue.category,
-            "definition": issue.definition,
-            "notes": issue.notes,
-            "status": issue.status,
-            "examples": examples,
-            "counterexamples": counterexamples,
-            "comments": comments,
-        }
+    try:
+        with get_session():
+            issue = get_issue_type(issue_id)
+            if issue is None:
+                raise HTTPException(status_code=404, detail=f"Unknown issue type {issue_id}")
+            examples = [{"id": row.id, "text": row.text} for row in list_examples(issue_id)]
+            counterexamples = [{"id": row.id, "text": row.text} for row in list_counterexamples(issue_id)]
+            comments = []
+            for comment in list_working_observations(issue_id):
+                row = _comment_json(comment)
+                row["project_name"] = _project_name(comment.project_id)
+                row["permalink"] = context_permalink(
+                    comment.git_url,
+                    comment.git_commit,
+                    comment.file_path,
+                    comment.line_number,
+                )
+                comments.append(row)
+            return {
+                "id": issue.id,
+                "code": issue.code,
+                "name": issue.name,
+                "category": issue.category,
+                "definition": issue.definition,
+                "notes": issue.notes,
+                "status": issue.status,
+                "examples": examples,
+                "counterexamples": counterexamples,
+                "comments": comments,
+            }
+    except ValueError as exc:
+        raise _value_error_http(exc, mutate=False) from exc
 
 
 @router.post("/taxonomy/{issue_id}/rename")
@@ -416,7 +442,10 @@ def post_split(issue_id: str, body: SplitBody):
 
 @router.get("/history")
 def get_history():
-    return list_history()
+    try:
+        return list_history()
+    except ValueError as exc:
+        raise _value_error_http(exc, mutate=False) from exc
 
 
 @router.post("/history/undo")

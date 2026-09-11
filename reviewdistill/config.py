@@ -166,7 +166,6 @@ def load_home_config() -> HomeConfig:
     return HomeConfig(
         llm_provider=llm.get("provider"),
         llm_model=llm.get("model"),
-        llm_api_key=llm.get("api_key"),
     )
 
 
@@ -185,7 +184,7 @@ def load_llm_config(*, start: Path | None = None) -> HomeConfig:
         home = HomeConfig(
             llm_provider=llm.get("provider", home.llm_provider),
             llm_model=llm["model"] if llm.get("model") is not None else home.llm_model,
-            llm_api_key=llm["api_key"] if llm.get("api_key") else home.llm_api_key,
+            llm_api_key=home.llm_api_key,
         )
     return with_project_dotenv(home, root)
 
@@ -202,7 +201,6 @@ def llm_config_from_project_root(root: Path) -> HomeConfig | None:
         HomeConfig(
             llm_provider=llm.get("provider"),
             llm_model=llm.get("model"),
-            llm_api_key=llm.get("api_key"),
         ),
         root,
     )
@@ -237,8 +235,6 @@ def write_home_config(config: HomeConfig) -> None:
         "provider": config.llm_provider,
         "model": config.llm_model,
     }
-    if config.llm_api_key:
-        llm["api_key"] = config.llm_api_key
     path.write_text(yaml.safe_dump({"llm": llm}, sort_keys=False))
 
 
@@ -265,7 +261,9 @@ def write_project_config(root: Path, config: ProjectConfig) -> None:
         "comments": {"latex_commands": config.latex_commands},
     }
     if existing.get("llm"):
-        payload["llm"] = existing["llm"]
+        llm = dict(existing["llm"])
+        llm.pop("api_key", None)
+        payload["llm"] = llm
     path.write_text(yaml.safe_dump(payload, sort_keys=False))
 
 
@@ -287,7 +285,7 @@ def upsert_env_var(path: Path, key: str, value: str) -> None:
 
 
 def write_project_llm(root: Path, *, provider: str, model: str) -> None:
-    """Write ``llm.provider`` / ``llm.model``; strip leftover YAML ``api_key`` (keys live in ``.env``)."""
+    """Write ``llm.provider`` / ``llm.model``. Keys live in ``.env``, not YAML."""
     path = project_config_path(root)
     data = yaml.safe_load(path.read_text()) or {} if path.is_file() else {}
     llm = dict(data.get("llm") or {})
@@ -302,13 +300,7 @@ def write_project_llm(root: Path, *, provider: str, model: str) -> None:
 def paper_key_set(root: Path, provider: str | None) -> bool:
     if not provider:
         return False
-    if api_key_from_dotenv(root, provider):
-        return True
-    path = project_config_path(root)
-    if not path.is_file():
-        return False
-    data = yaml.safe_load(path.read_text()) or {}
-    return bool((data.get("llm") or {}).get("api_key"))
+    return bool(api_key_from_dotenv(root, provider))
 
 
 def list_registered_project_rows() -> list[dict]:

@@ -7,3 +7,13 @@ export function nextSelectedId(ids: string[], actedId: string): string | undefin
   if (i > 0) { return ids[i - 1] }
   return undefined
 }
+
+/** Keep the acted row when it is still in the list after reload. */
+export function selectedIdAfterAction(
+  idsBefore: string[],
+  actedId: string,
+  idsAfter: string[],
+): string | undefined {
+  if (idsAfter.includes(actedId)) { return actedId }
+  return nextSelectedId(idsBefore, actedId)
+}

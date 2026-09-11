@@ -17,5 +17,3 @@ Visible commands:
 `serve` options: `--host` (default `127.0.0.1`), `--port` (default `8765`).
 
 `move` copies the whole current folder into an empty `DIR` and leaves the old folder in place. Quit `serve` and `extract --watch` first; restart them after `use` or `move`.
-
-Hidden aliases still work for old scripts: `watch` (same as `extract --watch`), `cluster`, `taxonomy export`. They are not listed in `--help`.

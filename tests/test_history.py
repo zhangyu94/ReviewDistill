@@ -3,13 +3,24 @@ import json
 from fastapi.testclient import TestClient
 from reviewdistill.cli.init import init_project
 from reviewdistill.coding.coder import code_uncoded_comments
-from reviewdistill.coding.validation import accept_coding, inbox_items, keep_comment
+from reviewdistill.coding.validation import (
+    accept_coding,
+    change_coding,
+    inbox_items,
+    verify_comment,
+)
 from reviewdistill.db.models import Coding, IssueType, ProofreadingComment
 from reviewdistill.db.session import get_session
 from reviewdistill.extraction.incremental import extract_project
 from reviewdistill.history import list_history, redo, undo
 from reviewdistill.llm.mock import MockLLMProvider
-from reviewdistill.taxonomy.operations import create_issue_type, list_examples, move_issue_type, rename_issue_type
+from reviewdistill.taxonomy.operations import (
+    create_issue_type,
+    list_examples,
+    list_working_observations,
+    move_issue_type,
+    rename_issue_type,
+)
 from reviewdistill.web.app import create_app
 
 
@@ -111,6 +122,53 @@ def test_accept_is_logged_and_undo_returns_to_inbox(db, tmp_path):
         assert coding.status == "proposed"
 
 
+def test_undo_change_restores_previous_label(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Why this method?}\n")
+    extract_project(repo)
+    first = create_issue_type(
+        code="METHJUST",
+        name="Missing methodological justification",
+        category="Methodology",
+        definition="A design choice is unexplained.",
+    )
+    second = create_issue_type(
+        code="WEAK",
+        name="Weak evidence",
+        category="Argumentation",
+        definition="evidence is thin",
+    )
+    code_uncoded_comments(
+        provider=MockLLMProvider(
+            scripted_response=json.dumps(
+                {
+                    "recommendation": "existing",
+                    "issue_type_id": first.id,
+                    "confidence": 0.84,
+                    "rationale": "Asks why the method was chosen.",
+                }
+            )
+        )
+    )
+    comment_id = inbox_items()[0].comment.id
+    accept_coding(comment_id)
+    change_coding(comment_id, issue_type_id=second.id)
+    assert [row.id for row in list_working_observations(second.id)] == [comment_id]
+    assert list_working_observations(first.id) == []
+    undo()
+    assert [row.id for row in list_working_observations(first.id)] == [comment_id]
+    assert list_working_observations(second.id) == []
+    assert [row.source_comment_id for row in list_examples(first.id)] == [comment_id]
+    assert list_examples(second.id) == []
+    redo()
+    assert [row.id for row in list_working_observations(second.id)] == [comment_id]
+    assert list_working_observations(first.id) == []
+    assert list_examples(first.id) == []
+    assert [row.source_comment_id for row in list_examples(second.id)] == [comment_id]
+
+
 def test_propose_is_one_event_and_undo_removes_suggestions(db, tmp_path):
     repo = tmp_path / "paper"
     repo.mkdir()
@@ -150,7 +208,7 @@ def test_new_action_drops_redo_tail(db):
     assert "rename" not in _event_types(include_undone=True)
 
 
-def test_keep_undo_restores_disappeared(db, tmp_path):
+def test_verify_undo_restores_previous_quality(db, tmp_path):
     repo = tmp_path / "paper"
     repo.mkdir()
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
@@ -162,11 +220,14 @@ def test_keep_undo_restores_disappeared(db, tmp_path):
         comment = session.first(ProofreadingComment)
         comment_id = comment.id
         assert comment.status == "pending_disappeared"
-    keep_comment(comment_id)
-    assert "keep" in _event_types()
+        assert comment.quality == "unreviewed"
+    verify_comment(comment_id)
+    assert "verify" in _event_types()
     undo()
     with get_session() as session:
-        assert session.get(ProofreadingComment, comment_id).status == "pending_disappeared"
+        row = session.get(ProofreadingComment, comment_id)
+        assert row.quality == "unreviewed"
+        assert row.status == "pending_disappeared"
 
 
 def test_history_api_undo_redo_and_empty_errors(db):

@@ -4,9 +4,10 @@ Behavior: ``docs/comment-identity.md``. CLI extract (including ``--watch``) call
 
 Per stable ``.tex`` file: pair exact fingerprints in file order, then
 ``difflib.SequenceMatcher`` on leftovers (revision if similar and same command,
-else disappeared + new). Then cross-file exact-fingerprint moves, then resurrect
-pending/kept, then new vs ``pending_disappeared``. Unclosed comment braces skip
-that file only. Never deletes rows; never Keep/Retract; never AI-codes.
+else absent + new). Then cross-file exact-fingerprint moves, then resurrect
+absent rows, then new vs absent. Unclosed comment braces skip
+that file only. Never deletes rows; never Verify/Drops (except a wording
+revision clears ``verified`` to ``unreviewed``); never AI-labels.
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ from uuid import uuid4
 
 from reviewdistill.config import load_project_config
 from reviewdistill.context.manuscript import extract_context
-from reviewdistill.db.models import GitCommitRecord, ProofreadingComment, Project
+from reviewdistill.db.models import GitCommitRecord, Project, ProofreadingComment, comment_quality
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.extraction.base import ExtractedComment
 from reviewdistill.extraction.latex import LatexCommandExtractor
@@ -166,12 +167,16 @@ def extract_project(root: Path) -> ExtractSummary:
                 )
 
         existing = session.find(ProofreadingComment, project_id=config.id)
-        active = [row for row in existing if row.status == "active" and row.file_path not in skipped_set]
+        present = [
+            row
+            for row in existing
+            if row.status == "active" and row.file_path not in skipped_set
+        ]
         leftover_db: list[ProofreadingComment] = []
         leftover_ex: list[_Pending] = []
-        files = sorted(set(by_file) | {row.file_path for row in active})
+        files = sorted(set(by_file) | {row.file_path for row in present})
         for path in files:
-            d_rows = [row for row in active if row.file_path == path]
+            d_rows = [row for row in present if row.file_path == path]
             d_rows.sort(key=lambda row: (row.line_number, row.id))
             e_rows = list(by_file.get(path, []))
             paired, d_left, e_left = _pair_exact_fingerprints(d_rows, e_rows)
@@ -265,10 +270,13 @@ def _apply_source(
     row.git_url = git.remote_url
     row.context_text, row.section = _context_fields(root, pending)
     if update_text:
+        text_changed = row.fingerprint != pending.fingerprint
         row.raw_text = pending.raw_text
         row.fingerprint = pending.fingerprint
         row.source_command = pending.source_command
         row.source_type = pending.source_type
+        if text_changed and comment_quality(row) == "verified":
+            row.quality = "unreviewed"
 
 
 def _to_row(project_id: str, comment: _Pending, root: Path, git: GitMetadata) -> ProofreadingComment:
@@ -287,6 +295,7 @@ def _to_row(project_id: str, comment: _Pending, root: Path, git: GitMetadata) ->
         git_url=git.remote_url,
         fingerprint=comment.fingerprint,
         status="active",
+        quality="unreviewed",
     )
 
 
@@ -371,7 +380,7 @@ def _resurrect_candidate(
         row
         for row in existing
         if row.fingerprint == fingerprint
-        and row.status in {"pending_disappeared", "kept"}
+        and row.status != "active"
         and row.id not in used_ids
     ]
     if not candidates:

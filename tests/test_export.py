@@ -39,9 +39,9 @@ def test_export_yaml_and_json_are_structured(db):
     assert "Overclaiming" in json_text
 
 
-def test_export_omits_examples_from_retracted_comments(db, tmp_path):
+def test_export_omits_examples_from_dropped_comments(db, tmp_path):
     from reviewdistill.cli.init import init_project
-    from reviewdistill.coding.validation import accept_coding, retract_comment
+    from reviewdistill.coding.validation import accept_coding, drop_comment
     from reviewdistill.extraction.incremental import extract_project
     from reviewdistill.llm.mock import MockLLMProvider
     from reviewdistill.coding.coder import code_uncoded_comments
@@ -50,7 +50,7 @@ def test_export_omits_examples_from_retracted_comments(db, tmp_path):
     repo = tmp_path / "paper"
     repo.mkdir()
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
-    (repo / "main.tex").write_text("\\myremark{UNIQUE_RETRACTED_EXAMPLE.}\n")
+    (repo / "main.tex").write_text("\\myremark{UNIQUE_DROPPED_EXAMPLE.}\n")
     extract_project(repo)
     issue = create_issue_type(
         code="OVERCLAIM",
@@ -77,7 +77,7 @@ def test_export_omits_examples_from_retracted_comments(db, tmp_path):
     accept_coding(comment_id)
     (repo / "main.tex").write_text("no comments\n")
     extract_project(repo)
-    retract_comment(comment_id)
+    drop_comment(comment_id)
     md = export_rubric(fmt="md")
-    assert "UNIQUE_RETRACTED_EXAMPLE" not in md
+    assert "UNIQUE_DROPPED_EXAMPLE" not in md
     assert list_examples(issue.id) == []

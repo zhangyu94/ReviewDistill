@@ -36,7 +36,7 @@ def run_extract(
         return
     loop = watcher or watch_files
     try:
-        # Pause after LaTeX saves (750ms), then the same extract. No coding, no Keep/Retract.
+        # Pause after LaTeX saves (750ms), then the same extract. No labeling, no quality stamps.
         for _changes in loop(root, debounce=750, step=750, watch_filter=TexFilter()):
             summary = extract_project(root)
             typer.echo(format_extract_summary(summary))
