@@ -18,6 +18,20 @@ def _comment(text: str, context: str = "") -> ProofreadingComment:
     )
 
 
+def _count_store_loads(monkeypatch):
+    from reviewdistill.db.session import StoreSession
+
+    counts = {"n": 0}
+    original = StoreSession._load
+
+    def wrapped(self):
+        counts["n"] += 1
+        return original(self)
+
+    monkeypatch.setattr(StoreSession, "_load", wrapped)
+    return counts
+
+
 def test_retrieval_ranks_overlapping_issue_highest(db):
     overclaim = create_issue_type(
         code="OVERCLAIM",
@@ -81,3 +95,16 @@ def test_retrieval_ignores_examples_from_retracted_comments(db):
     ranked = retrieve_candidates(_comment("UNIQUE_RETRACTED_TOKEN is too strong"))
     assert list_examples(issue.id) == []
     assert all("UNIQUE_RETRACTED_TOKEN" not in (item.issue.definition or "") for item in ranked)
+
+
+def test_retrieve_candidates_loads_store_once(db, monkeypatch):
+    for index in range(3):
+        create_issue_type(
+            code=f"ISSUE{index}",
+            name=f"Issue {index} demonstrate",
+            category="Argumentation",
+            definition="A claim is stated more strongly than the evidence supports.",
+        )
+    loads = _count_store_loads(monkeypatch)
+    retrieve_candidates(_comment("demonstrate is too strong"))
+    assert loads["n"] == 1

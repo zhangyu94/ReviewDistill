@@ -253,7 +253,7 @@ export function saveLlmSettings(body: {
 
 export interface DataLocation {
   home: string
-  database: string
+  comments: string
 }
 
 export function fetchDataLocation(): Promise<DataLocation> {

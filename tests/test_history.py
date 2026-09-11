@@ -1,8 +1,6 @@
 import json
 
 from fastapi.testclient import TestClient
-from sqlmodel import select
-
 from reviewdistill.cli.init import init_project
 from reviewdistill.coding.coder import code_uncoded_comments
 from reviewdistill.coding.validation import accept_coding, inbox_items, keep_comment
@@ -109,7 +107,7 @@ def test_accept_is_logged_and_undo_returns_to_inbox(db, tmp_path):
     assert items[0].comment.id == comment_id
     assert list_examples(issue.id) == []
     with get_session() as session:
-        coding = session.exec(select(Coding)).first()
+        coding = session.first(Coding)
         assert coding.status == "proposed"
 
 
@@ -133,7 +131,7 @@ def test_propose_is_one_event_and_undo_removes_suggestions(db, tmp_path):
     assert propose[0]["summary"].startswith("Get AI suggestions")
     undo()
     with get_session() as session:
-        assert list(session.exec(select(Coding))) == []
+        assert session.find(Coding) == []
     assert len(inbox_items()) == 2
 
 
@@ -161,7 +159,7 @@ def test_keep_undo_restores_disappeared(db, tmp_path):
     (repo / "main.tex").write_text("no comments\n")
     extract_project(repo)
     with get_session() as session:
-        comment = session.exec(select(ProofreadingComment)).first()
+        comment = session.first(ProofreadingComment)
         comment_id = comment.id
         assert comment.status == "pending_disappeared"
     keep_comment(comment_id)

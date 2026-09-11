@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import typer
-from sqlmodel import select
 
 from reviewdistill.coding.clustering import cluster_texts
 from reviewdistill.db.models import WORKING_COMMENT_STATUSES, ProofreadingComment
@@ -11,12 +10,8 @@ from reviewdistill.db.session import get_session, init_db
 def run_cluster() -> None:
     init_db()
     with get_session() as session:
-        comments = list(
-            session.exec(
-                select(ProofreadingComment).where(
-                    ProofreadingComment.status.in_(WORKING_COMMENT_STATUSES)
-                )
-            )
+        comments = session.find(
+            ProofreadingComment, status=WORKING_COMMENT_STATUSES, order_by="created_at"
         )
     clusters = cluster_texts(comments)
     if not clusters:

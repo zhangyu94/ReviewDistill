@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from sqlmodel import select
 from watchfiles import Change
 
 from reviewdistill.cli.extract import run_extract
@@ -21,6 +20,6 @@ def test_run_extract_watch_extracts_on_tex_event(db, tmp_path: Path):
 
     run_extract(cwd=repo, watch=True, watcher=fake_watch)
     with get_session() as session:
-        rows = list(session.exec(select(ProofreadingComment)))
+        rows = session.find(ProofreadingComment)
         assert len(rows) == 1
         assert rows[0].raw_text == "From watch."

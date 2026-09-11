@@ -6,7 +6,6 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
-from sqlmodel import select
 
 from reviewdistill.coding.coder import code_uncoded_comments, uncoded_comments
 from reviewdistill.coding.validation import (
@@ -104,44 +103,45 @@ def _guess(comment: ProofreadingComment) -> str:
 @router.get("/inbox")
 def get_inbox(view: str = "uncoded"):
     view = view if view == "disappeared" else "uncoded"
-    uncoded = inbox_items()
-    disappeared = disappeared_items()
-    items = disappeared if view == "disappeared" else uncoded
-    issues = [
-        {"id": issue.id, "code": issue.code, "name": issue.name, "category": issue.category}
-        for issue in list_active_issue_types()
-    ]
-    payload = []
-    for item in items:
-        payload.append(
-            {
-                "comment": _comment_json(item.comment),
-                "project_name": _project_name(item.comment.project_id),
-                "permalink": context_permalink(
-                    item.comment.git_url,
-                    item.comment.git_commit,
-                    item.comment.file_path,
-                    item.comment.line_number,
-                ),
-                "guess": _guess(item.comment) if view == "disappeared" else None,
-                "coding": _coding_json(item.coding),
-            }
-        )
-    pending = len(uncoded_comments())
-    llm_name = None
-    try:
-        llm_name = get_provider().name
-    except RuntimeError:
-        pass
-    return {
-        "view": view,
-        "uncoded_count": len(uncoded),
-        "disappeared_count": len(disappeared),
-        "pending_code_count": pending,
-        "llm_provider": llm_name,
-        "issues": issues,
-        "items": payload,
-    }
+    with get_session():
+        uncoded = inbox_items()
+        disappeared = disappeared_items()
+        items = disappeared if view == "disappeared" else uncoded
+        issues = [
+            {"id": issue.id, "code": issue.code, "name": issue.name, "category": issue.category}
+            for issue in list_active_issue_types()
+        ]
+        payload = []
+        for item in items:
+            payload.append(
+                {
+                    "comment": _comment_json(item.comment),
+                    "project_name": _project_name(item.comment.project_id),
+                    "permalink": context_permalink(
+                        item.comment.git_url,
+                        item.comment.git_commit,
+                        item.comment.file_path,
+                        item.comment.line_number,
+                    ),
+                    "guess": _guess(item.comment) if view == "disappeared" else None,
+                    "coding": _coding_json(item.coding),
+                }
+            )
+        pending = len(uncoded_comments())
+        llm_name = None
+        try:
+            llm_name = get_provider().name
+        except RuntimeError:
+            pass
+        return {
+            "view": view,
+            "uncoded_count": len(uncoded),
+            "disappeared_count": len(disappeared),
+            "pending_code_count": pending,
+            "llm_provider": llm_name,
+            "issues": issues,
+            "items": payload,
+        }
 
 
 def _mutate(fn):
@@ -246,19 +246,20 @@ class SplitBody(BaseModel):
 
 @router.get("/taxonomy")
 def get_taxonomy():
-    issues = list_active_issue_types()
-    counts = accepted_counts_by_issue_type()
-    grouped: dict[str, list] = {}
-    for issue in issues:
-        grouped.setdefault(issue.category, []).append(
-            {
-                "id": issue.id,
-                "code": issue.code,
-                "name": issue.name,
-                "count": counts.get(issue.id, 0),
-            }
-        )
-    return {"grouped": grouped}
+    with get_session():
+        issues = list_active_issue_types()
+        counts = accepted_counts_by_issue_type()
+        grouped: dict[str, list] = {}
+        for issue in issues:
+            grouped.setdefault(issue.category, []).append(
+                {
+                    "id": issue.id,
+                    "code": issue.code,
+                    "name": issue.name,
+                    "count": counts.get(issue.id, 0),
+                }
+            )
+        return {"grouped": grouped}
 
 
 @router.post("/taxonomy/merge")
@@ -282,7 +283,7 @@ def get_export(format: str = "md"):
 
 @router.get("/paths")
 def get_paths():
-    """Home folder and SQLite file. Copy the folder to back up."""
+    """Home folder and comments JSONL. Copy the folder to back up."""
     return data_location()
 
 
@@ -337,34 +338,35 @@ def post_llm_settings(body: LlmSettingsBody):
 
 @router.get("/taxonomy/{issue_id}")
 def get_issue(issue_id: str):
-    issue = get_issue_type(issue_id)
-    if issue is None:
-        raise HTTPException(status_code=404, detail=f"Unknown issue type {issue_id}")
-    examples = [{"id": row.id, "text": row.text} for row in list_examples(issue_id)]
-    counterexamples = [{"id": row.id, "text": row.text} for row in list_counterexamples(issue_id)]
-    comments = []
-    for comment in list_working_observations(issue_id):
-        row = _comment_json(comment)
-        row["project_name"] = _project_name(comment.project_id)
-        row["permalink"] = context_permalink(
-            comment.git_url,
-            comment.git_commit,
-            comment.file_path,
-            comment.line_number,
-        )
-        comments.append(row)
-    return {
-        "id": issue.id,
-        "code": issue.code,
-        "name": issue.name,
-        "category": issue.category,
-        "definition": issue.definition,
-        "notes": issue.notes,
-        "status": issue.status,
-        "examples": examples,
-        "counterexamples": counterexamples,
-        "comments": comments,
-    }
+    with get_session():
+        issue = get_issue_type(issue_id)
+        if issue is None:
+            raise HTTPException(status_code=404, detail=f"Unknown issue type {issue_id}")
+        examples = [{"id": row.id, "text": row.text} for row in list_examples(issue_id)]
+        counterexamples = [{"id": row.id, "text": row.text} for row in list_counterexamples(issue_id)]
+        comments = []
+        for comment in list_working_observations(issue_id):
+            row = _comment_json(comment)
+            row["project_name"] = _project_name(comment.project_id)
+            row["permalink"] = context_permalink(
+                comment.git_url,
+                comment.git_commit,
+                comment.file_path,
+                comment.line_number,
+            )
+            comments.append(row)
+        return {
+            "id": issue.id,
+            "code": issue.code,
+            "name": issue.name,
+            "category": issue.category,
+            "definition": issue.definition,
+            "notes": issue.notes,
+            "status": issue.status,
+            "examples": examples,
+            "counterexamples": counterexamples,
+            "comments": comments,
+        }
 
 
 @router.post("/taxonomy/{issue_id}/rename")

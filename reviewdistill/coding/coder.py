@@ -5,8 +5,6 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 import httpx
-from sqlmodel import select
-
 from reviewdistill.coding.retrieval import retrieve_candidates
 from reviewdistill.db.models import WORKING_COMMENT_STATUSES, Coding, ProofreadingComment
 from reviewdistill.db.session import get_session, init_db
@@ -124,15 +122,11 @@ def uncoded_comments(*, provider_name: str | None | object = _UNSET) -> list[Pro
         resolved = None
     init_db()
     with get_session() as session:
-        comments = list(
-            session.exec(
-                select(ProofreadingComment).where(
-                    ProofreadingComment.status.in_(WORKING_COMMENT_STATUSES)
-                )
-            )
+        comments = session.find(
+            ProofreadingComment, status=WORKING_COMMENT_STATUSES, order_by="created_at"
         )
         resolved_ids: set[str] = set()
-        for coding in session.exec(select(Coding)):
+        for coding in session.find(Coding):
             if coding.status in {"accepted", "rejected", "modified"}:
                 resolved_ids.add(coding.comment_id)
             elif coding.status == "proposed" and not hide_placeholder_coding(
@@ -145,17 +139,19 @@ def uncoded_comments(*, provider_name: str | None | object = _UNSET) -> list[Pro
 def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
     init_db()
     provider = provider or get_provider()
-    comments = uncoded_comments(provider_name=provider.name)
-    warning = None
-    if provider.name != "mock" and comments:
-        warning = privacy_warning(provider_name=provider.name, comment_count=len(comments))
-        print(warning)
     coded = 0
     skipped = 0
     created: list[dict] = []
     replaced: list[dict] = []
+    with get_session():
+        comments = uncoded_comments(provider_name=provider.name)
+        ranked_by_id = {comment.id: retrieve_candidates(comment) for comment in comments}
+    warning = None
+    if provider.name != "mock" and comments:
+        warning = privacy_warning(provider_name=provider.name, comment_count=len(comments))
+        print(warning)
     for comment in comments:
-        ranked = retrieve_candidates(comment)
+        ranked = ranked_by_id[comment.id]
         prompt = build_prompt(
             raw_text=comment.raw_text,
             context_text=comment.context_text,
@@ -176,14 +172,7 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
             if get_issue_type(issue_type_id) is None:
                 issue_type_id = None
         with get_session() as session:
-            for row in list(
-                session.exec(
-                    select(Coding).where(
-                        Coding.comment_id == comment.id,
-                        Coding.status == "proposed",
-                    )
-                )
-            ):
+            for row in list(session.find(Coding, comment_id=comment.id, status="proposed")):
                 if hide_placeholder_coding(row, provider_name=provider.name):
                     session.delete(row)
                 else:

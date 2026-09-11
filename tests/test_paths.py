@@ -1,11 +1,16 @@
-import sqlite3
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
 
 import pytest
 
 from reviewdistill.paths import (
     HomePathError,
+    comments_path,
     data_location,
-    db_path,
     find_project_root,
     home_dir,
     move_home,
@@ -48,7 +53,7 @@ def test_home_dir_uses_locator(tmp_path, monkeypatch):
     _locator_only(tmp_path, monkeypatch)
     dest = use_home(tmp_path / "rd")
     assert home_dir() == dest
-    assert db_path() == dest / "reviewdistill.db"
+    assert comments_path() == dest / "comments.jsonl"
 
 
 def test_data_location_uses_resolved_home(tmp_path, monkeypatch):
@@ -57,7 +62,7 @@ def test_data_location_uses_resolved_home(tmp_path, monkeypatch):
     loc = data_location()
     assert "home_env" not in loc
     assert loc["home"] == str(dest)
-    assert loc["database"] == str(dest / "reviewdistill.db")
+    assert loc["comments"] == str(dest / "comments.jsonl")
 
 
 def test_find_project_root_walks_up(tmp_path):
@@ -86,7 +91,7 @@ def test_use_home_persists_folder(tmp_path, monkeypatch):
     assert used == dest.resolve()
     assert dest.is_dir()
     assert home_dir() == dest.resolve()
-    assert db_path() == dest.resolve() / "reviewdistill.db"
+    assert comments_path() == dest.resolve() / "comments.jsonl"
 
 
 def test_env_does_not_override_locator(tmp_path, monkeypatch):
@@ -100,21 +105,21 @@ def test_env_does_not_override_locator(tmp_path, monkeypatch):
 def test_move_home_copies_folder_then_uses_it(tmp_path, monkeypatch):
     _locator_only(tmp_path, monkeypatch)
     src = use_home(tmp_path / "old-home")
-    sqlite3.connect(src / "reviewdistill.db").close()
+    (src / "comments.jsonl").write_text("{}\n")
     (src / "config.yaml").write_text("llm: {}\n")
     dest = tmp_path / "backup" / "reviewdistill"
     moved = move_home(dest)
     assert moved == dest.resolve()
-    assert (dest / "reviewdistill.db").is_file()
+    assert (dest / "comments.jsonl").read_text() == "{}\n"
     assert (dest / "config.yaml").read_text() == "llm: {}\n"
-    assert (src / "reviewdistill.db").is_file()
+    assert (src / "comments.jsonl").read_text() == "{}\n"
     assert home_dir() == dest.resolve()
 
 
 def test_move_home_refuses_nonempty_destination(tmp_path, monkeypatch):
     _locator_only(tmp_path, monkeypatch)
     src = use_home(tmp_path / "old-home")
-    sqlite3.connect(src / "reviewdistill.db").close()
+    (src / "comments.jsonl").write_text("{}\n")
     dest = tmp_path / "taken"
     dest.mkdir()
     (dest / "other.txt").write_text("no")
@@ -138,62 +143,153 @@ def test_move_home_refuses_empty_destination_already_inside_home(tmp_path, monke
         move_home(dest)
 
 
-def test_move_home_refuses_when_database_is_busy(tmp_path, monkeypatch):
+def test_move_home_refuses_when_store_is_busy(tmp_path, monkeypatch):
     _locator_only(tmp_path, monkeypatch)
     src = use_home(tmp_path / "old-home")
-    conn = sqlite3.connect(str(src / "reviewdistill.db"))
-    conn.execute("CREATE TABLE t (x INTEGER)")
-    conn.execute("BEGIN EXCLUSIVE")
-    conn.execute("INSERT INTO t VALUES (1)")
-    try:
-        with pytest.raises(HomePathError, match="Stop reviewdistill serve"):
-            move_home(tmp_path / "new-home")
-    finally:
-        conn.close()
-
-
-def test_move_home_refuses_when_database_is_unreadable(tmp_path, monkeypatch):
-    _locator_only(tmp_path, monkeypatch)
-    src = use_home(tmp_path / "old-home")
-    (src / "reviewdistill.db").write_text("not a database")
-    with pytest.raises(HomePathError, match="Could not lock"):
-        move_home(tmp_path / "new-home")
-
-
-def test_move_home_refuses_when_wal_engine_is_idle(tmp_path, monkeypatch):
-    from sqlalchemy import event, text
-    from sqlmodel import Session, create_engine
-
-    _locator_only(tmp_path, monkeypatch)
-    src = use_home(tmp_path / "old-home")
-    db = src / "reviewdistill.db"
-    engine = create_engine(
-        f"sqlite:///{db}",
-        echo=False,
-        connect_args={"timeout": 30, "check_same_thread": False},
+    (src / "comments.jsonl").write_text("{}\n")
+    lock = src / ".lock"
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import fcntl, time\n"
+                f"fp = open({str(lock)!r}, 'a+')\n"
+                "fcntl.flock(fp, fcntl.LOCK_EX)\n"
+                "time.sleep(30)\n"
+            ),
+        ]
     )
-
-    @event.listens_for(engine, "connect")
-    def _sqlite_pragmas(dbapi_conn, _connection_record):  # noqa: ARG001
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA busy_timeout=30000")
-        cursor.close()
-
-    with Session(engine) as session:
-        session.execute(text("CREATE TABLE t (x INTEGER)"))
-        session.commit()
     try:
+        from reviewdistill.paths import home_is_busy
+
+        for _ in range(50):
+            if home_is_busy(src):
+                break
+            time.sleep(0.05)
         with pytest.raises(HomePathError, match="Stop reviewdistill serve"):
             move_home(tmp_path / "new-home")
     finally:
-        engine.dispose()
+        proc.kill()
+        proc.wait()
+
+
+def test_move_home_skips_lock_tmp_and_staging(tmp_path, monkeypatch):
+    _locator_only(tmp_path, monkeypatch)
+    src = use_home(tmp_path / "old-home")
+    (src / "comments.jsonl").write_text("{}\n")
+    (src / ".lock").write_text("held")
+    (src / "comments.jsonl.tmp").write_text("partial\n")
+    staging = src / ".commit"
+    staging.mkdir()
+    (staging / "COMMIT").write_text("ok\n")
+    dest = tmp_path / "backup" / "reviewdistill"
+    move_home(dest)
+    assert (dest / "comments.jsonl").read_text() == "{}\n"
+    assert not (dest / ".lock").exists()
+    assert not (dest / "comments.jsonl.tmp").exists()
+    assert not (dest / ".commit").exists()
+
+
+def test_move_home_applies_pending_commit_before_copy(tmp_path, monkeypatch):
+    _locator_only(tmp_path, monkeypatch)
+    src = use_home(tmp_path / "old-home")
+    from reviewdistill.db.models import Project, ProofreadingComment
+    from reviewdistill.db.session import get_session
+
+    with get_session() as session:
+        session.add(Project(id="p1", name="old", root_path="/tmp/paper"))
+        session.add(
+            ProofreadingComment(
+                id="c1",
+                project_id="p1",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=1,
+                raw_text="old",
+                fingerprint="fp",
+                status="active",
+            )
+        )
+        session.commit()
+    staging = src / ".commit"
+    staging.mkdir()
+    (staging / "projects.jsonl").write_text(
+        (src / "projects.jsonl").read_text(encoding="utf-8").replace('"old"', '"new"'),
+        encoding="utf-8",
+    )
+    (staging / "comments.jsonl").write_text(
+        (src / "comments.jsonl").read_text(encoding="utf-8").replace('"old"', '"new"'),
+        encoding="utf-8",
+    )
+    (staging / "COMMIT").write_text("ok\n", encoding="utf-8")
+    dest = tmp_path / "backup" / "reviewdistill"
+    move_home(dest)
+    assert not (dest / ".commit").exists()
+    with get_session() as session:
+        assert session.get(Project, "p1").name == "new"
+        assert session.get(ProofreadingComment, "c1").raw_text == "new"
+
+
+def test_move_home_rechecks_destination_after_lock(tmp_path, monkeypatch):
+    import fcntl
+
+    _locator_only(tmp_path, monkeypatch)
+    src = use_home(tmp_path / "old-home")
+    (src / "comments.jsonl").write_text("{}\n")
+    dest = tmp_path / "new-home"
+    real_flock = fcntl.flock
+
+    def flock(fp, flags):
+        if flags == fcntl.LOCK_EX | fcntl.LOCK_NB:
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / "sneak.txt").write_text("taken\n", encoding="utf-8")
+        return real_flock(fp, flags)
+
+    monkeypatch.setattr("reviewdistill.paths.fcntl.flock", flock)
+    with pytest.raises(HomePathError, match="already has files"):
+        move_home(dest)
+
+
+def test_move_home_holds_lock_during_copy(tmp_path, monkeypatch):
+    _locator_only(tmp_path, monkeypatch)
+    src = use_home(tmp_path / "old-home")
+    (src / "comments.jsonl").write_text("{}\n")
+    original = shutil.copytree
+    busy_during_copy = {"value": None}
+
+    def wrapped(src_dir, dest_dir, **kwargs):
+        root = Path(__file__).resolve().parents[1]
+        env = {**os.environ, "PYTHONPATH": str(root) + os.pathsep + os.environ.get("PYTHONPATH", "")}
+        check = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "from pathlib import Path\n"
+                    "from reviewdistill.paths import home_is_busy\n"
+                    f"raise SystemExit(0 if home_is_busy(Path({str(Path(src_dir).resolve())!r})) else 1)\n"
+                ),
+            ],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        busy_during_copy["value"] = check.returncode
+        return original(src_dir, dest_dir, **kwargs)
+
+    monkeypatch.setattr("reviewdistill.paths.shutil.copytree", wrapped)
+    move_home(tmp_path / "new-home")
+    assert busy_during_copy["value"] == 0, "store must stay locked while copying"
 
 
 def test_move_home_wraps_copy_errors(tmp_path, monkeypatch):
     _locator_only(tmp_path, monkeypatch)
     src = use_home(tmp_path / "old-home")
-    sqlite3.connect(src / "reviewdistill.db").close()
+    (src / "comments.jsonl").write_text("{}\n")
 
     def boom(*_args, **_kwargs):
         raise OSError("disk full")

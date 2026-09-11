@@ -4,6 +4,7 @@ import json
 
 import yaml
 
+from reviewdistill.db.session import get_session
 from reviewdistill.taxonomy.operations import (
     list_active_issue_types,
     list_counterexamples,
@@ -12,19 +13,20 @@ from reviewdistill.taxonomy.operations import (
 
 
 def export_rubric(fmt: str = "md") -> str:
-    issues = []
-    for issue in list_active_issue_types():
-        issues.append(
-            {
-                "code": issue.code,
-                "name": issue.name,
-                "category": issue.category,
-                "definition": issue.definition,
-                "examples": [example.text for example in list_examples(issue.id)],
-                "counterexamples": [item.text for item in list_counterexamples(issue.id)],
-                "notes": issue.notes,
-            }
-        )
+    with get_session():
+        issues = []
+        for issue in list_active_issue_types():
+            issues.append(
+                {
+                    "code": issue.code,
+                    "name": issue.name,
+                    "category": issue.category,
+                    "definition": issue.definition,
+                    "examples": [example.text for example in list_examples(issue.id)],
+                    "counterexamples": [item.text for item in list_counterexamples(issue.id)],
+                    "notes": issue.notes,
+                }
+            )
     if fmt == "md":
         return _to_markdown(issues)
     if fmt == "yaml":

@@ -1,12 +1,10 @@
 # Data schema
 
-Stored shape of a **project** (paper) and a proofreading **observation** in the ReviewDistill database.
+Stored shape of a **project** (paper) and a proofreading **observation** in the ReviewDistill store.
 
 Identity (when a source comment is new, a revision, a move, or gone) is defined in [`comment-identity.md`](comment-identity.md). Product spec: [`spec.md`](spec.md). This file is the schema of the rows that identity acts on.
 
-Implementation: SQLModel `Project` → table `projects`, SQLModel `ProofreadingComment` → table `comments`, in the ReviewDistill home folder (`reviewdistill.db`, default `~/.reviewdistill`). `reviewdistill paths use` / `move` choose that folder.
-
-There is no declared SQL foreign key. `comments.project_id` is the `projects.id` of the paper.
+Implementation: one JSONL file per collection in the ReviewDistill home folder (default `~/.reviewdistill`): `projects.jsonl`, `comments.jsonl`, `codings.jsonl`, `issue_types.jsonl`, `issue_examples.jsonl`, `issue_counterexamples.jsonl`, `taxonomy_events.jsonl`, `git_commits.jsonl`. One JSON object per line, sorted by `id`. `reviewdistill paths use` / `move` choose that folder. `comments.project_id` is the `projects.id` of the paper.
 
 The JSON object under `comment` in `GET /api/inbox` (workbench Uncoded / Disappeared) is the comment row (`created_at` as ISO-8601). Response extras (`project_name`, `permalink`, `guess`, `coding`) are not columns on `comments`; `project_name` is `projects.name`.
 

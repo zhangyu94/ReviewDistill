@@ -12,8 +12,6 @@ import json
 from datetime import datetime
 from uuid import uuid4
 
-from sqlmodel import select
-
 from reviewdistill.db.models import (
     Coding,
     IssueCounterexample,
@@ -69,7 +67,7 @@ def example_from_dump(data: dict) -> IssueExample:
 
 
 def record(session, event_type: str, payload: dict) -> None:
-    for event in list(session.exec(select(TaxonomyEvent).where(TaxonomyEvent.undone.is_(True)))):
+    for event in session.find(TaxonomyEvent, undone=True):
         session.delete(event)
     session.add(
         TaxonomyEvent(
@@ -130,7 +128,7 @@ def can_invert(event: TaxonomyEvent) -> bool:
 def list_history() -> dict:
     init_db()
     with get_session() as session:
-        rows = list(session.exec(select(TaxonomyEvent).order_by(TaxonomyEvent.created_at.desc())))
+        rows = session.find(TaxonomyEvent, order_by="created_at", reverse=True)
     events = []
     for event in rows:
         payload = json.loads(event.payload_json)
@@ -156,7 +154,7 @@ def undo() -> None:
     with get_session() as session:
         rows = [
             event
-            for event in session.exec(select(TaxonomyEvent).order_by(TaxonomyEvent.created_at))
+            for event in session.find(TaxonomyEvent, order_by="created_at")
             if not event.undone
         ]
         if not rows:
@@ -175,7 +173,7 @@ def redo() -> None:
     with get_session() as session:
         undone = [
             event
-            for event in session.exec(select(TaxonomyEvent).order_by(TaxonomyEvent.created_at))
+            for event in session.find(TaxonomyEvent, order_by="created_at")
             if event.undone
         ]
         if not undone:

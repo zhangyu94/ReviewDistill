@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from uuid import uuid4
 
-from sqlmodel import select
-
 from reviewdistill.coding.coder import effective_provider_name, hide_placeholder_coding
 from reviewdistill.context.manuscript import extract_context, split_stored_context
 from reviewdistill.db.models import (
@@ -40,26 +38,16 @@ def inbox_items() -> list[InboxItem]:
     init_db()
     provider_name = effective_provider_name()
     with get_session() as session:
-        comments = list(
-            session.exec(
-                select(ProofreadingComment).where(
-                    ProofreadingComment.status.in_(WORKING_COMMENT_STATUSES)
-                )
-            )
+        comments = session.find(
+            ProofreadingComment, status=WORKING_COMMENT_STATUSES, order_by="created_at"
         )
         items: list[InboxItem] = []
         for comment in comments:
-            codings = list(session.exec(select(Coding).where(Coding.comment_id == comment.id)))
+            codings = session.find(Coding, comment_id=comment.id)
             if any(row.status in {"accepted", "rejected", "modified"} for row in codings):
                 continue
-            proposed = next(
-                (
-                    row
-                    for row in codings
-                    if row.status == "proposed"
-                    and not hide_placeholder_coding(row, provider_name=provider_name)
-                ),
-                None,
+            proposed = _latest_proposed(
+                session, comment.id, provider_name=provider_name, skip_placeholders=True
             )
             visible = [
                 row
@@ -75,24 +63,17 @@ def inbox_items() -> list[InboxItem]:
 def disappeared_items() -> list[InboxItem]:
     init_db()
     with get_session() as session:
-        comments = list(
-            session.exec(
-                select(ProofreadingComment).where(
-                    ProofreadingComment.status == "pending_disappeared"
-                )
-            )
-        )
+        comments = session.find(ProofreadingComment, status="pending_disappeared", order_by="created_at")
         return [InboxItem(comment=comment, coding=None) for comment in comments]
 
 
 def _existing_example(issue_type_id: str, comment_id: str) -> IssueExample | None:
     with get_session() as session:
-        return session.exec(
-            select(IssueExample).where(
-                IssueExample.issue_type_id == issue_type_id,
-                IssueExample.source_comment_id == comment_id,
-            )
-        ).first()
+        return session.first(
+            IssueExample,
+            issue_type_id=issue_type_id,
+            source_comment_id=comment_id,
+        )
 
 
 def _log_event(event_type: str, payload: dict) -> None:
@@ -140,10 +121,15 @@ def disappearance_guess(comment: ProofreadingComment, *, source: str | None) -> 
     return RETRACT_UNCHANGED
 
 
-def _latest_proposed(session, comment_id: str) -> Coding | None:
-    rows = list(session.exec(select(Coding).where(Coding.comment_id == comment_id)))
-    proposed = [row for row in rows if row.status == "proposed"]
-    return proposed[-1] if proposed else None
+def _latest_proposed(
+    session, comment_id: str, *, provider_name: str | None = None, skip_placeholders: bool = False
+) -> Coding | None:
+    rows = session.find(Coding, comment_id=comment_id, status="proposed", order_by="created_at")
+    if skip_placeholders:
+        rows = [
+            row for row in rows if not hide_placeholder_coding(row, provider_name=provider_name)
+        ]
+    return rows[-1] if rows else None
 
 
 def accept_coding(comment_id: str) -> Coding:

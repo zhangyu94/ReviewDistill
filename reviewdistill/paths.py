@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import fcntl
 import shutil
-import sqlite3
 from pathlib import Path
 
 PROJECT_DIRNAME = ".reviewdistill"
 PROJECT_CONFIG_NAME = "config.yaml"
+COMMENTS_FILE = "comments.jsonl"
+LOCK_NAME = ".lock"
+STAGING_DIRNAME = ".commit"
 
 
 class HomePathError(Exception):
@@ -25,16 +28,16 @@ def home_dir() -> Path:
     return Path.home() / ".reviewdistill"
 
 
-def db_path() -> Path:
-    return home_dir() / "reviewdistill.db"
+def comments_path() -> Path:
+    return home_dir() / COMMENTS_FILE
 
 
 def data_location() -> dict[str, str]:
-    """Absolute home folder and database path for CLI, API, and backup docs."""
+    """Absolute home folder and comments JSONL path for CLI, API, and backup docs."""
     home = home_dir().expanduser().resolve()
     return {
         "home": str(home),
-        "database": str(home / "reviewdistill.db"),
+        "comments": str(home / COMMENTS_FILE),
     }
 
 
@@ -54,24 +57,23 @@ def use_home(directory: Path | str) -> Path:
 
 
 def home_is_busy(home: Path) -> bool:
-    db = home / "reviewdistill.db"
-    if not db.is_file():
-        return False
-    try:
-        conn = sqlite3.connect(str(db), timeout=0.2)
+    lock = home / LOCK_NAME
+    home.mkdir(parents=True, exist_ok=True)
+    with lock.open("a+") as fp:
         try:
-            conn.execute("PRAGMA locking_mode=EXCLUSIVE")
-            conn.execute("BEGIN EXCLUSIVE")
-            conn.rollback()
-        finally:
-            conn.close()
-    except sqlite3.OperationalError:
-        return True
-    except sqlite3.DatabaseError as exc:
-        raise HomePathError(
-            f"Could not lock {db}. Stop reviewdistill serve and extract, then try again."
-        ) from exc
+            fcntl.flock(fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(fp, fcntl.LOCK_UN)
     return False
+
+
+def _ignore_ephemeral(_directory: str, names: list[str]) -> list[str]:
+    return [
+        name
+        for name in names
+        if name in {LOCK_NAME, STAGING_DIRNAME} or name.endswith(".jsonl.tmp")
+    ]
 
 
 def move_home(directory: Path | str) -> Path:
@@ -87,13 +89,23 @@ def move_home(directory: Path | str) -> Path:
         raise HomePathError(f"{dest} is not a folder.")
     if dest.exists() and any(dest.iterdir()):
         raise HomePathError(f"{dest} already has files. Choose an empty folder.")
-    if home_is_busy(src):
-        raise HomePathError("Stop reviewdistill serve and extract, then try again.")
-    try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(src, dest, dirs_exist_ok=True)
-    except OSError as exc:
-        raise HomePathError(f"Could not copy {src} to {dest}.") from exc
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    lock = src / LOCK_NAME
+    src.mkdir(parents=True, exist_ok=True)
+    with lock.open("a+") as fp:
+        try:
+            fcntl.flock(fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise HomePathError("Stop reviewdistill serve and extract, then try again.") from exc
+        if dest.exists() and any(dest.iterdir()):
+            raise HomePathError(f"{dest} already has files. Choose an empty folder.")
+        from reviewdistill.db.session import apply_pending_commit
+
+        apply_pending_commit(src)
+        try:
+            shutil.copytree(src, dest, dirs_exist_ok=True, ignore=_ignore_ephemeral)
+        except OSError as exc:
+            raise HomePathError(f"Could not copy {src} to {dest}.") from exc
     return use_home(dest)
 
 

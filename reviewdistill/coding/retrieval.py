@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 
 from reviewdistill.db.models import IssueType, ProofreadingComment
+from reviewdistill.db.session import get_session
 from reviewdistill.taxonomy.operations import list_active_issue_types, list_examples
 
 TOKEN_RE = re.compile(r"[a-z0-9]+")
@@ -22,14 +23,15 @@ def retrieve_candidates(comment: ProofreadingComment, limit: int = 5) -> list[Ra
     if not query_tokens:
         return []
     ranked: list[RankedIssue] = []
-    for issue in list_active_issue_types():
-        example_text = " ".join(example.text for example in list_examples(issue.id))
-        doc_tokens = _tokens(
-            f"{issue.name} {issue.code} {issue.definition} {issue.detection_guidance or ''} {example_text}"
-        )
-        score = _overlap(query_tokens, doc_tokens)
-        if score > 0:
-            ranked.append(RankedIssue(id=issue.id, issue=issue, score=score))
+    with get_session():
+        for issue in list_active_issue_types():
+            example_text = " ".join(example.text for example in list_examples(issue.id))
+            doc_tokens = _tokens(
+                f"{issue.name} {issue.code} {issue.definition} {issue.detection_guidance or ''} {example_text}"
+            )
+            score = _overlap(query_tokens, doc_tokens)
+            if score > 0:
+                ranked.append(RankedIssue(id=issue.id, issue=issue, score=score))
     ranked.sort(key=lambda item: item.score, reverse=True)
     return ranked[:limit]
 

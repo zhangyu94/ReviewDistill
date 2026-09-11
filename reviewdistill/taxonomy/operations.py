@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from sqlmodel import select
-
 from reviewdistill.db.models import (
     WORKING_COMMENT_STATUSES,
     Coding,
@@ -22,7 +20,7 @@ def _log(session, event_type: str, payload: dict) -> None:
 
 
 def _active_code_taken(session, code: str, *, except_id: str | None = None) -> bool:
-    for issue in session.exec(select(IssueType).where(IssueType.status == "active", IssueType.code == code)):
+    for issue in session.find(IssueType, status="active", code=code):
         if except_id is None or issue.id != except_id:
             return True
     return False
@@ -61,12 +59,9 @@ def create_issue_type(
 def list_active_issue_types() -> list[IssueType]:
     init_db()
     with get_session() as session:
-        return list(
-            session.exec(
-                select(IssueType)
-                .where(IssueType.status == "active")
-                .order_by(IssueType.category, IssueType.name)
-            )
+        return sorted(
+            session.find(IssueType, status="active"),
+            key=lambda issue: (issue.category, issue.name),
         )
 
 
@@ -77,21 +72,18 @@ def get_issue_type(issue_type_id: str) -> IssueType | None:
 
 def get_active_issue_type_by_code(code: str) -> IssueType | None:
     with get_session() as session:
-        return session.exec(
-            select(IssueType).where(IssueType.status == "active", IssueType.code == code)
-        ).first()
+        return session.first(IssueType, status="active", code=code)
 
 
 def add_example(issue_type_id: str, text: str, source_comment_id: str | None = None) -> IssueExample:
     cleaned = " ".join(text.split())
     with get_session() as session:
         if source_comment_id:
-            existing = session.exec(
-                select(IssueExample).where(
-                    IssueExample.issue_type_id == issue_type_id,
-                    IssueExample.source_comment_id == source_comment_id,
-                )
-            ).first()
+            existing = session.first(
+                IssueExample,
+                issue_type_id=issue_type_id,
+                source_comment_id=source_comment_id,
+            )
             if existing is not None:
                 return existing
         row = IssueExample(
@@ -125,15 +117,13 @@ def add_counterexample(
 
 def list_examples(issue_type_id: str) -> list[IssueExample]:
     with get_session() as session:
-        rows = list(session.exec(select(IssueExample).where(IssueExample.issue_type_id == issue_type_id)))
+        rows = session.find(IssueExample, issue_type_id=issue_type_id)
         return [row for row in rows if _source_in_working_dataset(session, row.source_comment_id)]
 
 
 def list_counterexamples(issue_type_id: str) -> list[IssueCounterexample]:
     with get_session() as session:
-        rows = list(
-            session.exec(select(IssueCounterexample).where(IssueCounterexample.issue_type_id == issue_type_id))
-        )
+        rows = session.find(IssueCounterexample, issue_type_id=issue_type_id)
         return [row for row in rows if _source_in_working_dataset(session, row.source_comment_id)]
 
 
@@ -148,7 +138,7 @@ def accepted_counts_by_issue_type() -> dict[str, int]:
     init_db()
     counts: dict[str, int] = {}
     with get_session() as session:
-        for coding in session.exec(select(Coding).where(Coding.status == "accepted")):
+        for coding in session.find(Coding, status="accepted"):
             if not coding.issue_type_id:
                 continue
             if not _source_in_working_dataset(session, coding.comment_id):
@@ -162,12 +152,7 @@ def list_working_observations(issue_type_id: str) -> list[ProofreadingComment]:
     with get_session() as session:
         seen: set[str] = set()
         comments: list[ProofreadingComment] = []
-        for coding in session.exec(
-            select(Coding).where(
-                Coding.issue_type_id == issue_type_id,
-                Coding.status == "accepted",
-            )
-        ):
+        for coding in session.find(Coding, issue_type_id=issue_type_id, status="accepted"):
             if coding.comment_id in seen:
                 continue
             comment = session.get(ProofreadingComment, coding.comment_id)
@@ -293,20 +278,17 @@ def merge_issue_types(*, source_ids: list[str], target_id: str) -> IssueType:
             source = session.get(IssueType, source_id)
             if source is None:
                 raise ValueError(f"Unknown issue type {source_id}")
-            for coding in session.exec(select(Coding).where(Coding.issue_type_id == source_id)):
+            for coding in session.find(Coding, issue_type_id=source_id):
                 reassigned_codings.append({"id": coding.id, "from_issue_type_id": source_id})
                 coding.issue_type_id = target_id
                 session.add(coding)
-            for example in list(
-                session.exec(select(IssueExample).where(IssueExample.issue_type_id == source_id))
-            ):
+            for example in list(session.find(IssueExample, issue_type_id=source_id)):
                 if example.source_comment_id:
-                    existing = session.exec(
-                        select(IssueExample).where(
-                            IssueExample.issue_type_id == target_id,
-                            IssueExample.source_comment_id == example.source_comment_id,
-                        )
-                    ).first()
+                    existing = session.first(
+                        IssueExample,
+                        issue_type_id=target_id,
+                        source_comment_id=example.source_comment_id,
+                    )
                     if existing is not None:
                         deleted_examples.append(dump_row(example))
                         session.delete(example)
@@ -314,9 +296,7 @@ def merge_issue_types(*, source_ids: list[str], target_id: str) -> IssueType:
                 reassigned_examples.append({"id": example.id, "from_issue_type_id": source_id})
                 example.issue_type_id = target_id
                 session.add(example)
-            for counter in session.exec(
-                select(IssueCounterexample).where(IssueCounterexample.issue_type_id == source_id)
-            ):
+            for counter in session.find(IssueCounterexample, issue_type_id=source_id):
                 reassigned_counters.append({"id": counter.id, "from_issue_type_id": source_id})
                 counter.issue_type_id = target_id
                 session.add(counter)
@@ -355,12 +335,12 @@ def split_issue_type(source_id: str, *, left: dict, right: dict) -> tuple[IssueT
                 raise ValueError(f"Issue code {code} is already in use")
         comment_ids = {
             coding.comment_id
-            for coding in session.exec(select(Coding).where(Coding.issue_type_id == source_id))
+            for coding in session.find(Coding, issue_type_id=source_id)
             if coding.status == "accepted"
         }
         deleted_codings = []
         for comment_id in comment_ids:
-            for row in list(session.exec(select(Coding).where(Coding.comment_id == comment_id))):
+            for row in list(session.find(Coding, comment_id=comment_id)):
                 deleted_codings.append(dump_row(row))
                 session.delete(row)
         source.status = "inactive"

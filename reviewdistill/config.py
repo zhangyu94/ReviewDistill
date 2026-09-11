@@ -209,15 +209,13 @@ def llm_config_from_project_root(root: Path) -> HomeConfig | None:
 
 
 def load_llm_config_from_registered_projects() -> HomeConfig | None:
-    from sqlmodel import select
-
     from reviewdistill.db.models import Project
     from reviewdistill.db.session import get_session, init_db
 
     init_db()
     roots: list[Path] = []
     with get_session() as session:
-        for project in session.exec(select(Project)):
+        for project in session.find(Project):
             roots.append(Path(project.root_path))
     found: list[HomeConfig] = []
     for root in sorted(roots, key=lambda path: str(path)):
@@ -314,15 +312,13 @@ def paper_key_set(root: Path, provider: str | None) -> bool:
 
 
 def list_registered_project_rows() -> list[dict]:
-    from sqlmodel import select
-
     from reviewdistill.db.models import Project
     from reviewdistill.db.session import get_session, init_db
 
     init_db()
     rows = []
     with get_session() as session:
-        for project in session.exec(select(Project)):
+        for project in session.find(Project):
             rows.append(
                 {
                     "id": project.id,

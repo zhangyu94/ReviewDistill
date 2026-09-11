@@ -2,8 +2,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from sqlmodel import select
-
 from reviewdistill.cli.init import init_project
 from reviewdistill.db.models import Coding, ProofreadingComment
 from reviewdistill.db.session import get_session
@@ -60,7 +58,7 @@ def test_first_extract_inserts_comments(db, tmp_path: Path):
     assert summary.unchanged == 0
 
     with get_session() as session:
-        rows = list(session.exec(select(ProofreadingComment)))
+        rows = session.find(ProofreadingComment)
         assert len(rows) == 2
         assert all(row.raw_text for row in rows)
         assert all(row.context_text for row in rows)
@@ -85,7 +83,7 @@ def test_second_extract_is_idempotent(db, tmp_path: Path):
     assert summary.unchanged == 2
 
     with get_session() as session:
-        assert len(list(session.exec(select(ProofreadingComment)))) == 2
+        assert len(session.find(ProofreadingComment)) == 2
 
 
 def test_similar_body_change_updates_same_row(db, tmp_path: Path):
@@ -95,13 +93,13 @@ def test_similar_body_change_updates_same_row(db, tmp_path: Path):
     _write_tex(repo, "\\myremark{Too strong.}\n")
     extract_project(repo)
     with get_session() as session:
-        original_id = session.exec(select(ProofreadingComment)).first().id
+        original_id = session.first(ProofreadingComment).id
     _write_tex(repo, "\\myremark{Too strong given the experiment.}\n")
     summary = extract_project(repo)
     assert summary.revised == 1
     assert summary.added == 0
     with get_session() as session:
-        rows = list(session.exec(select(ProofreadingComment)))
+        rows = session.find(ProofreadingComment)
         assert len(rows) == 1
         assert rows[0].id == original_id
         assert rows[0].raw_text == "Too strong given the experiment."
@@ -120,7 +118,7 @@ def test_dissimilar_body_change_is_disappeared_and_new(db, tmp_path: Path):
     assert summary.disappeared == 1
     assert summary.added == 1
     with get_session() as session:
-        rows = list(session.exec(select(ProofreadingComment)))
+        rows = session.find(ProofreadingComment)
         assert len(rows) == 2
         old = next(row for row in rows if row.raw_text == "Too strong.")
         new = next(row for row in rows if row.raw_text == "This citation is missing.")
@@ -136,7 +134,7 @@ def test_short_distinct_same_line_replacement_is_disappeared_and_new(db, tmp_pat
     _write_tex(repo, "\\myremark{Too strong.}\n")
     extract_project(repo)
     with get_session() as session:
-        old = session.exec(select(ProofreadingComment)).first()
+        old = session.first(ProofreadingComment)
         old_id = old.id
         session.add(
             Coding(
@@ -157,7 +155,7 @@ def test_short_distinct_same_line_replacement_is_disappeared_and_new(db, tmp_pat
         old = session.get(ProofreadingComment, old_id)
         new = next(
             row
-            for row in session.exec(select(ProofreadingComment))
+            for row in session.find(ProofreadingComment)
             if row.id != old_id
         )
         coding = session.get(Coding, "coding-old")
@@ -175,14 +173,14 @@ def test_pending_disappeared_reappears_same_id(db, tmp_path: Path):
     _write_tex(repo, "\\myremark{Keep me.}\n")
     extract_project(repo)
     with get_session() as session:
-        original_id = session.exec(select(ProofreadingComment)).first().id
+        original_id = session.first(ProofreadingComment).id
     _write_tex(repo, "no comments\n")
     extract_project(repo)
     _write_tex(repo, "\\myremark{Keep me.}\n")
     summary = extract_project(repo)
     assert summary.resurrected == 1
     with get_session() as session:
-        rows = list(session.exec(select(ProofreadingComment)))
+        rows = session.find(ProofreadingComment)
         assert len(rows) == 1
         assert rows[0].id == original_id
         assert rows[0].status == "active"
@@ -198,7 +196,7 @@ def test_removed_comment_is_pending_disappeared(db, tmp_path: Path):
     summary = extract_project(repo)
     assert summary.disappeared == 1
     with get_session() as session:
-        rows = list(session.exec(select(ProofreadingComment)))
+        rows = session.find(ProofreadingComment)
         assert len(rows) == 2
         gone = next(row for row in rows if row.raw_text == "Delete me.")
         assert gone.status == "pending_disappeared"
@@ -215,7 +213,7 @@ def test_gap_then_new_text_is_two_records(db, tmp_path: Path):
     _write_tex(repo, "\\myremark{This citation is missing.}\n")
     extract_project(repo)
     with get_session() as session:
-        rows = list(session.exec(select(ProofreadingComment)))
+        rows = session.find(ProofreadingComment)
         assert len(rows) == 2
         old = next(row for row in rows if row.raw_text == "Too strong.")
         new = next(row for row in rows if row.raw_text == "This citation is missing.")
@@ -234,7 +232,7 @@ def test_unclosed_comment_does_not_enqueue_disappearance(db, tmp_path: Path):
     assert summary.skipped_unstable == 1
     assert summary.disappeared == 0
     with get_session() as session:
-        row = session.exec(select(ProofreadingComment)).first()
+        row = session.first(ProofreadingComment)
         assert row.status == "active"
         assert row.raw_text == "Keep me."
 
@@ -246,7 +244,7 @@ def test_kept_reappears_same_id(db, tmp_path: Path):
     _write_tex(repo, "\\myremark{Keep me.}\n")
     extract_project(repo)
     with get_session() as session:
-        row = session.exec(select(ProofreadingComment)).first()
+        row = session.first(ProofreadingComment)
         row.status = "kept"
         session.add(row)
         session.commit()
@@ -254,7 +252,7 @@ def test_kept_reappears_same_id(db, tmp_path: Path):
     summary = extract_project(repo)
     assert summary.resurrected == 1
     with get_session() as session:
-        rows = list(session.exec(select(ProofreadingComment)))
+        rows = session.find(ProofreadingComment)
         assert len(rows) == 1
         assert rows[0].id == kept_id
         assert rows[0].status == "active"
@@ -267,14 +265,14 @@ def test_retracted_same_text_is_new_id(db, tmp_path: Path):
     _write_tex(repo, "\\myremark{Keep me.}\n")
     extract_project(repo)
     with get_session() as session:
-        row = session.exec(select(ProofreadingComment)).first()
+        row = session.first(ProofreadingComment)
         row.status = "retracted"
         session.add(row)
         session.commit()
         retracted_id = row.id
     extract_project(repo)
     with get_session() as session:
-        rows = list(session.exec(select(ProofreadingComment)))
+        rows = session.find(ProofreadingComment)
         assert len(rows) == 2
         assert any(row.id == retracted_id and row.status == "retracted" for row in rows)
         assert any(row.status == "active" and row.id != retracted_id for row in rows)
@@ -287,7 +285,7 @@ def test_duplicate_texts_are_not_merged(db, tmp_path: Path):
     _write_tex(repo, "\\myremark{Same.}\n\\myremark{Same.}\n")
     extract_project(repo)
     with get_session() as session:
-        rows = list(session.exec(select(ProofreadingComment)))
+        rows = session.find(ProofreadingComment)
         assert len(rows) == 2
         assert {row.raw_text for row in rows} == {"Same."}
 
@@ -304,7 +302,7 @@ def test_moved_comment_updates_location(db, tmp_path: Path):
     assert summary.moved == 1
 
     with get_session() as session:
-        rows = list(session.exec(select(ProofreadingComment)))
+        rows = session.find(ProofreadingComment)
         assert len(rows) == 1
         assert rows[0].file_path == "other.tex"
         assert rows[0].status == "active"
@@ -330,7 +328,7 @@ def test_extract_records_git_remote_url(db, tmp_path: Path):
 
     extract_project(repo)
     with get_session() as session:
-        row = session.exec(select(ProofreadingComment)).first()
+        row = session.first(ProofreadingComment)
         assert row.git_url == "https://github.com/example/paper.git"
         assert row.git_commit
         assert len(row.git_commit) >= 7
@@ -354,7 +352,7 @@ def test_extract_strips_credentials_from_stored_git_url(db, tmp_path: Path):
     )
     extract_project(repo)
     with get_session() as session:
-        row = session.exec(select(ProofreadingComment)).first()
+        row = session.first(ProofreadingComment)
         assert row.git_url == "https://github.com/example/paper.git"
         assert "ghp_secret" not in (row.git_url or "")
 
@@ -369,5 +367,5 @@ def test_extract_skips_ignored_directories(db, tmp_path: Path):
     (nested / "vendor.tex").write_text("\\myremark{Ignore me.}\n")
     extract_project(repo)
     with get_session() as session:
-        texts = {row.raw_text for row in session.exec(select(ProofreadingComment))}
+        texts = {row.raw_text for row in session.find(ProofreadingComment)}
         assert texts == {"Keep me."}

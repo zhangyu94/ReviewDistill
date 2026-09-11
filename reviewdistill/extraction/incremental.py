@@ -17,8 +17,6 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from uuid import uuid4
 
-from sqlmodel import select
-
 from reviewdistill.config import load_project_config
 from reviewdistill.context.manuscript import extract_context
 from reviewdistill.db.models import GitCommitRecord, ProofreadingComment, Project
@@ -151,12 +149,11 @@ def extract_project(root: Path) -> ExtractSummary:
             project.name = config.name
 
         if git.repository and git.commit_hash:
-            exists = session.exec(
-                select(GitCommitRecord).where(
-                    GitCommitRecord.project_id == config.id,
-                    GitCommitRecord.commit_hash == git.commit_hash,
-                )
-            ).first()
+            exists = session.first(
+                GitCommitRecord,
+                project_id=config.id,
+                commit_hash=git.commit_hash,
+            )
             if exists is None:
                 session.add(
                     GitCommitRecord(
@@ -168,9 +165,7 @@ def extract_project(root: Path) -> ExtractSummary:
                     )
                 )
 
-        existing = list(
-            session.exec(select(ProofreadingComment).where(ProofreadingComment.project_id == config.id))
-        )
+        existing = session.find(ProofreadingComment, project_id=config.id)
         active = [row for row in existing if row.status == "active" and row.file_path not in skipped_set]
         leftover_db: list[ProofreadingComment] = []
         leftover_ex: list[_Pending] = []

@@ -174,9 +174,9 @@ Step 4 — AI-assisted coding
 
 In `reviewdistill serve`, Uncoded → **Get AI suggestions**.
 
-Workbench **Settings** (header, next to Export) has two panels. **Assistant** writes `llm.provider` / `llm.model` to the chosen paper’s `.reviewdistill/config.yaml` and the matching API key to that paper’s `.reviewdistill/.env` (gitignored). **Data** shows the home folder (same as `reviewdistill paths`) and does not Save. Opening Settings always lands on Assistant. The Uncoded empty state **Configure LLM** opens the same dialog. GET `/api/llm-settings` never returns the secret (`key_set` only). File editing still works. Process environment still wins over `.env`. Do not write `llm.api_key` into YAML; do not store keys in SQLite.
+Workbench **Settings** (header, next to Export) has two panels. **Assistant** writes `llm.provider` / `llm.model` to the chosen paper’s `.reviewdistill/config.yaml` and the matching API key to that paper’s `.reviewdistill/.env` (gitignored). **Data** shows the home folder (same as `reviewdistill paths`) and does not Save. Opening Settings always lands on Assistant. The Uncoded empty state **Configure LLM** opens the same dialog. GET `/api/llm-settings` never returns the secret (`key_set` only). File editing still works. Process environment still wins over `.env`. Do not write `llm.api_key` into YAML; do not store keys in the JSONL store.
 
-`reviewdistill paths use DIR` persists `DIR` in `~/.config/reviewdistill/home` so later CLI commands use that folder. `reviewdistill paths move DIR` copies the current home (the whole folder, not only the `.db`) into an empty `DIR`, then uses it; it leaves the old folder in place and refuses if the database is busy.
+`reviewdistill paths use DIR` persists `DIR` in `~/.config/reviewdistill/home` so later CLI commands use that folder. `reviewdistill paths move DIR` copies the current home (JSONL files) into an empty `DIR`, then uses it; it leaves the old folder in place and refuses if the store is busy.
 
 Assistant fields: Paper (cwd paper preselected when registered), Provider (DeepSeek / OpenAI / Anthropic), Model (filled with that provider’s default), API key (password + show/hide). Save is disabled until a paper is chosen. An empty key field on Save keeps the existing `.env` value. `POST /api/llm-settings` with `api_key` omitted or `""` means keep; unknown project 404; unknown provider 400; new provider with no key 400. This dialog does not write a home-level `~/.reviewdistill` key, probe the key live, or offer mock / Ollama / custom base URL.
 
@@ -874,7 +874,7 @@ The AI never overwrites the reviewer’s comment text. Source-driven revision of
 
 23. Storage
 
-Use SQLite for v0.1.
+Use JSONL files in the home folder (one object per line, sorted by id).
 
 Suggested entities:
 
@@ -887,7 +887,7 @@ issue_counterexamples
 taxonomy_events
 git_commits
 
-A lightweight ORM such as SQLAlchemy/SQLModel may be used.
+JSONL files in the home folder, one object per line. SQLModel (or Pydantic) records are fine.
 
 No external database server should be required.
 
@@ -934,8 +934,7 @@ Backend
 * Python
 * Typer for CLI
 * FastAPI for local API
-* SQLite
-* SQLAlchemy or SQLModel
+* JSONL files in the home folder
 
 Frontend
 
@@ -957,7 +956,7 @@ reviewdistill/
 ├── taxonomy/     issue types, merge/split, export
 ├── context/      manuscript neighborhood
 ├── llm/          provider interface
-├── db/           SQLite models
+├── db/           JSONL models and session
 └── web/          FastAPI `/api` + packaged Studio static
 
 The exact structure can be simplified for the prototype.

@@ -1,30 +1,35 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Field, SQLModel
 
 WORKING_COMMENT_STATUSES = ("active", "kept")  # AI coding, cluster, export; pending_disappeared is workbench Disappeared only
 
+_STATUS_ALIASES = {
+    "deleted": "pending_disappeared",
+    "modified": "superseded",
+}
+
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
-class Project(SQLModel, table=True):
-    __tablename__ = "projects"
+def migrate_comment_status(status: str) -> str:
+    return _STATUS_ALIASES.get(status, status)
 
-    id: str = Field(primary_key=True)
+
+class Project(SQLModel):
+    id: str
     name: str
     root_path: str
     created_at: datetime = Field(default_factory=utcnow)
 
 
-class ProofreadingComment(SQLModel, table=True):
-    __tablename__ = "comments"
-
-    id: str = Field(primary_key=True)
-    project_id: str = Field(index=True)
+class ProofreadingComment(SQLModel):
+    id: str
+    project_id: str
     source_type: str
     source_command: str
     file_path: str
@@ -34,22 +39,20 @@ class ProofreadingComment(SQLModel, table=True):
     section: str | None = None
     git_commit: str | None = None
     git_url: str | None = None
-    fingerprint: str = Field(index=True)
-    status: str = Field(default="active", index=True)
+    fingerprint: str
+    status: str = "active"
     supersedes_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
-class Coding(SQLModel, table=True):
-    __tablename__ = "codings"
-
-    id: str = Field(primary_key=True)
-    comment_id: str = Field(index=True)
-    issue_type_id: str | None = Field(default=None, index=True)
+class Coding(SQLModel):
+    id: str
+    comment_id: str
+    issue_type_id: str | None = None
     coder_type: str
     confidence: float | None = None
     rationale: str | None = None
-    status: str = Field(index=True)
+    status: str
     proposed_issue_code: str | None = None
     proposed_issue_name: str | None = None
     proposed_issue_category: str | None = None
@@ -58,56 +61,46 @@ class Coding(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
-class IssueType(SQLModel, table=True):
-    __tablename__ = "issue_types"
-
-    id: str = Field(primary_key=True)
-    code: str = Field(index=True)
+class IssueType(SQLModel):
+    id: str
+    code: str
     name: str
     category: str
     definition: str
     notes: str | None = None
     detection_guidance: str | None = None
-    status: str = Field(default="active", index=True)
+    status: str = "active"
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
 
-class IssueExample(SQLModel, table=True):
-    __tablename__ = "issue_examples"
-
-    id: str = Field(primary_key=True)
-    issue_type_id: str = Field(index=True)
+class IssueExample(SQLModel):
+    id: str
+    issue_type_id: str
     text: str
     source_comment_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
-class IssueCounterexample(SQLModel, table=True):
-    __tablename__ = "issue_counterexamples"
-
-    id: str = Field(primary_key=True)
-    issue_type_id: str = Field(index=True)
+class IssueCounterexample(SQLModel):
+    id: str
+    issue_type_id: str
     text: str
     source_comment_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
-class TaxonomyEvent(SQLModel, table=True):
-    __tablename__ = "taxonomy_events"
-
-    id: str = Field(primary_key=True)
+class TaxonomyEvent(SQLModel):
+    id: str
     event_type: str
     payload_json: str
-    undone: bool = Field(default=False)
+    undone: bool = False
     created_at: datetime = Field(default_factory=utcnow)
 
 
-class GitCommitRecord(SQLModel, table=True):
-    __tablename__ = "git_commits"
-
-    id: str = Field(primary_key=True)
-    project_id: str = Field(index=True)
+class GitCommitRecord(SQLModel):
+    id: str
+    project_id: str
     repository: str
     commit_hash: str
     remote_url: str | None = None

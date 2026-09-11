@@ -72,10 +72,8 @@ def test_export_omits_examples_from_retracted_comments(db, tmp_path):
     )
     from reviewdistill.db.models import ProofreadingComment
     from reviewdistill.db.session import get_session
-    from sqlmodel import select
-
     with get_session() as session:
-        comment_id = session.exec(select(ProofreadingComment)).first().id
+        comment_id = session.first(ProofreadingComment).id
     accept_coding(comment_id)
     (repo / "main.tex").write_text("no comments\n")
     extract_project(repo)

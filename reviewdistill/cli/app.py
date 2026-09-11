@@ -81,10 +81,10 @@ def paths_callback(ctx: typer.Context) -> None:
 
     loc = data_location()
     typer.echo(f"Home: {loc['home']}")
-    typer.echo(f"Database: {loc['database']}")
+    typer.echo(f"Comments: {loc['comments']}")
     typer.echo("")
     typer.echo(
-        "Copy the home folder to back up (the whole folder, not only the .db file). "
+        "Copy the home folder to back up (JSONL files; the whole folder, not a single file). "
         "reviewdistill paths move DIR copies this folder to DIR and keeps using it. "
         "reviewdistill paths use DIR points at a folder you already have. "
         "Restart serve or extract after changing the folder."

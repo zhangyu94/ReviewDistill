@@ -1,7 +1,5 @@
 import json
 
-from sqlmodel import select
-
 from reviewdistill.db.models import Coding, IssueCounterexample, IssueExample, IssueType, ProofreadingComment, TaxonomyEvent
 from reviewdistill.db.session import get_session
 from reviewdistill.taxonomy.operations import (
@@ -92,16 +90,14 @@ def test_merge_moves_codings_examples_and_counterexamples_to_target(db):
     with get_session() as session:
         coding = session.get(Coding, "coding-a")
         assert coding.issue_type_id == target.id
-        examples = list(session.exec(select(IssueExample).where(IssueExample.issue_type_id == target.id)))
+        examples = session.find(IssueExample, issue_type_id=target.id)
         texts = {row.text for row in examples}
         assert texts == {"already on target", "unique from A"}
-        assert list(session.exec(select(IssueExample).where(IssueExample.issue_type_id == a.id))) == []
-        counters = list(
-            session.exec(select(IssueCounterexample).where(IssueCounterexample.issue_type_id == target.id))
-        )
+        assert session.find(IssueExample, issue_type_id=a.id) == []
+        counters = session.find(IssueCounterexample, issue_type_id=target.id)
         assert any(row.text == "not A" for row in counters)
         assert session.get(IssueType, a.id).status == "inactive"
-        events = [e for e in session.exec(select(TaxonomyEvent)) if e.event_type == "merge"]
+        events = [e for e in session.find(TaxonomyEvent) if e.event_type == "merge"]
         payload = json.loads(events[-1].payload_json)
         assert payload["target_id"] == target.id
         assert set(payload["source_ids"]) == {a.id, b.id}
@@ -199,7 +195,7 @@ def test_split_returns_accepted_comments_to_uncoded(db):
     assert [item.comment.id for item in items] == ["c-split"]
     assert items[0].coding is None
     with get_session() as session:
-        leftover = list(session.exec(select(Coding).where(Coding.comment_id == "c-split")))
+        leftover = session.find(Coding, comment_id="c-split")
         assert leftover == []
 
 

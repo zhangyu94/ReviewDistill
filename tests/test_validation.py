@@ -1,8 +1,6 @@
 import json
 
 import pytest
-from sqlmodel import select
-
 from reviewdistill.cli.init import init_project
 from reviewdistill.coding.coder import code_uncoded_comments, uncoded_comments
 from reviewdistill.coding.validation import (
@@ -60,7 +58,7 @@ def test_accept_existing_marks_coding_and_adds_example(db, tmp_path):
     examples = list_examples(issue.id)
     assert examples[0].source_comment_id == comment_id
     with get_session() as session:
-        coding = session.exec(select(Coding)).first()
+        coding = session.first(Coding)
         assert coding.status == "accepted"
         assert coding.coder_type == "ai"
 
@@ -135,7 +133,7 @@ def test_change_creates_human_coding(db, tmp_path):
     change_coding(comment_id, issue_type_id=chosen.id)
     assert inbox_items() == []
     with get_session() as session:
-        rows = list(session.exec(select(Coding).where(Coding.comment_id == comment_id)))
+        rows = session.find(Coding, comment_id=comment_id)
         statuses = {row.coder_type: row.status for row in rows}
         assert statuses["ai"] == "modified"
         assert statuses["human"] == "accepted"
@@ -159,7 +157,7 @@ def test_reject_leaves_no_issue_assignment(db, tmp_path):
     reject_coding(comment_id)
     assert inbox_items() == []
     with get_session() as session:
-        coding = session.exec(select(Coding)).first()
+        coding = session.first(Coding)
         assert coding.status == "rejected"
         assert coding.issue_type_id is None
 
@@ -171,7 +169,7 @@ def test_kept_uncoded_comment_stays_in_inbox(db, tmp_path):
     (repo / "main.tex").write_text("\\myremark{Still useful.}\n")
     extract_project(repo)
     with get_session() as session:
-        row = session.exec(select(ProofreadingComment)).first()
+        row = session.first(ProofreadingComment)
         row.status = "kept"
         session.add(row)
         session.commit()
@@ -186,7 +184,7 @@ def test_retracted_comment_is_not_uncoded(db, tmp_path):
     (repo / "main.tex").write_text("\\myremark{Retract me.}\n")
     extract_project(repo)
     with get_session() as session:
-        row = session.exec(select(ProofreadingComment)).first()
+        row = session.first(ProofreadingComment)
         row.status = "retracted"
         session.add(row)
         session.commit()
@@ -268,10 +266,106 @@ def test_keep_and_retract_require_pending_disappeared(db, tmp_path):
     (repo / "main.tex").write_text("\\myremark{Still here.}\n")
     extract_project(repo)
     with get_session() as session:
-        active_id = session.exec(select(ProofreadingComment)).first().id
+        active_id = session.first(ProofreadingComment).id
     with pytest.raises(ValueError, match="pending_disappeared"):
         keep_comment(active_id)
     with pytest.raises(ValueError, match="pending_disappeared"):
         retract_comment(active_id)
     with get_session() as session:
         assert session.get(ProofreadingComment, active_id).status == "active"
+
+
+def test_accept_uses_newest_proposed_coding_not_lexicographic_id(db):
+    from datetime import UTC, datetime
+
+    from reviewdistill.db.models import Project
+
+    with get_session() as session:
+        session.add(Project(id="p1", name="paper", root_path="/tmp/paper"))
+        session.add(
+            ProofreadingComment(
+                id="c1",
+                project_id="p1",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=1,
+                raw_text="Why this method?",
+                fingerprint="fp",
+                status="active",
+            )
+        )
+        session.add(
+            Coding(
+                id="aaa-older-id",
+                comment_id="c1",
+                coder_type="ai",
+                status="proposed",
+                proposed_issue_name="Old",
+                proposed_issue_code="OLD",
+                proposed_issue_category="General",
+                proposed_issue_definition="older proposal",
+                created_at=datetime(2020, 1, 1, tzinfo=UTC),
+            )
+        )
+        session.add(
+            Coding(
+                id="zzz-newer-id",
+                comment_id="c1",
+                coder_type="ai",
+                status="proposed",
+                proposed_issue_name="New",
+                proposed_issue_code="NEWISSUE",
+                proposed_issue_category="General",
+                proposed_issue_definition="newer proposal",
+                created_at=datetime(2024, 6, 1, tzinfo=UTC),
+            )
+        )
+        session.commit()
+    items = inbox_items()
+    assert len(items) == 1
+    assert items[0].coding is not None
+    assert items[0].coding.id == "zzz-newer-id"
+    accepted = accept_coding("c1")
+    assert accepted.id == "zzz-newer-id"
+    assert accepted.status == "accepted"
+
+
+def test_inbox_and_uncoded_order_by_created_at_not_id(db):
+    from datetime import UTC, datetime
+
+    from reviewdistill.db.models import Project
+
+    with get_session() as session:
+        session.add(Project(id="p1", name="paper", root_path="/tmp/paper"))
+        session.add(
+            ProofreadingComment(
+                id="aaa-newer",
+                project_id="p1",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=2,
+                raw_text="newer comment",
+                fingerprint="fp-new",
+                status="active",
+                created_at=datetime(2024, 6, 1, tzinfo=UTC),
+            )
+        )
+        session.add(
+            ProofreadingComment(
+                id="zzz-older",
+                project_id="p1",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=1,
+                raw_text="older comment",
+                fingerprint="fp-old",
+                status="active",
+                created_at=datetime(2020, 1, 1, tzinfo=UTC),
+            )
+        )
+        session.commit()
+    assert [row.id for row in uncoded_comments()] == ["zzz-older", "aaa-newer"]
+    assert [item.comment.id for item in inbox_items()] == ["zzz-older", "aaa-newer"]

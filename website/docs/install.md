@@ -29,7 +29,7 @@ reviewdistill --help
 Comments and issue types are stored in one folder on your computer (not in the paper repo):
 
 - Default: `~/.reviewdistill`
-- Database file: `~/.reviewdistill/reviewdistill.db`
+- Comments: `~/.reviewdistill/comments.jsonl` (plus `projects.jsonl`, `codings.jsonl`, `issue_types.jsonl`, …)
 
 Print the resolved paths:
 
@@ -37,7 +37,7 @@ Print the resolved paths:
 reviewdistill paths
 ```
 
-Workbench **Settings → Data** shows the same folder. Copy the **whole folder** to back up — not only the `.db` file — especially if ReviewDistill is running.
+Workbench **Settings → Data** shows the same folder. Copy the **whole folder** to back up. Do not edit JSONL while `serve` or `extract` is running.
 
 To store it in a new folder:
 

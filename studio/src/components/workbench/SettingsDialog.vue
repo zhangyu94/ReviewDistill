@@ -236,7 +236,7 @@ defineExpose({ show })
           @click="copyHomeFolder"
         >{{ copied ? 'Copied' : 'Copy folder path' }}</button>
         <p class="ch-muted-text mb-3">
-          Copy the whole folder to back up — not only the <code>.db</code> file — especially if ReviewDistill is running.
+          Copy the whole folder to back up — JSONL files for comments, types, and coding — especially if ReviewDistill is running.
           To store it somewhere else, quit the workbench and run
           <code>reviewdistill paths move ~/Documents/reviewdistill</code>
           (or <code>reviewdistill paths use DIR</code> for a folder you already copied). Restart <code>reviewdistill serve</code> afterwards.

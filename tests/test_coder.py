@@ -2,8 +2,6 @@ import json
 
 import httpx
 import pytest
-from sqlmodel import select
-
 from reviewdistill.cli.init import init_project
 from reviewdistill.coding.coder import build_prompt, code_uncoded_comments, parse_model_output
 from reviewdistill.db.models import Coding, ProofreadingComment
@@ -104,8 +102,8 @@ def test_code_uncoded_comments_writes_proposed_coding(db, tmp_path):
     summary = code_uncoded_comments(provider=provider)
     assert summary.coded == 1
     with get_session() as session:
-        comment = session.exec(select(ProofreadingComment)).first()
-        coding = session.exec(select(Coding)).first()
+        comment = session.first(ProofreadingComment)
+        coding = session.first(Coding)
         assert comment.raw_text.startswith("I think")
         assert coding.comment_id == comment.id
         assert coding.coder_type == "ai"
@@ -135,7 +133,7 @@ def test_code_replaces_placeholder_mock_proposal(db, tmp_path):
     extract_project(repo)
     comment_id = None
     with get_session() as session:
-        comment = session.exec(select(ProofreadingComment)).first()
+        comment = session.first(ProofreadingComment)
         comment_id = comment.id
         session.add(
             Coding(
@@ -169,7 +167,7 @@ def test_code_replaces_placeholder_mock_proposal(db, tmp_path):
     summary = code_uncoded_comments(provider=_Stub())
     assert summary.coded == 1
     with get_session() as session:
-        rows = list(session.exec(select(Coding).where(Coding.comment_id == comment_id)))
+        rows = session.find(Coding, comment_id=comment_id)
         assert session.get(Coding, "mock-proposed") is None
         assert len(rows) == 1
         assert rows[0].proposed_issue_name == "Unclear thesis"
@@ -204,7 +202,7 @@ def test_unknown_issue_type_id_does_not_fall_back_to_top_candidate(db, tmp_path)
     )
     code_uncoded_comments(provider=provider)
     with get_session() as session:
-        coding = session.exec(select(Coding)).first()
+        coding = session.first(Coding)
         assert coding.issue_type_id is None
         assert coding.proposed_issue_name == "Overclaiming (proposed)"
         assert coding.issue_type_id != issue.id
@@ -228,8 +226,48 @@ def test_code_continues_after_one_unparseable_response(db, tmp_path):
     assert summary.coded == 1
     assert summary.skipped >= 1
     with get_session() as session:
-        names = {row.proposed_issue_name for row in session.exec(select(Coding))}
+        names = {row.proposed_issue_name for row in session.find(Coding)}
         assert "Second" in names
+
+
+def test_code_uncoded_comments_ranks_all_comments_without_reloading_store(db, tmp_path, monkeypatch):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{First comment.}\n\\myremark{Second comment.}\n")
+    extract_project(repo)
+    create_issue_type(
+        code="OVERCLAIM",
+        name="Overclaiming",
+        category="Argumentation",
+        definition="A claim is stronger than the evidence supports.",
+    )
+    from reviewdistill.coding import coder as coder_mod
+    from reviewdistill.coding.retrieval import retrieve_candidates
+    from reviewdistill.db.session import StoreSession
+
+    loads = {"n": 0}
+    original_load = StoreSession._load
+    original_retrieve = retrieve_candidates
+    retrieve_loads: list[int] = []
+
+    def counting_load(self):
+        loads["n"] += 1
+        return original_load(self)
+
+    def counting_retrieve(comment, limit=5):
+        before = loads["n"]
+        result = original_retrieve(comment, limit=limit)
+        retrieve_loads.append(loads["n"] - before)
+        return result
+
+    monkeypatch.setattr(StoreSession, "_load", counting_load)
+    monkeypatch.setattr(coder_mod, "retrieve_candidates", counting_retrieve)
+    summary = code_uncoded_comments(provider=MockLLMProvider())
+    assert summary.coded == 2
+    assert retrieve_loads
+    assert retrieve_loads[0] <= 1
+    assert retrieve_loads[1:] == [0] * (len(retrieve_loads) - 1)
 
 
 def test_code_aborts_provider_http_error(db, tmp_path):

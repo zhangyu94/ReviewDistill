@@ -8,7 +8,7 @@ Visible commands:
 | `reviewdistill extract` | Pull comments from `.tex` (`--watch` keeps going) |
 | `reviewdistill serve` | Workbench + API on `:8765` |
 | `reviewdistill export` | Write the rubric (`--format`, `--output`) |
-| `reviewdistill paths` | Print the data folder and database file |
+| `reviewdistill paths` | Print the data folder and comments JSONL path |
 | `reviewdistill paths use DIR` | Use `DIR` for comments and issue types from now on |
 | `reviewdistill paths move DIR` | Copy the current data folder to `DIR` and keep using it |
 

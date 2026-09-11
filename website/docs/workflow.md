@@ -18,7 +18,7 @@ Proofread as usual. ReviewDistill watches the comments, not a separate review fi
    \myremark{Causal language is not supported by this design.}
    ```
 
-4. Extract comments into the local database:
+4. Extract comments into the local JSONL store:
 
    ```bash
    reviewdistill extract

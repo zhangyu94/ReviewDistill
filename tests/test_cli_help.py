@@ -1,5 +1,4 @@
 import re
-import sqlite3
 
 from typer.testing import CliRunner
 
@@ -47,7 +46,7 @@ def test_paths_prints_home_and_database(rd_home):
 
     loc = data_location()
     assert f"Home: {loc['home']}" in result.stdout
-    assert f"Database: {loc['database']}" in result.stdout
+    assert f"Comments: {loc['comments']}" in result.stdout
     assert "REVIEWDISTILL_HOME" not in result.stdout
     assert "whole folder" in result.stdout
     assert "paths move" in result.stdout
@@ -73,13 +72,13 @@ def test_paths_use_persists_folder(rd_home, tmp_path):
 
 
 def test_paths_move_copies_then_uses(rd_home, tmp_path):
-    sqlite3.connect(rd_home / "reviewdistill.db").close()
+    (rd_home / "comments.jsonl").write_text("{}\n")
     dest = tmp_path / "Documents" / "reviewdistill"
     result = runner.invoke(app, ["paths", "move", str(dest)])
     assert result.exit_code == 0, result.stdout
     assert f"Home: {dest.resolve()}" in result.stdout
-    assert (dest / "reviewdistill.db").is_file()
-    assert (rd_home / "reviewdistill.db").is_file()
+    assert (dest / "comments.jsonl").is_file()
+    assert (rd_home / "comments.jsonl").is_file()
 
 
 def test_paths_move_exits_when_already_using_folder(rd_home):

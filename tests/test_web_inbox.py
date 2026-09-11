@@ -1,8 +1,6 @@
 import json
 
 from fastapi.testclient import TestClient
-from sqlmodel import select
-
 from reviewdistill.cli.init import init_project
 from reviewdistill.coding.coder import code_uncoded_comments
 from reviewdistill.coding.validation import disappeared_items, inbox_items
@@ -40,6 +38,20 @@ def _seed(tmp_path):
         )
     )
     return issue
+
+
+def _count_store_loads(monkeypatch):
+    from reviewdistill.db.session import StoreSession
+
+    counts = {"n": 0}
+    original = StoreSession._load
+
+    def wrapped(self):
+        counts["n"] += 1
+        return original(self)
+
+    monkeypatch.setattr(StoreSession, "_load", wrapped)
+    return counts
 
 
 def test_inbox_lists_proposed_comments(db, tmp_path):
@@ -244,7 +256,7 @@ def test_inbox_json_strips_credentials_from_stored_git_url(db, tmp_path):
     (repo / "main.tex").write_text("\\myremark{Too strong.}\n")
     extract_project(repo)
     with get_session() as session:
-        row = session.exec(select(ProofreadingComment)).first()
+        row = session.first(ProofreadingComment)
         row.git_url = "https://user:ghp_secret@github.com/example/paper.git"
         session.add(row)
         session.commit()
@@ -253,3 +265,12 @@ def test_inbox_json_strips_credentials_from_stored_git_url(db, tmp_path):
     git_url = body["items"][0]["comment"]["git_url"]
     assert git_url == "https://github.com/example/paper.git"
     assert "ghp_secret" not in git_url
+
+
+def test_get_inbox_loads_store_once(db, tmp_path, monkeypatch):
+    _seed(tmp_path)
+    loads = _count_store_loads(monkeypatch)
+    client = TestClient(create_app())
+    response = client.get("/api/inbox")
+    assert response.status_code == 200
+    assert loads["n"] == 1
