@@ -57,6 +57,6 @@ Quit `reviewdistill serve` and `extract --watch` before `move`. Restart them aft
 
 Rebuild, then restart `reviewdistill serve`:
 
-`pip install -e ".[dev]"` or `scripts/build-studio-assets.sh`
+`pip install -e ".[dev]"` or `scripts/build-client-assets.sh`
 
-Python tests: `python -m pytest`. Studio tests: `pnpm --dir studio test`.
+Python tests: `python -m pytest`. Client tests: `pnpm --dir client test`. Client lint: `pnpm --dir client lint`.

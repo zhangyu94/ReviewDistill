@@ -22,11 +22,11 @@ def test_pyproject_has_repository_url():
     assert "github.com" in repo
 
 
-def test_pyproject_builds_studio_into_package_data():
+def test_pyproject_builds_client_into_package_data():
     pyproject = _pyproject()
     data = pyproject["tool"]["setuptools"]["package-data"]["reviewdistill"]
     assert any("web/static" in item for item in data)
     cmdclass = pyproject["tool"]["setuptools"]["cmdclass"]
-    assert cmdclass["build_py"] == "studio_build.build_py"
-    assert cmdclass["sdist"] == "studio_build.sdist"
-    assert cmdclass["editable_wheel"] == "studio_build.editable_wheel"
+    assert cmdclass["build_py"] == "client_build.build_py"
+    assert cmdclass["sdist"] == "client_build.sdist"
+    assert cmdclass["editable_wheel"] == "client_build.editable_wheel"

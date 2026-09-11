@@ -58,14 +58,16 @@ Researchers and authors who proofread their own (or others’) manuscripts in La
 
 | Command | Description |
 | --- | --- |
-| `pip install -e ".[dev]"` | CLI + Python deps + Studio UI build |
+| `pip install -e ".[dev]"` | CLI + Python deps + client UI build |
 | `python -m pytest` | Python tests |
-| `pnpm --dir studio test` | Studio unit tests |
-| `pnpm --dir studio dev` | Vite on :5173, proxies `/api` |
+| `pnpm --dir client test` | Client unit tests |
+| `pnpm --dir client lint` | Client ESLint (`--fix` to apply) |
+| `pnpm --dir client up` | Bump client npm deps (taze) |
+| `pnpm --dir client dev` | Vite on :5173, proxies `/api` |
 | `pnpm --dir website start` | Documentation site |
-| `scripts/build-studio-assets.sh` | Rebuild packaged UI without reinstalling |
+| `scripts/build-client-assets.sh` | Rebuild packaged UI without reinstalling |
 
-Studio source: [`studio/`](./studio/). Docs site: [`website/`](./website/). Product spec and schema: [`docs/spec.md`](./docs/spec.md), [`docs/data-schema.md`](./docs/data-schema.md), [`docs/comment-identity.md`](./docs/comment-identity.md).
+Client source: [`client/`](./client/). Docs site: [`website/`](./website/). Product spec and schema: [`docs/spec.md`](./docs/spec.md), [`docs/data-schema.md`](./docs/data-schema.md), [`docs/comment-identity.md`](./docs/comment-identity.md).
 
 ## License
 

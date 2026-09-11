@@ -44,9 +44,9 @@ include = ["reviewdistill*"]
 reviewdistill = ["web/static/**"]
 
 [tool.setuptools.cmdclass]
-build_py = "studio_build.build_py"
-sdist = "studio_build.sdist"
-editable_wheel = "studio_build.editable_wheel"
+build_py = "client_build.build_py"
+sdist = "client_build.sdist"
+editable_wheel = "client_build.editable_wheel"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

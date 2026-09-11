@@ -34,7 +34,7 @@ The selectors bar switches Uncoded vs a type. Long lists paginate; the URL keeps
 From a clone, with the API already on `:8765`:
 
 ```bash
-pnpm --dir studio dev
+pnpm --dir client dev
 ```
 
-Vite on :5173 proxies `/api`. After you finish UI work, rebuild packaged assets (`pip install -e ".[dev]"` or `scripts/build-studio-assets.sh`) so `reviewdistill serve` is not stuck on an old build.
+Vite on :5173 proxies `/api`. After you finish UI work, rebuild packaged assets (`pip install -e ".[dev]"` or `scripts/build-client-assets.sh`) so `reviewdistill serve` is not stuck on an old build.

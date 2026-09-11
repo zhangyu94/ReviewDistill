@@ -8,7 +8,7 @@ dist/
 build/
 .coverage
 .env
-studio/node_modules/
+client/node_modules/
 website/node_modules/
 
 # For macOS

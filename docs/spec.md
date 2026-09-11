@@ -938,7 +938,7 @@ Backend
 
 Frontend
 
-* Vue 3 + TypeScript SPA (`studio/`)
+* Vue 3 + TypeScript SPA (`client/`)
 * FastAPI JSON under `/api`
 * `reviewdistill serve` serves the built SPA (no Node at runtime)
 
@@ -957,7 +957,7 @@ reviewdistill/
 ├── context/      manuscript neighborhood
 ├── llm/          provider interface
 ├── db/           JSONL models and session
-└── web/          FastAPI `/api` + packaged Studio static
+└── web/          FastAPI `/api` + packaged client static
 
 The exact structure can be simplified for the prototype.
 

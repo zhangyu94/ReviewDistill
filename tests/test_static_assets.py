@@ -12,14 +12,14 @@ def test_explicit_dir_without_index_does_not_fall_through(tmp_path: Path):
     empty = tmp_path / "empty"
     empty.mkdir()
     repo = tmp_path / "repo"
-    dist = repo / "studio" / "dist"
+    dist = repo / "client" / "dist"
     dist.mkdir(parents=True)
     (dist / "index.html").write_text("<html>monorepo</html>")
     assert resolve_serve_static_dir(explicit=empty, repo_root=repo) is None
 
 
-def test_monorepo_studio_dist(tmp_path: Path):
-    dist = tmp_path / "studio" / "dist"
+def test_monorepo_client_dist(tmp_path: Path):
+    dist = tmp_path / "client" / "dist"
     dist.mkdir(parents=True)
     (dist / "index.html").write_text("<html>monorepo</html>")
     assert resolve_serve_static_dir(repo_root=tmp_path) == dist.resolve()

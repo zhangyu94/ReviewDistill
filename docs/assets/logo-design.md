@@ -2,7 +2,7 @@
 
 ## Intent
 
-The mark is seen at **16×16** in the Studio header and as a favicon. That size is the design, not a shrink of a larger drawing.
+The mark is seen at **16×16** in the app header and as a favicon. That size is the design, not a shrink of a larger drawing.
 
 ## Concept
 
@@ -17,7 +17,7 @@ The folded-corner “skill file” was dropped: at 16px it reads as a clipped ch
 - The two interior holes are the **same rectangle** twice: `(3,3) 10×2` and `(3,6) 10×2`. Same `x`, same `width`, same `height`.
 - 1px stair-step on the four body corners (not a radius that anti-aliases into a stagger).
 - Centered three-step tail.
-- Ink `#171717` (Studio `--ch-color-foreground`). Holes are transparent.
+- Ink `#171717` (app `--ch-color-foreground`). Holes are transparent.
 
 ## Construction
 
@@ -57,6 +57,6 @@ The folded-corner “skill file” was dropped: at 16px it reads as a clipped ch
 
 - Canonical logo: `docs/assets/logo.svg`
 - This doc: `docs/assets/logo-design.md`
-- Studio copies (keep in sync with canonical):
-  - `studio/public/logo.svg` — header mark
-  - `studio/public/favicon.svg` — browser tab icon
+- Client copies (keep in sync with canonical):
+  - `client/public/logo.svg` — header mark
+  - `client/public/favicon.svg` — browser tab icon

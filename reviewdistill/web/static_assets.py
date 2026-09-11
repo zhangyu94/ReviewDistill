@@ -1,4 +1,4 @@
-"""Locate the Studio SPA for `reviewdistill serve`."""
+"""Locate the Vue SPA for `reviewdistill serve`."""
 
 from __future__ import annotations
 
@@ -23,14 +23,14 @@ def resolve_serve_static_dir(
     explicit: Path | None = None,
     repo_root: Path | None = None,
 ) -> Path | None:
-    """Order: explicit (no fall-through) → studio/dist → packaged static."""
+    """Order: explicit (no fall-through) → client/dist → packaged static."""
     if explicit is not None:
         root = explicit.resolve()
         if (root / "index.html").is_file():
             return root
         return None
     root = (repo_root if repo_root is not None else default_repo_root()).resolve()
-    monorepo = root / "studio" / "dist"
+    monorepo = root / "client" / "dist"
     if (monorepo / "index.html").is_file():
         return monorepo
     return packaged_static_dir()
