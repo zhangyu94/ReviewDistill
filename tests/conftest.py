@@ -5,12 +5,19 @@ from pathlib import Path
 import pytest
 
 
-@pytest.fixture
-def rd_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    home = tmp_path / "rd-home"
+@pytest.fixture(autouse=True)
+def fake_user_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    home = tmp_path / "user-home"
     home.mkdir()
-    monkeypatch.setenv("REVIEWDISTILL_HOME", str(home))
+    monkeypatch.setattr("reviewdistill.paths.Path.home", lambda: home)
     return home
+
+
+@pytest.fixture
+def rd_home(tmp_path: Path) -> Path:
+    from reviewdistill.paths import use_home
+
+    return use_home(tmp_path / "rd-home")
 
 
 @pytest.fixture

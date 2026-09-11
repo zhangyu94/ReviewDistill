@@ -46,6 +46,8 @@ That puts the `reviewdistill` command on your `PATH`. In a paper repository:
 
 The full guide: [Install](./website/docs/install.md), [Workflow](./website/docs/workflow.md), [Workbench](./website/docs/workbench.md), [LLM settings](./website/docs/llm.md), [Export](./website/docs/export.md).
 
+To see the data folder: `reviewdistill paths`, or workbench **Settings → Data**. To store it somewhere else: `reviewdistill paths move ~/Documents/reviewdistill`.
+
 Run the documentation site locally: `pnpm --dir website start`. GitHub Pages will serve it at `https://zhangyu94.github.io/ReviewDistill/` when you enable Pages.
 
 ## Who it is for

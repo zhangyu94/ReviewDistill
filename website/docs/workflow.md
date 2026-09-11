@@ -34,7 +34,7 @@ Proofread as usual. ReviewDistill watches the comments, not a separate review fi
 
    Then open http://127.0.0.1:8765. Configure an LLM in **Settings** if you want suggestions. Use **Get AI suggestions** on uncoded comments, then accept / change / reject.
 
-6. Repeat on the next paper. The taxonomy in `~/.reviewdistill` is reused.
+6. Repeat on the next paper. The taxonomy (Settings → **Data**, or `reviewdistill paths`) is reused.
 
 7. Export a rubric:
 

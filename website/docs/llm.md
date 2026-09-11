@@ -2,7 +2,7 @@
 
 There is no default model. Until `llm.provider` is set, the Uncoded inspector shows **No AI suggestion** and **Get AI suggestions** stays disabled. Mock proposals from older runs are ignored.
 
-Workbench **Settings** (header, next to Export) writes `llm.provider` / `llm.model` to the chosen paper’s `.reviewdistill/config.yaml` and the API key to that paper’s `.reviewdistill/.env` (gitignored). **Configure LLM** in the Uncoded empty state opens the same dialog.
+Workbench **Settings** (header, next to Export) **Assistant** panel writes `llm.provider` / `llm.model` to the chosen paper’s `.reviewdistill/config.yaml` and the API key to that paper’s `.reviewdistill/.env` (gitignored). **Configure LLM** in the Uncoded empty state opens the same dialog.
 
 ## Config you can commit
 

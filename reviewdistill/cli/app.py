@@ -12,6 +12,8 @@ from reviewdistill.taxonomy.export import export_rubric
 app = typer.Typer(help="ReviewDistill: distill informal review comments into reusable review knowledge.")
 taxonomy_app = typer.Typer(hidden=True, help="Hidden alias for `export`.")
 app.add_typer(taxonomy_app, name="taxonomy")
+paths_app = typer.Typer(help="Show or change the data folder.")
+app.add_typer(paths_app, name="paths")
 
 
 def _write_export(fmt: str, output: Path | None) -> None:
@@ -68,6 +70,57 @@ def taxonomy_export(
 ) -> None:
     """Hidden alias for `export`."""
     _write_export(format, output)
+
+
+@paths_app.callback(invoke_without_command=True)
+def paths_callback(ctx: typer.Context) -> None:
+    """Show where comments and issue types are stored."""
+    if ctx.invoked_subcommand is not None:
+        return
+    from reviewdistill.paths import data_location
+
+    loc = data_location()
+    typer.echo(f"Home: {loc['home']}")
+    typer.echo(f"Database: {loc['database']}")
+    typer.echo("")
+    typer.echo(
+        "Copy the home folder to back up (the whole folder, not only the .db file). "
+        "reviewdistill paths move DIR copies this folder to DIR and keeps using it. "
+        "reviewdistill paths use DIR points at a folder you already have. "
+        "Restart serve or extract after changing the folder."
+    )
+
+
+@paths_app.command("use")
+def paths_use(
+    directory: Path = typer.Argument(..., help="Folder to store comments and issue types."),
+) -> None:
+    """Use this folder for comments and issue types from now on."""
+    from reviewdistill.paths import HomePathError, use_home
+
+    try:
+        path = use_home(directory)
+    except HomePathError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"Home: {path}")
+    typer.echo("Restart serve or extract if they are running.")
+
+
+@paths_app.command("move")
+def paths_move(
+    directory: Path = typer.Argument(..., help="Empty folder to copy the current data into."),
+) -> None:
+    """Copy the current data folder here and keep using it."""
+    from reviewdistill.paths import HomePathError, move_home
+
+    try:
+        path = move_home(directory)
+    except HomePathError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"Home: {path}")
+    typer.echo("Left the previous folder in place. Restart serve or extract if they are running.")
 
 
 @app.command("serve")

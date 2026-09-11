@@ -26,7 +26,32 @@ reviewdistill --help
 
 ## Where data lives
 
-`$REVIEWDISTILL_HOME` (default `~/.reviewdistill`) holds the shared SQLite database and optional home-level LLM settings. The taxonomy accumulates there across papers.
+Comments and issue types are stored in one folder on your computer (not in the paper repo):
+
+- Default: `~/.reviewdistill`
+- Database file: `~/.reviewdistill/reviewdistill.db`
+
+Print the resolved paths:
+
+```sh
+reviewdistill paths
+```
+
+Workbench **Settings → Data** shows the same folder. Copy the **whole folder** to back up — not only the `.db` file — especially if ReviewDistill is running.
+
+To store it in a new folder:
+
+```sh
+reviewdistill paths move ~/Documents/reviewdistill
+```
+
+That copies the current folder into an empty destination and stores new comments there. If you already copied the folder yourself:
+
+```sh
+reviewdistill paths use ~/Documents/reviewdistill
+```
+
+Quit `reviewdistill serve` and `extract --watch` before `move`. Restart them afterwards. Do not put the live folder in Dropbox, iCloud, or Google Drive.
 
 ## If you change the workbench UI
 

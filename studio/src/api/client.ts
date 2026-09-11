@@ -250,3 +250,12 @@ export function saveLlmSettings(body: {
 }): Promise<{ ok: true, key_set: boolean }> {
   return api('/api/llm-settings', { method: 'POST', body: JSON.stringify(body) })
 }
+
+export interface DataLocation {
+  home: string
+  database: string
+}
+
+export function fetchDataLocation(): Promise<DataLocation> {
+  return api('/api/paths')
+}

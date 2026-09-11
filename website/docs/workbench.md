@@ -23,7 +23,7 @@ Click a row to open it in the inspector. Drag a comment onto a group to code it.
 - **Comment inspector** — wording, manuscript context, location, AI suggestion (if any), accept / change / reject.
 - **Issue inspector** — definition, examples, and operations on the selected group.
 
-**Uncoded** empty state **Configure LLM** opens the same dialog as header **Settings**.
+**Uncoded** empty state **Configure LLM** opens the same dialog as header **Settings**. Settings has two panels: **Assistant** (provider, model, API key) and **Data** (the folder on this computer, same as `reviewdistill paths`). Copy that whole folder to back up comments and issue types. To store it somewhere else, quit the workbench and run `reviewdistill paths move DIR` (or `reviewdistill paths use DIR` if you already copied it).
 
 ## Selectors and pagination
 

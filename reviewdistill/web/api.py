@@ -36,7 +36,7 @@ from reviewdistill.db.session import get_session
 from reviewdistill.gitinfo import context_permalink, sanitize_remote_url
 from reviewdistill.history import list_history, redo, undo
 from reviewdistill.llm.base import get_provider
-from reviewdistill.paths import project_env_path
+from reviewdistill.paths import data_location, project_env_path
 from reviewdistill.taxonomy.export import export_rubric
 from reviewdistill.taxonomy.operations import (
     accepted_counts_by_issue_type,
@@ -278,6 +278,12 @@ def get_export(format: str = "md"):
     elif format == "json":
         media = "application/json; charset=utf-8"
     return PlainTextResponse(text, media_type=media)
+
+
+@router.get("/paths")
+def get_paths():
+    """Home folder and SQLite file. Copy the folder to back up."""
+    return data_location()
 
 
 @router.get("/llm-settings")

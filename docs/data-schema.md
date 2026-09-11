@@ -4,7 +4,7 @@ Stored shape of a **project** (paper) and a proofreading **observation** in the 
 
 Identity (when a source comment is new, a revision, a move, or gone) is defined in [`comment-identity.md`](comment-identity.md). Product spec: [`spec.md`](spec.md). This file is the schema of the rows that identity acts on.
 
-Implementation: SQLModel `Project` → table `projects`, SQLModel `ProofreadingComment` → table `comments`, in `$REVIEWDISTILL_HOME/reviewdistill.db` (default `~/.reviewdistill/reviewdistill.db`).
+Implementation: SQLModel `Project` → table `projects`, SQLModel `ProofreadingComment` → table `comments`, in the ReviewDistill home folder (`reviewdistill.db`, default `~/.reviewdistill`). `reviewdistill paths use` / `move` choose that folder.
 
 There is no declared SQL foreign key. `comments.project_id` is the `projects.id` of the paper.
 
