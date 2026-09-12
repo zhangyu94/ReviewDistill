@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import type { ExportFormat, TaxonomyListResponse } from '../../api/client.ts'
-import { ref } from 'vue'
+import type { ExportFormat } from '../../api/client.ts'
+import { computed, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   deactivateIssue,
   exportFilename,
   fetchExport,
-  fetchTaxonomy,
 } from '../../api/client.ts'
+import { groupIdFromRoute, typeRouteAfterDeactivate } from '../../workbench/workbenchMode.ts'
+import { useWorkbenchStore } from '../../workbench/workbenchStore.ts'
 import {
   Select,
   SelectContent,
@@ -17,10 +19,13 @@ import {
 
 const open = ref(false)
 const fmt = ref<ExportFormat>('md')
+const route = useRoute()
+const router = useRouter()
+const store = useWorkbenchStore()
 const error = ref('')
 const notice = ref('')
 const busy = ref(false)
-const list = ref<TaxonomyListResponse | null>(null)
+const list = computed(() => store.taxonomy)
 const deactivateId = ref('')
 
 const formats: { id: ExportFormat, label: string }[] = [
@@ -40,15 +45,11 @@ function onDeactivateId(value: unknown) {
   if (typeof value === 'string') { deactivateId.value = value }
 }
 
-async function loadList() {
-  list.value = await fetchTaxonomy()
-}
-
 async function show() {
   open.value = true
   error.value = ''
   notice.value = ''
-  await loadList()
+  await store.invalidate({ taxonomy: true })
 }
 
 function hide() {
@@ -77,16 +78,22 @@ async function download() {
 }
 
 async function deactivate() {
-  if (!deactivateId.value) { return }
+  const deactivated = deactivateId.value
+  if (!deactivated) { return }
   busy.value = true
   error.value = ''
   notice.value = ''
   try {
-    await deactivateIssue(deactivateId.value)
+    const viewing = groupIdFromRoute(
+      typeof route.params.id === 'string' ? route.params.id : '',
+      typeof route.query.type === 'string' ? route.query.type : '',
+    )
+    await deactivateIssue(deactivated)
     notice.value = 'Group deactivated.'
     deactivateId.value = ''
-    await loadList()
-    window.dispatchEvent(new CustomEvent('reviewdistill:taxonomy-changed'))
+    const href = typeRouteAfterDeactivate(viewing, deactivated)
+    if (href) { await router.push(href) }
+    await store.invalidate({ taxonomy: true, inbox: true })
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)

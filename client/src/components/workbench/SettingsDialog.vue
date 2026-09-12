@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { DataLocation, LlmSettingsResponse } from '../../api/client.ts'
 import type { SettingsPanelId } from '../../settingsPanels.ts'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
+import { computed, ref, watch } from 'vue'
 import {
   fetchDataLocation,
   fetchLlmSettings,
@@ -21,6 +22,7 @@ import {
   settingsPanelOnOpen,
   showsSettingsSave,
 } from '../../settingsPanels.ts'
+import { useWorkbenchStore } from '../../workbench/workbenchStore.ts'
 import {
   Select,
   SelectContent,
@@ -29,7 +31,8 @@ import {
   SelectValue,
 } from '../ui/select'
 
-const open = ref(false)
+const store = useWorkbenchStore()
+const { settingsOpen } = storeToRefs(store)
 const panel = ref<SettingsPanelId>(DEFAULT_SETTINGS_PANEL)
 const busy = ref(false)
 const error = ref('')
@@ -74,8 +77,7 @@ async function applyProject(id: string) {
   }
 }
 
-async function show() {
-  open.value = true
+async function loadSettings() {
   panel.value = settingsPanelOnOpen()
   error.value = ''
   notice.value = ''
@@ -109,9 +111,17 @@ async function show() {
   }
 }
 
-function hide() {
-  open.value = false
+function show() {
+  store.openSettings()
 }
+
+function hide() {
+  store.closeSettings()
+}
+
+watch(settingsOpen, (open) => {
+  if (open) { void loadSettings() }
+})
 
 async function copyHomeFolder() {
   if (!location.value) { return }
@@ -138,10 +148,6 @@ function onProviderId(value: unknown) {
   if (typeof value === 'string' && value) { onProviderChange(value) }
 }
 
-function onOpenEvent() {
-  void show()
-}
-
 async function save() {
   if (!canSave.value) { return }
   busy.value = true
@@ -159,7 +165,7 @@ async function save() {
     savedProvider.value = provider.value
     savedKeySet.value = true
     keySet.value = true
-    window.dispatchEvent(new CustomEvent('reviewdistill:llm-changed'))
+    await store.loadInbox()
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -168,13 +174,6 @@ async function save() {
     busy.value = false
   }
 }
-
-onMounted(() => {
-  window.addEventListener('reviewdistill:open-settings', onOpenEvent)
-})
-onUnmounted(() => {
-  window.removeEventListener('reviewdistill:open-settings', onOpenEvent)
-})
 
 defineExpose({ show })
 </script>
@@ -199,7 +198,7 @@ defineExpose({ show })
     Settings
   </button>
   <div
-    v-if="open"
+    v-if="settingsOpen"
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     @click.self="hide"
   >

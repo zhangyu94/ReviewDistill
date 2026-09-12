@@ -3,9 +3,11 @@ import type { HistoryEvent } from '../api/client.ts'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchHistory, redoHistory, undoHistory } from '../api/client.ts'
+import { useWorkbenchStore } from '../workbench/workbenchStore.ts'
 
 const route = useRoute()
 const router = useRouter()
+const store = useWorkbenchStore()
 const events = ref<HistoryEvent[]>([])
 const canUndo = ref(false)
 const canRedo = ref(false)
@@ -33,6 +35,7 @@ async function wrap(fn: () => Promise<unknown>) {
   try {
     await fn()
     await load()
+    await store.invalidate({ inbox: true, taxonomy: true })
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)

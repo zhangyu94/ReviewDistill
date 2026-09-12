@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeSelector, allowChangeDrop, changeIssueOptions, clearIssueBeforeLoad, dismissTypeHref, entryMode, groupIdFromRoute, inboxItemFromObservation, inspectorKind, issueLoadErrorView, labeledTypeIdForComment, nextChangeId, shouldApplyIssueLoad, showAssignType, taxonClickHref, thisTypeHref, typeSelectorLabel, unlabeledHref } from './workbenchMode.ts'
+import { activeSelector, allowChangeDrop, changeIssueOptions, clearIssueBeforeLoad, dismissTypeHref, entryMode, groupIdFromRoute, inboxItemFromObservation, inspectorKind, issueLoadErrorView, labeledTypeIdForComment, nextChangeId, shouldApplyIssueLoad, showAssignType, taxonClickHref, thisTypeHref, typeRouteAfterDeactivate, typeSelectorLabel, unlabeledHref } from './workbenchMode.ts'
 
 describe('workbenchMode', () => {
   it('uses the unlabeled queue on the inbox route', () => {
@@ -158,5 +158,11 @@ describe('workbenchMode', () => {
     expect(nextChangeId(issues, 'a', '')).toBe('b')
     expect(nextChangeId(issues, 'a', 'missing')).toBe('b')
     expect(nextChangeId([issues[0]], 'a', 'a')).toBe('')
+  })
+
+  it('leaves the type route only when the viewed type was deactivated', () => {
+    expect(typeRouteAfterDeactivate('t1', 't1')).toBe('/')
+    expect(typeRouteAfterDeactivate('t1', 't2')).toBeNull()
+    expect(typeRouteAfterDeactivate('', 't1')).toBeNull()
   })
 })

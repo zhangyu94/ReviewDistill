@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import type { InboxItemJson, InboxResponse, TaxonomyDetail, TaxonomyListResponse } from '../api/client.ts'
+import type { InboxItemJson } from '../api/client.ts'
 import type { DragPayload, DropTarget } from '../workbench/dropAction.ts'
 import type { CommentsLayout } from '../workbench/workbenchMode.ts'
+import type { InvalidateParts } from '../workbench/workbenchStore.ts'
+import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ApiError,
   changeInbox,
-  fetchInbox,
-  fetchIssue,
-  fetchTaxonomy,
   mergeIssues,
   moveIssue,
   postInbox,
@@ -27,20 +25,18 @@ import { dropAction } from '../workbench/dropAction.ts'
 import {
   activeSelector,
   allowChangeDrop,
-  clearIssueBeforeLoad,
   dismissTypeHref,
   entryMode,
   groupIdFromRoute,
   inboxItemFromObservation,
-  issueLoadErrorView,
   labeledTypeIdForComment,
   nextChangeId,
-  shouldApplyIssueLoad,
   taxonClickHref,
   thisTypeHref,
   typeSelectorLabel,
   unlabeledHref,
 } from '../workbench/workbenchMode.ts'
+import { useWorkbenchStore } from '../workbench/workbenchStore.ts'
 
 function queryStr(value: unknown): string {
   return typeof value === 'string' ? value : ''
@@ -53,14 +49,22 @@ const paramsIssueId = computed(() => (typeof route.params.id === 'string' ? rout
 const groupId = computed(() => groupIdFromRoute(paramsIssueId.value, queryStr(route.query.type)))
 const selector = computed(() => activeSelector(route.name, paramsIssueId.value))
 
-const inbox = ref<InboxResponse | null>(null)
-const taxonomy = ref<TaxonomyListResponse | null>(null)
-const issue = ref<TaxonomyDetail | null>(null)
-const missing = ref(false)
-let issueLoadGen = 0
-const error = ref('')
+const store = useWorkbenchStore()
+const { inbox, taxonomy, issue, missing, error, loading } = storeToRefs(store)
+const { loadInbox, openSettings } = store
+
+async function loadIssue() {
+  await store.loadIssue(groupId.value)
+}
+
+async function loadAll() {
+  await store.loadAll(groupId.value)
+}
+
+async function invalidate(parts: InvalidateParts) {
+  await store.invalidate(parts, groupId.value)
+}
 const notice = ref('')
-const loading = ref(false)
 const coding = ref(false)
 const changeId = ref('')
 
@@ -189,10 +193,6 @@ function codeAllTitle(): string {
   return 'Ask the LLM to propose issue types for every unlabeled comment'
 }
 
-async function loadInbox() {
-  inbox.value = await fetchInbox()
-}
-
 watch(
   [inbox, inspectorItem],
   () => {
@@ -203,53 +203,6 @@ watch(
     )
   },
 )
-
-async function loadTaxonomy() {
-  taxonomy.value = await fetchTaxonomy()
-}
-
-async function loadIssue() {
-  const id = groupId.value
-  const gen = ++issueLoadGen
-  if (clearIssueBeforeLoad(issue.value?.id ?? '', id)) {
-    issue.value = null
-  }
-  if (!id) { return }
-  try {
-    const next = await fetchIssue(id)
-    if (!shouldApplyIssueLoad(gen, issueLoadGen)) { return }
-    issue.value = next
-    missing.value = false
-    error.value = ''
-  }
-  catch (err) {
-    if (!shouldApplyIssueLoad(gen, issueLoadGen)) { return }
-    const status = err instanceof ApiError ? err.status : null
-    if (issueLoadErrorView(status) === 'missing') {
-      issue.value = null
-      missing.value = true
-      error.value = ''
-    }
-    else {
-      missing.value = false
-      error.value = err instanceof Error ? err.message : String(err)
-    }
-  }
-}
-
-async function loadAll() {
-  loading.value = true
-  error.value = ''
-  try {
-    await Promise.all([loadInbox(), loadTaxonomy(), loadIssue()])
-  }
-  catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
-  }
-  finally {
-    loading.value = false
-  }
-}
 
 function selectComment(id: string) {
   void router.replace({ query: typeQuery(id) })
@@ -281,8 +234,7 @@ async function codeAll() {
   try {
     const result = await postInboxCode()
     if (result.privacy_warning) { notice.value = result.privacy_warning }
-    await loadInbox()
-    await loadTaxonomy()
+    await invalidate({ inbox: true, taxonomy: true })
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -315,9 +267,7 @@ async function act(action: 'accept' | 'verify' | 'drop') {
   const idsBefore = commentQueueIds()
   try {
     await postInbox(actedId, action)
-    await loadInbox()
-    await loadTaxonomy()
-    await loadIssue()
+    await invalidate({ inbox: true, taxonomy: true, issue: true })
     afterCommentAction(selectedIdAfterAction(idsBefore, actedId, commentQueueIds()))
   }
   catch (err) {
@@ -333,9 +283,7 @@ async function change() {
   const idsBefore = commentQueueIds()
   try {
     await changeInbox(actedId, changeId.value)
-    await loadInbox()
-    await loadTaxonomy()
-    await loadIssue()
+    await invalidate({ inbox: true, taxonomy: true, issue: true })
     afterCommentAction(selectedIdAfterAction(idsBefore, actedId, commentQueueIds()))
   }
   catch (err) {
@@ -355,9 +303,7 @@ async function onDrop(payload: DragPayload, target: DropTarget) {
       const actedId = action.commentId
       const idsBefore = queueItems.value.map((item) => item.comment.id)
       await changeInbox(actedId, action.issueTypeId)
-      await loadInbox()
-      await loadTaxonomy()
-      await loadIssue()
+      await invalidate({ inbox: true, taxonomy: true, issue: true })
       await router.replace({
         query: typeQuery(selectedIdAfterAction(idsBefore, actedId, commentQueueIds())),
       })
@@ -371,8 +317,7 @@ async function onDrop(payload: DragPayload, target: DropTarget) {
       return
     }
     await moveIssue(action.issueTypeId, action.category)
-    await loadTaxonomy()
-    await loadIssue()
+    await invalidate({ taxonomy: true, issue: true })
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -381,14 +326,13 @@ async function onDrop(payload: DragPayload, target: DropTarget) {
 
 async function onIssueUpdated() {
   error.value = ''
-  await loadTaxonomy()
-  await loadIssue()
+  await invalidate({ taxonomy: true, issue: true })
 }
 
 async function onIssueRemoved() {
   error.value = ''
   lastTypeId.value = ''
-  await loadTaxonomy()
+  await invalidate({ taxonomy: true })
   await router.push('/')
 }
 
@@ -414,29 +358,12 @@ function onKey(event: KeyboardEvent) {
   if (next) { onSelectEntry(next) }
 }
 
-async function onTaxonomyChanged() {
-  await loadAll()
-  if (groupId.value && !typeRow(groupId.value)) { await onIssueRemoved() }
-}
-
-async function onLlmChanged() {
-  await loadInbox()
-}
-
-function openSettings() {
-  window.dispatchEvent(new CustomEvent('reviewdistill:open-settings'))
-}
-
 onMounted(() => {
   void loadAll()
   window.addEventListener('keydown', onKey)
-  window.addEventListener('reviewdistill:taxonomy-changed', onTaxonomyChanged)
-  window.addEventListener('reviewdistill:llm-changed', onLlmChanged)
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
-  window.removeEventListener('reviewdistill:taxonomy-changed', onTaxonomyChanged)
-  window.removeEventListener('reviewdistill:llm-changed', onLlmChanged)
 })
 watch(() => route.name, () => { void loadInbox() })
 watch(groupId, () => { void loadIssue() })

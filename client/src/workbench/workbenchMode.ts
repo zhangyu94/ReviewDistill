@@ -80,6 +80,11 @@ export function issueLoadErrorView(status: number | null): 'missing' | 'error' {
   return status === 404 ? 'missing' : 'error'
 }
 
+export function typeRouteAfterDeactivate(groupId: string, deactivatedId: string): string | null {
+  if (groupId && groupId === deactivatedId) { return '/' }
+  return null
+}
+
 export function labeledTypeIdForComment(items: InboxItemJson[], commentId: string): string | null {
   return items.find((item) => item.comment.id === commentId)?.issue?.id ?? null
 }
