@@ -13,6 +13,14 @@ from datetime import datetime
 from uuid import uuid4
 
 from reviewdistill.db.models import (
+    CODING_ACCEPTED,
+    CODING_MODIFIED,
+    CODING_PROPOSED,
+    ISSUE_ACTIVE,
+    ISSUE_INACTIVE,
+    QUALITY_DROPPED,
+    QUALITY_UNREVIEWED,
+    QUALITY_VERIFIED,
     Coding,
     IssueCounterexample,
     IssueExample,
@@ -22,6 +30,7 @@ from reviewdistill.db.models import (
     utcnow,
 )
 from reviewdistill.db.session import get_session, init_db
+from reviewdistill.errors import BadInput
 
 INVERTIBLE = frozenset(
     {
@@ -155,10 +164,10 @@ def undo() -> None:
             if not event.undone
         ]
         if not rows:
-            raise ValueError("Nothing to undo")
+            raise BadInput("Nothing to undo")
         event = rows[-1]
         if not can_invert(event):
-            raise ValueError("This event cannot be undone")
+            raise BadInput("This event cannot be undone")
         _invert(session, event)
         event.undone = True
         session.add(event)
@@ -174,7 +183,7 @@ def redo() -> None:
             if event.undone
         ]
         if not undone:
-            raise ValueError("Nothing to redo")
+            raise BadInput("Nothing to redo")
         event = undone[0]
         _apply(session, event)
         event.undone = False
@@ -186,197 +195,202 @@ def _payload(event: TaxonomyEvent) -> dict:
     return json.loads(event.payload_json)
 
 
+def _invert_rename(session, payload: dict) -> None:
+    issue = session.get(IssueType, payload["issue_type_id"])
+    before = payload["before"]
+    issue.name = before["name"]
+    issue.code = before["code"]
+    issue.updated_at = utcnow()
+    session.add(issue)
+
+
+def _apply_rename(session, payload: dict) -> None:
+    issue = session.get(IssueType, payload["issue_type_id"])
+    after = payload["after"]
+    issue.name = after["name"]
+    issue.code = after["code"]
+    issue.updated_at = utcnow()
+    session.add(issue)
+
+
+def _invert_edit(session, payload: dict) -> None:
+    issue = session.get(IssueType, payload["issue_type_id"])
+    before = payload["before"]
+    issue.definition = before["definition"]
+    issue.notes = before.get("notes")
+    issue.detection_guidance = before.get("detection_guidance")
+    issue.updated_at = utcnow()
+    session.add(issue)
+
+
+def _apply_edit(session, payload: dict) -> None:
+    issue = session.get(IssueType, payload["issue_type_id"])
+    after = payload["after"]
+    issue.definition = after["definition"]
+    issue.notes = after.get("notes")
+    issue.detection_guidance = after.get("detection_guidance")
+    issue.updated_at = utcnow()
+    session.add(issue)
+
+
+def _invert_move(session, payload: dict) -> None:
+    issue = session.get(IssueType, payload["issue_type_id"])
+    issue.category = payload["from"]
+    issue.updated_at = utcnow()
+    session.add(issue)
+
+
+def _apply_move(session, payload: dict) -> None:
+    issue = session.get(IssueType, payload["issue_type_id"])
+    issue.category = payload["to"]
+    issue.updated_at = utcnow()
+    session.add(issue)
+
+
+def _invert_add(session, payload: dict) -> None:
+    issue = session.get(IssueType, payload["issue_type_id"])
+    issue.status = ISSUE_INACTIVE
+    issue.updated_at = utcnow()
+    session.add(issue)
+
+
+def _apply_add(session, payload: dict) -> None:
+    issue = session.get(IssueType, payload["issue_type_id"])
+    issue.status = ISSUE_ACTIVE
+    issue.updated_at = utcnow()
+    session.add(issue)
+
+
+def _invert_deactivate(session, payload: dict) -> None:
+    issue = session.get(IssueType, payload["issue_type_id"])
+    issue.status = ISSUE_ACTIVE
+    issue.updated_at = utcnow()
+    session.add(issue)
+    for row in payload.get("deleted_codings") or []:
+        session.add(coding_from_dump(row))
+
+
+def _apply_deactivate(session, payload: dict) -> None:
+    issue = session.get(IssueType, payload["issue_type_id"])
+    issue.status = ISSUE_INACTIVE
+    issue.updated_at = utcnow()
+    session.add(issue)
+    for row in payload.get("deleted_codings") or []:
+        existing = session.get(Coding, row["id"])
+        if existing is not None:
+            session.delete(existing)
+
+
+def _invert_propose(session, payload: dict) -> None:
+    for row in payload.get("created") or []:
+        existing = session.get(Coding, row["id"])
+        if existing is not None:
+            session.delete(existing)
+    for row in payload.get("replaced") or []:
+        session.add(coding_from_dump(row))
+
+
+def _apply_propose(session, payload: dict) -> None:
+    for row in payload.get("replaced") or []:
+        existing = session.get(Coding, row["id"])
+        if existing is not None:
+            session.delete(existing)
+    for row in payload.get("created") or []:
+        session.add(coding_from_dump(row))
+
+
+def _invert_accept(session, payload: dict) -> None:
+    coding = session.get(Coding, payload["coding_id"])
+    coding.status = payload.get("previous_status") or CODING_PROPOSED
+    session.add(coding)
+    if payload.get("example_created") and payload.get("example_id"):
+        example = session.get(IssueExample, payload["example_id"])
+        if example is not None:
+            session.delete(example)
+
+
+def _apply_accept(session, payload: dict) -> None:
+    coding = session.get(Coding, payload["coding_id"])
+    coding.status = CODING_ACCEPTED
+    if payload.get("issue_type_id"):
+        coding.issue_type_id = payload["issue_type_id"]
+    session.add(coding)
+    if payload.get("example_created") and payload.get("example"):
+        session.add(example_from_dump(payload["example"]))
+
+
+def _invert_change(session, payload: dict) -> None:
+    human = session.get(Coding, payload["coding_id"])
+    if human is not None:
+        session.delete(human)
+    if payload.get("proposed_id"):
+        proposed = session.get(Coding, payload["proposed_id"])
+        if proposed is not None:
+            proposed.status = CODING_PROPOSED
+            session.add(proposed)
+    if payload.get("example_created") and payload.get("example_id"):
+        example = session.get(IssueExample, payload["example_id"])
+        if example is not None:
+            session.delete(example)
+    for row in payload.get("retired_accepted") or []:
+        coding = session.get(Coding, row["id"])
+        if coding is not None:
+            coding.status = row.get("status") or CODING_ACCEPTED
+            session.add(coding)
+    for row in payload.get("deleted_examples") or []:
+        session.add(example_from_dump(row))
+
+
+def _apply_change(session, payload: dict) -> None:
+    if payload.get("proposed_id"):
+        proposed = session.get(Coding, payload["proposed_id"])
+        if proposed is not None:
+            proposed.status = CODING_MODIFIED
+            session.add(proposed)
+    for row in payload.get("retired_accepted") or []:
+        coding = session.get(Coding, row["id"])
+        if coding is not None:
+            coding.status = CODING_MODIFIED
+            session.add(coding)
+    session.add(coding_from_dump(payload["coding"]))
+    if payload.get("example_created") and payload.get("example"):
+        session.add(example_from_dump(payload["example"]))
+    for row in payload.get("deleted_examples") or []:
+        example = session.get(IssueExample, row["id"])
+        if example is not None:
+            session.delete(example)
+
+
+def _invert_quality(session, payload: dict) -> None:
+    comment = session.get(ProofreadingComment, payload["comment_id"])
+    comment.quality = payload.get("previous_quality") or QUALITY_UNREVIEWED
+    session.add(comment)
+
+
+def _apply_verify(session, payload: dict) -> None:
+    comment = session.get(ProofreadingComment, payload["comment_id"])
+    comment.quality = QUALITY_VERIFIED
+    session.add(comment)
+
+
+def _apply_drop(session, payload: dict) -> None:
+    comment = session.get(ProofreadingComment, payload["comment_id"])
+    comment.quality = QUALITY_DROPPED
+    session.add(comment)
+
+
 def _invert(session, event: TaxonomyEvent) -> None:
-    payload = _payload(event)
-    kind = event.event_type
-    if kind == "rename":
-        issue = session.get(IssueType, payload["issue_type_id"])
-        before = payload["before"]
-        issue.name = before["name"]
-        issue.code = before["code"]
-        issue.updated_at = utcnow()
-        session.add(issue)
-        return
-    if kind == "edit":
-        issue = session.get(IssueType, payload["issue_type_id"])
-        before = payload["before"]
-        issue.definition = before["definition"]
-        issue.notes = before.get("notes")
-        issue.detection_guidance = before.get("detection_guidance")
-        issue.updated_at = utcnow()
-        session.add(issue)
-        return
-    if kind == "move":
-        issue = session.get(IssueType, payload["issue_type_id"])
-        issue.category = payload["from"]
-        issue.updated_at = utcnow()
-        session.add(issue)
-        return
-    if kind == "add":
-        issue = session.get(IssueType, payload["issue_type_id"])
-        issue.status = "inactive"
-        issue.updated_at = utcnow()
-        session.add(issue)
-        return
-    if kind == "deactivate":
-        issue = session.get(IssueType, payload["issue_type_id"])
-        issue.status = "active"
-        issue.updated_at = utcnow()
-        session.add(issue)
-        for row in payload.get("deleted_codings") or []:
-            session.add(coding_from_dump(row))
-        return
-    if kind == "merge":
-        _invert_merge(session, payload)
-        return
-    if kind == "split":
-        _invert_split(session, payload)
-        return
-    if kind == "propose":
-        for row in payload.get("created") or []:
-            existing = session.get(Coding, row["id"])
-            if existing is not None:
-                session.delete(existing)
-        for row in payload.get("replaced") or []:
-            session.add(coding_from_dump(row))
-        return
-    if kind == "accept":
-        coding = session.get(Coding, payload["coding_id"])
-        coding.status = payload.get("previous_status") or "proposed"
-        session.add(coding)
-        if payload.get("example_created") and payload.get("example_id"):
-            example = session.get(IssueExample, payload["example_id"])
-            if example is not None:
-                session.delete(example)
-        return
-    if kind == "change":
-        human = session.get(Coding, payload["coding_id"])
-        if human is not None:
-            session.delete(human)
-        if payload.get("proposed_id"):
-            proposed = session.get(Coding, payload["proposed_id"])
-            if proposed is not None:
-                proposed.status = "proposed"
-                session.add(proposed)
-        if payload.get("example_created") and payload.get("example_id"):
-            example = session.get(IssueExample, payload["example_id"])
-            if example is not None:
-                session.delete(example)
-        for row in payload.get("retired_accepted") or []:
-            coding = session.get(Coding, row["id"])
-            if coding is not None:
-                coding.status = row.get("status") or "accepted"
-                session.add(coding)
-        for row in payload.get("deleted_examples") or []:
-            session.add(example_from_dump(row))
-        return
-    if kind in {"verify", "drop"}:
-        comment = session.get(ProofreadingComment, payload["comment_id"])
-        previous = payload.get("previous_quality")
-        if previous:
-            comment.quality = previous
-        else:
-            comment.quality = "unreviewed"
-        session.add(comment)
-        return
-    raise ValueError(f"Cannot invert {kind}")
+    pair = HANDLERS.get(event.event_type)
+    if pair is None:
+        raise BadInput(f"Cannot invert {event.event_type}")
+    pair[1](session, _payload(event))
 
 
 def _apply(session, event: TaxonomyEvent) -> None:
-    payload = _payload(event)
-    kind = event.event_type
-    if kind == "rename":
-        issue = session.get(IssueType, payload["issue_type_id"])
-        after = payload["after"]
-        issue.name = after["name"]
-        issue.code = after["code"]
-        issue.updated_at = utcnow()
-        session.add(issue)
-        return
-    if kind == "edit":
-        issue = session.get(IssueType, payload["issue_type_id"])
-        after = payload["after"]
-        issue.definition = after["definition"]
-        issue.notes = after.get("notes")
-        issue.detection_guidance = after.get("detection_guidance")
-        issue.updated_at = utcnow()
-        session.add(issue)
-        return
-    if kind == "move":
-        issue = session.get(IssueType, payload["issue_type_id"])
-        issue.category = payload["to"]
-        issue.updated_at = utcnow()
-        session.add(issue)
-        return
-    if kind == "add":
-        issue = session.get(IssueType, payload["issue_type_id"])
-        issue.status = "active"
-        issue.updated_at = utcnow()
-        session.add(issue)
-        return
-    if kind == "deactivate":
-        issue = session.get(IssueType, payload["issue_type_id"])
-        issue.status = "inactive"
-        issue.updated_at = utcnow()
-        session.add(issue)
-        for row in payload.get("deleted_codings") or []:
-            existing = session.get(Coding, row["id"])
-            if existing is not None:
-                session.delete(existing)
-        return
-    if kind == "merge":
-        _apply_merge(session, payload)
-        return
-    if kind == "split":
-        _apply_split(session, payload)
-        return
-    if kind == "propose":
-        for row in payload.get("replaced") or []:
-            existing = session.get(Coding, row["id"])
-            if existing is not None:
-                session.delete(existing)
-        for row in payload.get("created") or []:
-            session.add(coding_from_dump(row))
-        return
-    if kind == "accept":
-        coding = session.get(Coding, payload["coding_id"])
-        coding.status = "accepted"
-        if payload.get("issue_type_id"):
-            coding.issue_type_id = payload["issue_type_id"]
-        session.add(coding)
-        if payload.get("example_created") and payload.get("example"):
-            session.add(example_from_dump(payload["example"]))
-        return
-    if kind == "change":
-        if payload.get("proposed_id"):
-            proposed = session.get(Coding, payload["proposed_id"])
-            if proposed is not None:
-                proposed.status = "modified"
-                session.add(proposed)
-        for row in payload.get("retired_accepted") or []:
-            coding = session.get(Coding, row["id"])
-            if coding is not None:
-                coding.status = "modified"
-                session.add(coding)
-        session.add(coding_from_dump(payload["coding"]))
-        if payload.get("example_created") and payload.get("example"):
-            session.add(example_from_dump(payload["example"]))
-        for row in payload.get("deleted_examples") or []:
-            example = session.get(IssueExample, row["id"])
-            if example is not None:
-                session.delete(example)
-        return
-    if kind == "verify":
-        comment = session.get(ProofreadingComment, payload["comment_id"])
-        comment.quality = "verified"
-        session.add(comment)
-        return
-    if kind == "drop":
-        comment = session.get(ProofreadingComment, payload["comment_id"])
-        comment.quality = "dropped"
-        session.add(comment)
-        return
-    raise ValueError(f"Cannot redo {kind}")
+    pair = HANDLERS.get(event.event_type)
+    if pair is None:
+        raise BadInput(f"Cannot redo {event.event_type}")
+    pair[0](session, _payload(event))
 
 
 def _invert_merge(session, payload: dict) -> None:
@@ -402,7 +416,7 @@ def _invert_merge(session, payload: dict) -> None:
             continue
         source = session.get(IssueType, source_id)
         if source is not None:
-            source.status = "active"
+            source.status = ISSUE_ACTIVE
             source.updated_at = utcnow()
             session.add(source)
 
@@ -433,20 +447,20 @@ def _apply_merge(session, payload: dict) -> None:
             continue
         source = session.get(IssueType, source_id)
         if source is not None:
-            source.status = "inactive"
+            source.status = ISSUE_INACTIVE
             source.updated_at = utcnow()
             session.add(source)
 
 
 def _invert_split(session, payload: dict) -> None:
     source = session.get(IssueType, payload["source_id"])
-    source.status = "active"
+    source.status = ISSUE_ACTIVE
     source.updated_at = utcnow()
     session.add(source)
     for created_id in payload.get("created_ids") or []:
         created = session.get(IssueType, created_id)
         if created is not None:
-            created.status = "inactive"
+            created.status = ISSUE_INACTIVE
             created.updated_at = utcnow()
             session.add(created)
     for row in payload.get("deleted_codings") or []:
@@ -455,16 +469,32 @@ def _invert_split(session, payload: dict) -> None:
 
 def _apply_split(session, payload: dict) -> None:
     source = session.get(IssueType, payload["source_id"])
-    source.status = "inactive"
+    source.status = ISSUE_INACTIVE
     source.updated_at = utcnow()
     session.add(source)
     for created_id in payload.get("created_ids") or []:
         created = session.get(IssueType, created_id)
         if created is not None:
-            created.status = "active"
+            created.status = ISSUE_ACTIVE
             created.updated_at = utcnow()
             session.add(created)
     for row in payload.get("deleted_codings") or []:
         existing = session.get(Coding, row["id"])
         if existing is not None:
             session.delete(existing)
+
+
+HANDLERS = {
+    "rename": (_apply_rename, _invert_rename),
+    "edit": (_apply_edit, _invert_edit),
+    "move": (_apply_move, _invert_move),
+    "add": (_apply_add, _invert_add),
+    "deactivate": (_apply_deactivate, _invert_deactivate),
+    "merge": (_apply_merge, _invert_merge),
+    "split": (_apply_split, _invert_split),
+    "propose": (_apply_propose, _invert_propose),
+    "accept": (_apply_accept, _invert_accept),
+    "change": (_apply_change, _invert_change),
+    "verify": (_apply_verify, _invert_quality),
+    "drop": (_apply_drop, _invert_quality),
+}

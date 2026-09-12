@@ -127,7 +127,12 @@ class StoreSession:
                 line = line.strip()
                 if not line:
                     continue
-                data = json.loads(line)
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    from reviewdistill.errors import CorruptStore
+
+                    raise CorruptStore(f"Invalid JSON in {name}") from exc
                 row = model.model_validate(data)
                 if model is ProofreadingComment:
                     comment_quality(row)

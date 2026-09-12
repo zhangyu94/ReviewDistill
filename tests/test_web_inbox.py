@@ -299,7 +299,6 @@ def test_post_inbox_code_http_error_is_400(db, tmp_path, monkeypatch):
                 response=httpx.Response(503, request=httpx.Request("POST", "https://example.com")),
             )
 
-    monkeypatch.setattr("reviewdistill.web.api.get_provider", lambda: _Down())
     monkeypatch.setattr("reviewdistill.coding.coder.get_provider", lambda: _Down())
     client = TestClient(create_app())
     response = client.post("/api/inbox/code")

@@ -88,6 +88,55 @@ def test_accept_new_creates_issue_type(db, tmp_path):
         assert issue.status == "active"
 
 
+def test_accept_new_issue_commits_once(db, tmp_path, monkeypatch):
+    comment_id = _seed_proposed(
+        tmp_path,
+        {
+            "recommendation": "new",
+            "issue_code": "METHJUST",
+            "issue_name": "Missing methodological justification",
+            "category": "Methodology",
+            "definition": "A design choice is unexplained.",
+            "confidence": 0.78,
+            "rationale": "Unexplained design decision.",
+        },
+    )
+    from reviewdistill.db.session import StoreSession
+
+    commits = {"n": 0}
+    original = StoreSession.commit
+
+    def counting(self):
+        commits["n"] += 1
+        return original(self)
+
+    monkeypatch.setattr(StoreSession, "commit", counting)
+    accept_coding(comment_id)
+    assert commits["n"] == 1
+
+
+def test_verify_comment_commits_once(db, tmp_path, monkeypatch):
+    from reviewdistill.db.session import StoreSession
+
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Too strong.}\n")
+    extract_project(repo)
+    with get_session() as session:
+        comment_id = session.first(ProofreadingComment).id
+    commits = {"n": 0}
+    original = StoreSession.commit
+
+    def counting(self):
+        commits["n"] += 1
+        return original(self)
+
+    monkeypatch.setattr(StoreSession, "commit", counting)
+    verify_comment(comment_id)
+    assert commits["n"] == 1
+
+
 def test_accept_new_reuses_existing_code(db, tmp_path):
     existing = create_issue_type(
         code="OVERCLAIM",
@@ -187,6 +236,36 @@ def test_change_reassigns_from_one_type_to_another(db, tmp_path):
         assert len(accepted) == 1
         assert accepted[0].issue_type_id == second.id
         assert session.find(IssueExample, issue_type_id=first.id, source_comment_id=comment_id) == []
+
+
+def test_change_rejects_an_inactive_type(db, tmp_path):
+    from reviewdistill.taxonomy.operations import deactivate_issue_type
+
+    active = create_issue_type(
+        code="OVERCLAIM",
+        name="Overclaiming",
+        category="Argumentation",
+        definition="too strong",
+    )
+    inactive = create_issue_type(
+        code="WEAK",
+        name="Weak evidence",
+        category="Argumentation",
+        definition="evidence is thin",
+    )
+    comment_id = _seed_proposed(
+        tmp_path,
+        {
+            "recommendation": "existing",
+            "issue_type_id": active.id,
+            "confidence": 0.9,
+            "rationale": "too strong",
+        },
+    )
+    accept_coding(comment_id)
+    deactivate_issue_type(inactive.id)
+    with pytest.raises(ValueError, match="Unknown issue type"):
+        change_coding(comment_id, issue_type_id=inactive.id)
 
 
 def test_change_rejects_the_current_type(db, tmp_path):

@@ -5,6 +5,7 @@ from reviewdistill.db.session import get_session
 from reviewdistill.taxonomy.operations import (
     add_example,
     create_issue_type,
+    deactivate_issue_type,
     merge_issue_types,
     rename_issue_type,
 )
@@ -50,6 +51,20 @@ def test_issue_detail_shows_definition_examples_and_observations(db):
     assert "A claim is stronger" in body["definition"]
     assert any("demonstrate" in row["text"] for row in body["examples"])
     assert body["comments"] == []
+
+
+def test_issue_detail_404s_for_inactive_types(db):
+    issue = create_issue_type(
+        code="OVERCLAIM",
+        name="Overclaiming",
+        category="Argumentation",
+        definition="too strong",
+    )
+    deactivate_issue_type(issue.id)
+    client = TestClient(create_app())
+    response = client.get(f"/api/taxonomy/{issue.id}")
+    assert response.status_code == 404
+    assert "Unknown issue type" in response.json()["detail"]
 
 
 def test_issue_comments_include_manuscript_context(db):

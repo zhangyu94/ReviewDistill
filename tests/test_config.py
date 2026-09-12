@@ -3,8 +3,6 @@ from reviewdistill.config import (
     HomeConfig,
     ProjectConfig,
     default_llm_model,
-    default_registered_project_id,
-    llm_selected_payload,
     load_dotenv_values,
     load_home_config,
     load_llm_config,
@@ -15,6 +13,10 @@ from reviewdistill.config import (
     write_project_llm,
 )
 from reviewdistill.paths import home_config_path, project_config_path, project_env_path
+from reviewdistill.projects import (
+    default_registered_project_id,
+    llm_selected_payload,
+)
 
 
 def test_load_home_config_ignores_yaml_api_key(rd_home):

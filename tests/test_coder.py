@@ -289,3 +289,24 @@ def test_code_aborts_provider_http_error(db, tmp_path):
 
     with pytest.raises(httpx.HTTPError):
         code_uncoded_comments(provider=_Down())
+
+
+def test_code_uncoded_comments_commits_once(db, tmp_path, monkeypatch):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{First comment.}\n\\myremark{Second comment.}\n")
+    extract_project(repo)
+    from reviewdistill.db.session import StoreSession
+
+    commits = {"n": 0}
+    original = StoreSession.commit
+
+    def counting(self):
+        commits["n"] += 1
+        return original(self)
+
+    monkeypatch.setattr(StoreSession, "commit", counting)
+    summary = code_uncoded_comments(provider=MockLLMProvider())
+    assert summary.coded == 2
+    assert commits["n"] == 1

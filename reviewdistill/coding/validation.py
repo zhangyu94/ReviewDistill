@@ -7,6 +7,10 @@ from uuid import uuid4
 from reviewdistill.coding.coder import effective_provider_name, hide_placeholder_coding
 from reviewdistill.context.manuscript import extract_context, split_stored_context
 from reviewdistill.db.models import (
+    CODING_ACCEPTED,
+    CODING_MODIFIED,
+    CODING_PROPOSED,
+    ISSUE_ACTIVE,
     QUALITY_DROPPED,
     QUALITY_UNREVIEWED,
     QUALITY_VERIFIED,
@@ -17,15 +21,12 @@ from reviewdistill.db.models import (
     comment_quality,
     in_manuscript,
     in_working_set,
+    is_labeled,
 )
 from reviewdistill.db.session import get_session, init_db
+from reviewdistill.errors import BadInput, Conflict, NotFound
 from reviewdistill.history import dump_row, record
-from reviewdistill.taxonomy.operations import (
-    add_example,
-    create_issue_type,
-    get_active_issue_type_by_code,
-    get_issue_type,
-)
+from reviewdistill.taxonomy.operations import add_issue_type, ensure_example
 
 VERIFY_MANUSCRIPT_CHANGED = "Verify (nearby manuscript changed)"
 DROP_UNCHANGED = "Drop (nearby manuscript unchanged)"
@@ -50,15 +51,8 @@ class InboxItem:
     issue: InboxIssue | None = None
 
 
-def _is_labeled(session, comment_id: str) -> bool:
-    return any(
-        row.status == "accepted" and row.issue_type_id
-        for row in session.find(Coding, comment_id=comment_id)
-    )
-
-
 def _accepted_issue(session, comment_id: str) -> InboxIssue | None:
-    for row in session.find(Coding, comment_id=comment_id, status="accepted"):
+    for row in session.find(Coding, comment_id=comment_id, status=CODING_ACCEPTED):
         if not row.issue_type_id:
             continue
         issue = session.get(IssueType, row.issue_type_id)
@@ -75,7 +69,7 @@ def inbox_items() -> list[InboxItem]:
         comments = session.find(ProofreadingComment, order_by="created_at")
         items: list[InboxItem] = []
         for comment in comments:
-            labeled = _is_labeled(session, comment.id)
+            labeled = is_labeled(session, comment.id)
             needs_quality = (not in_manuscript(comment)) and comment_quality(comment) == QUALITY_UNREVIEWED
             unlabeled_in_set = in_working_set(comment) and not labeled
             if not (unlabeled_in_set or needs_quality):
@@ -94,47 +88,32 @@ def inbox_items() -> list[InboxItem]:
         return items
 
 
-def _existing_example(issue_type_id: str, comment_id: str) -> IssueExample | None:
-    with get_session() as session:
-        return session.first(
-            IssueExample,
-            issue_type_id=issue_type_id,
-            source_comment_id=comment_id,
-        )
-
-
-def _log_event(event_type: str, payload: dict) -> None:
-    with get_session() as session:
-        record(session, event_type, payload)
-        session.commit()
-
-
 def verify_comment(comment_id: str) -> None:
     with get_session() as session:
         comment = session.get(ProofreadingComment, comment_id)
         if comment is None:
-            raise ValueError(f"Unknown comment {comment_id}")
+            raise NotFound(f"Unknown comment {comment_id}")
         previous = comment_quality(comment)
         if previous == QUALITY_VERIFIED:
             return
         comment.quality = QUALITY_VERIFIED
         session.add(comment)
+        record(session, "verify", {"comment_id": comment_id, "previous_quality": previous})
         session.commit()
-    _log_event("verify", {"comment_id": comment_id, "previous_quality": previous})
 
 
 def drop_comment(comment_id: str) -> None:
     with get_session() as session:
         comment = session.get(ProofreadingComment, comment_id)
         if comment is None:
-            raise ValueError(f"Unknown comment {comment_id}")
+            raise NotFound(f"Unknown comment {comment_id}")
         previous = comment_quality(comment)
         if previous == QUALITY_DROPPED:
             return
         comment.quality = QUALITY_DROPPED
         session.add(comment)
+        record(session, "drop", {"comment_id": comment_id, "previous_quality": previous})
         session.commit()
-    _log_event("drop", {"comment_id": comment_id, "previous_quality": previous})
 
 
 def disappearance_guess(comment: ProofreadingComment, *, source: str | None) -> str:
@@ -153,7 +132,7 @@ def disappearance_guess(comment: ProofreadingComment, *, source: str | None) -> 
 def _latest_proposed(
     session, comment_id: str, *, provider_name: str | None = None, skip_placeholders: bool = False
 ) -> Coding | None:
-    rows = session.find(Coding, comment_id=comment_id, status="proposed", order_by="created_at")
+    rows = session.find(Coding, comment_id=comment_id, status=CODING_PROPOSED, order_by="created_at")
     if skip_placeholders:
         rows = [
             row for row in rows if not hide_placeholder_coding(row, provider_name=provider_name)
@@ -165,88 +144,69 @@ def accept_coding(comment_id: str) -> Coding:
     with get_session() as session:
         comment = session.get(ProofreadingComment, comment_id)
         if comment is None:
-            raise ValueError(f"Unknown comment {comment_id}")
-        raw_text = comment.raw_text
+            raise NotFound(f"Unknown comment {comment_id}")
         coding = _latest_proposed(session, comment_id)
         if coding is None:
-            raise ValueError(f"No proposed coding for {comment_id}")
-        coding_id = coding.id
+            raise BadInput(f"No proposed coding for {comment_id}")
         issue_type_id = coding.issue_type_id
-        proposed_code = coding.proposed_issue_code
-        proposed_name = coding.proposed_issue_name
-        proposed_category = coding.proposed_issue_category
-        proposed_definition = coding.proposed_issue_definition
-        if issue_type_id is not None:
-            coding.status = "accepted"
-            session.add(coding)
-            session.commit()
-            session.refresh(coding)
-            accepted = coding
-        else:
-            session.commit()
-            accepted = None
-
-    if issue_type_id is None:
-        if not proposed_name:
-            raise ValueError("Proposed coding has no issue type and no new-issue fields")
-        code = proposed_code or _slug_code(proposed_name)
-        existing = get_active_issue_type_by_code(code)
-        if existing is not None:
-            issue_type_id = existing.id
-        else:
-            issue = create_issue_type(
-                code=code,
-                name=proposed_name,
-                category=proposed_category or "General",
-                definition=proposed_definition or proposed_name,
-            )
-            issue_type_id = issue.id
-        with get_session() as session:
-            accepted = session.get(Coding, coding_id)
-            accepted.issue_type_id = issue_type_id
-            accepted.status = "accepted"
-            session.add(accepted)
-            session.commit()
-            session.refresh(accepted)
-
-    existing = _existing_example(issue_type_id, comment_id)
-    example = add_example(issue_type_id, text=raw_text, source_comment_id=comment_id)
-    created = existing is None
-    _log_event(
-        "accept",
-        {
-            "comment_id": comment_id,
-            "coding_id": accepted.id,
-            "issue_type_id": issue_type_id,
-            "previous_status": "proposed",
-            "example_id": example.id,
-            "example_created": created,
-            "example": dump_row(example) if created else None,
-        },
-    )
-    return accepted
+        if issue_type_id is None:
+            if not coding.proposed_issue_name:
+                raise BadInput("Proposed coding has no issue type and no new-issue fields")
+            code = coding.proposed_issue_code or _slug_code(coding.proposed_issue_name)
+            existing = session.first(IssueType, status=ISSUE_ACTIVE, code=code)
+            if existing is not None:
+                issue_type_id = existing.id
+            else:
+                issue = add_issue_type(
+                    session,
+                    code=code,
+                    name=coding.proposed_issue_name,
+                    category=coding.proposed_issue_category or "General",
+                    definition=coding.proposed_issue_definition or coding.proposed_issue_name,
+                )
+                issue_type_id = issue.id
+        coding.issue_type_id = issue_type_id
+        coding.status = CODING_ACCEPTED
+        session.add(coding)
+        example, created = ensure_example(session, issue_type_id, comment.raw_text, comment_id)
+        record(
+            session,
+            "accept",
+            {
+                "comment_id": comment_id,
+                "coding_id": coding.id,
+                "issue_type_id": issue_type_id,
+                "previous_status": CODING_PROPOSED,
+                "example_id": example.id,
+                "example_created": created,
+                "example": dump_row(example) if created else None,
+            },
+        )
+        session.commit()
+        session.refresh(coding)
+        return coding
 
 
 def change_coding(comment_id: str, *, issue_type_id: str) -> Coding:
-    if get_issue_type(issue_type_id) is None:
-        raise ValueError(f"Unknown issue type {issue_type_id}")
     with get_session() as session:
+        issue = session.get(IssueType, issue_type_id)
+        if issue is None or issue.status != ISSUE_ACTIVE:
+            raise NotFound(f"Unknown issue type {issue_type_id}")
         comment = session.get(ProofreadingComment, comment_id)
         if comment is None:
-            raise ValueError(f"Unknown comment {comment_id}")
-        raw_text = comment.raw_text
-        current_accepted = list(session.find(Coding, comment_id=comment_id, status="accepted"))
+            raise NotFound(f"Unknown comment {comment_id}")
+        current_accepted = list(session.find(Coding, comment_id=comment_id, status=CODING_ACCEPTED))
         if any(row.issue_type_id == issue_type_id for row in current_accepted):
-            raise ValueError(f"Comment {comment_id} is already labeled with this type")
+            raise Conflict(f"Comment {comment_id} is already labeled with this type")
         proposed = _latest_proposed(session, comment_id)
         proposed_id = proposed.id if proposed is not None else None
         if proposed is not None:
-            proposed.status = "modified"
+            proposed.status = CODING_MODIFIED
             session.add(proposed)
         retired_accepted = []
         for row in current_accepted:
             retired_accepted.append(dump_row(row))
-            row.status = "modified"
+            row.status = CODING_MODIFIED
             session.add(row)
         deleted_examples = []
         for example in list(session.find(IssueExample, source_comment_id=comment_id)):
@@ -257,31 +217,29 @@ def change_coding(comment_id: str, *, issue_type_id: str) -> Coding:
             comment_id=comment_id,
             issue_type_id=issue_type_id,
             coder_type="human",
-            status="accepted",
+            status=CODING_ACCEPTED,
             rationale="Human selected an existing issue type.",
         )
         session.add(human)
+        example, created = ensure_example(session, issue_type_id, comment.raw_text, comment_id)
+        record(
+            session,
+            "change",
+            {
+                "comment_id": comment_id,
+                "proposed_id": proposed_id,
+                "coding_id": human.id,
+                "coding": dump_row(human),
+                "example_id": example.id,
+                "example_created": created,
+                "example": dump_row(example) if created else None,
+                "retired_accepted": retired_accepted,
+                "deleted_examples": deleted_examples,
+            },
+        )
         session.commit()
         session.refresh(human)
-        coding_dump = dump_row(human)
-    existing = _existing_example(issue_type_id, comment_id)
-    example = add_example(issue_type_id, text=raw_text, source_comment_id=comment_id)
-    created = existing is None
-    _log_event(
-        "change",
-        {
-            "comment_id": comment_id,
-            "proposed_id": proposed_id,
-            "coding_id": human.id,
-            "coding": coding_dump,
-            "example_id": example.id,
-            "example_created": created,
-            "example": dump_row(example) if created else None,
-            "retired_accepted": retired_accepted,
-            "deleted_examples": deleted_examples,
-        },
-    )
-    return human
+        return human
 
 
 def _slug_code(name: str) -> str:

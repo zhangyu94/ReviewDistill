@@ -5,6 +5,7 @@ import json
 import yaml
 
 from reviewdistill.db.session import get_session
+from reviewdistill.errors import BadInput
 from reviewdistill.taxonomy.operations import (
     list_active_issue_types,
     list_counterexamples,
@@ -33,7 +34,7 @@ def export_rubric(fmt: str = "md") -> str:
         return yaml.safe_dump({"issue_types": issues}, sort_keys=False)
     if fmt == "json":
         return json.dumps({"issue_types": issues}, indent=2)
-    raise ValueError(f"Unknown export format: {fmt}")
+    raise BadInput(f"Unknown export format: {fmt}")
 
 
 def _to_markdown(issues: list[dict]) -> str:

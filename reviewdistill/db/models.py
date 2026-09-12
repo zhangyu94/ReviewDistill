@@ -4,12 +4,24 @@ from datetime import UTC, datetime
 
 from sqlmodel import Field, SQLModel
 
+from reviewdistill.errors import CorruptStore
+
 # Presence: ``active`` = in the manuscript, ``pending_disappeared`` = not.
 # Quality is a separate field. Working set = not dropped, and (present or verified).
 
 QUALITY_UNREVIEWED = "unreviewed"
 QUALITY_VERIFIED = "verified"
 QUALITY_DROPPED = "dropped"
+
+STATUS_ACTIVE = "active"
+STATUS_PENDING_DISAPPEARED = "pending_disappeared"
+
+CODING_PROPOSED = "proposed"
+CODING_ACCEPTED = "accepted"
+CODING_MODIFIED = "modified"
+
+ISSUE_ACTIVE = "active"
+ISSUE_INACTIVE = "inactive"
 
 
 def utcnow() -> datetime:
@@ -19,12 +31,12 @@ def utcnow() -> datetime:
 def comment_quality(comment: ProofreadingComment) -> str:
     quality = comment.quality
     if quality not in {QUALITY_UNREVIEWED, QUALITY_VERIFIED, QUALITY_DROPPED}:
-        raise ValueError(f"Unknown comment quality {quality!r}")
+        raise CorruptStore(f"Unknown comment quality {quality!r}")
     return quality
 
 
 def in_manuscript(comment: ProofreadingComment) -> bool:
-    return comment.status == "active"
+    return comment.status == STATUS_ACTIVE
 
 
 def in_working_set(comment: ProofreadingComment) -> bool:
@@ -73,6 +85,13 @@ class Coding(SQLModel):
     proposed_issue_definition: str | None = None
     suggested_evidence: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
+
+
+def is_labeled(session, comment_id: str) -> bool:
+    return any(
+        row.status == CODING_ACCEPTED and row.issue_type_id
+        for row in session.find(Coding, comment_id=comment_id)
+    )
 
 
 class IssueType(SQLModel):

@@ -6,7 +6,15 @@ from uuid import uuid4
 
 import httpx
 from reviewdistill.coding.retrieval import retrieve_candidates
-from reviewdistill.db.models import Coding, ProofreadingComment, in_working_set
+from reviewdistill.db.models import (
+    CODING_ACCEPTED,
+    CODING_PROPOSED,
+    ISSUE_ACTIVE,
+    Coding,
+    IssueType,
+    ProofreadingComment,
+    in_working_set,
+)
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.history import dump_row, record
 from reviewdistill.llm.base import LLMProvider, get_provider, privacy_warning
@@ -95,7 +103,7 @@ _UNSET = object()
 
 
 def is_placeholder_coding(coding: Coding | None) -> bool:
-    if coding is None or coding.status != "proposed":
+    if coding is None or coding.status != CODING_PROPOSED:
         return False
     name = (coding.proposed_issue_name or "").strip()
     rationale = coding.rationale or ""
@@ -129,9 +137,9 @@ def uncoded_comments(*, provider_name: str | None | object = _UNSET) -> list[Pro
         ]
         resolved_ids: set[str] = set()
         for coding in session.find(Coding):
-            if coding.status == "accepted" and coding.issue_type_id:
+            if coding.status == CODING_ACCEPTED and coding.issue_type_id:
                 resolved_ids.add(coding.comment_id)
-            elif coding.status == "proposed" and not hide_placeholder_coding(
+            elif coding.status == CODING_PROPOSED and not hide_placeholder_coding(
                 coding, provider_name=resolved
             ):
                 resolved_ids.add(coding.comment_id)
@@ -152,6 +160,7 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
     if provider.name != "mock" and comments:
         warning = privacy_warning(provider_name=provider.name, comment_count=len(comments))
         print(warning)
+    pending: list[tuple[ProofreadingComment, ModelProposal, str | None]] = []
     for comment in comments:
         ranked = ranked_by_id[comment.id]
         prompt = build_prompt(
@@ -168,39 +177,37 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
             skipped += 1
             continue
         issue_type_id = proposal.issue_type_id if proposal.recommendation == "existing" else None
-        if issue_type_id:
-            from reviewdistill.taxonomy.operations import get_issue_type
-
-            if get_issue_type(issue_type_id) is None:
-                issue_type_id = None
-        with get_session() as session:
-            for row in list(session.find(Coding, comment_id=comment.id, status="proposed")):
-                if hide_placeholder_coding(row, provider_name=provider.name):
-                    session.delete(row)
-                else:
-                    replaced.append(dump_row(row))
-                    session.delete(row)
-            coding = Coding(
-                id=str(uuid4()),
-                comment_id=comment.id,
-                issue_type_id=issue_type_id,
-                coder_type="ai",
-                confidence=proposal.confidence,
-                rationale=proposal.rationale,
-                status="proposed",
-                proposed_issue_code=proposal.issue_code,
-                proposed_issue_name=proposal.issue_name,
-                proposed_issue_category=proposal.category,
-                proposed_issue_definition=proposal.definition,
-                suggested_evidence=proposal.suggested_evidence,
-            )
-            session.add(coding)
-            session.commit()
-            session.refresh(coding)
-            created.append(dump_row(coding))
+        pending.append((comment, proposal, issue_type_id))
         coded += 1
-    if created:
+    if pending:
         with get_session() as session:
+            for comment, proposal, issue_type_id in pending:
+                if issue_type_id:
+                    issue = session.get(IssueType, issue_type_id)
+                    if issue is None or issue.status != ISSUE_ACTIVE:
+                        issue_type_id = None
+                for row in list(session.find(Coding, comment_id=comment.id, status=CODING_PROPOSED)):
+                    if hide_placeholder_coding(row, provider_name=provider.name):
+                        session.delete(row)
+                    else:
+                        replaced.append(dump_row(row))
+                        session.delete(row)
+                coding = Coding(
+                    id=str(uuid4()),
+                    comment_id=comment.id,
+                    issue_type_id=issue_type_id,
+                    coder_type="ai",
+                    confidence=proposal.confidence,
+                    rationale=proposal.rationale,
+                    status=CODING_PROPOSED,
+                    proposed_issue_code=proposal.issue_code,
+                    proposed_issue_name=proposal.issue_name,
+                    proposed_issue_category=proposal.category,
+                    proposed_issue_definition=proposal.definition,
+                    suggested_evidence=proposal.suggested_evidence,
+                )
+                session.add(coding)
+                created.append(dump_row(coding))
             record(session, "propose", {"created": created, "replaced": replaced})
             session.commit()
     return CodeSummary(coded=coded, skipped=skipped, privacy_warning=warning)
