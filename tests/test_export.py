@@ -11,7 +11,6 @@ def test_export_markdown_contains_operational_sections(db):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="Flag claims whose strength exceeds the evidence presented.",
     )
     add_example(issue.id, text="The results demonstrate... when evidence is correlational.")
@@ -30,13 +29,34 @@ def test_export_yaml_and_json_are_structured(db):
     create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="too strong",
     )
     yaml_text = export_rubric(fmt="yaml")
     json_text = export_rubric(fmt="json")
     assert "Overclaiming" in yaml_text
     assert "Overclaiming" in json_text
+
+
+def test_export_yaml_includes_ids_for_parent_links(db):
+    import json as json_lib
+
+    import yaml
+
+    parent = create_issue_type(code="P", name="Parent", definition="p")
+    child = create_issue_type(code="C", name="Child", definition="c", parent_id=parent.id)
+    data = yaml.safe_load(export_rubric(fmt="yaml"))
+    by_code = {row["code"]: row for row in data["issue_types"]}
+    assert by_code["P"]["id"] == parent.id
+    assert by_code["P"]["parent_id"] is None
+    assert by_code["C"]["id"] == child.id
+    assert by_code["C"]["parent_id"] == parent.id
+    parsed = json_lib.loads(export_rubric(fmt="json"))
+    assert {row["code"]: row["id"] for row in parsed["issue_types"]} == {
+        "P": parent.id,
+        "C": child.id,
+    }
+    md = export_rubric(fmt="md")
+    assert "Parent: P" in md
 
 
 def test_export_omits_examples_from_dropped_comments(db, tmp_path):
@@ -55,7 +75,6 @@ def test_export_omits_examples_from_dropped_comments(db, tmp_path):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="A claim is too strong.",
     )
     code_uncoded_comments(

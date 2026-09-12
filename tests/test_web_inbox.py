@@ -23,7 +23,6 @@ def _seed(tmp_path):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="too strong",
     )
     code_uncoded_comments(
@@ -151,7 +150,6 @@ def test_inbox_rejects_unknown_quality(db, tmp_path, rd_home):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="too strong",
     )
     path = rd_home / "comments.jsonl"

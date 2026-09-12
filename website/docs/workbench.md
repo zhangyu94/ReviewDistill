@@ -6,18 +6,18 @@ The layout is **Issue Taxonomy | Issue Details | Comments**.
 
 ## Groups
 
-Issue types in the taxonomy (active groups you can label into). You can rename, edit definitions, merge, split, move, or deactivate a group. **Deactivate** returns that type’s labeled comments to Unlabeled. **Export** in the header downloads the rubric or deactivates a group.
+Issue types in an indented forest (active groups you can label into). Every node is a real type: it can have children and its own labels. The tree starts expanded; the chevron expands or collapses, and clicking the **name** selects. Click a type to edit it; Comments and the count are the **subtree**. Header **+** adds a root; hover **+** adds a child. Flatten reassigns descendant comments onto that type. Remove deletes the subtree (undoable). Drag a type before/after a row to reorder siblings, onto the middle to nest, or onto a leaf’s **merge** chip to merge. Drag an unlabeled comment onto a leaf to Change. You can rename, edit definitions, split, or deactivate a group. **Deactivate** hides that type; its children become siblings, and labeled comments on that type return to Unlabeled. **Export** in the header downloads the rubric or deactivates a group.
 
 ## Entries
 
 Comments for the current selector:
 
 - **Unlabeled** — working-set comments with no issue type, plus comments that left the manuscript and are still unreviewed (so you can Verify or Drop). Rows not in the manuscript are marked.
-- **This type** — labeled comments in the working set for the selected group.
+- **This type** — labeled comments in the working set for the selected group and its descendants.
 
 **Verify** and **Drop** stamp quality on the observation (independent of the label). Extract never throws observations away and never Verify/Drops, except that a wording revision clears verified back to unreviewed.
 
-Click a row to open it in the inspector. Drag an unlabeled comment onto a group to assign that type.
+Click a row to open it in the inspector. Drag an unlabeled comment onto a leaf type to assign that type.
 
 ## Inspector
 

@@ -7,7 +7,8 @@ import {
   exportFilename,
   fetchExport,
 } from '../../api/client.ts'
-import { groupIdFromRoute, typeRouteAfterDeactivate } from '../../workbench/workbenchMode.ts'
+import { flattenForest } from '../../workbench/taxonomyTree.ts'
+import { groupIdFromRoute, issueIdAfterLeave, typeRouteAfterDeactivate } from '../../workbench/workbenchMode.ts'
 import { useWorkbenchStore } from '../../workbench/workbenchStore.ts'
 import {
   Select,
@@ -35,10 +36,7 @@ const formats: { id: ExportFormat, label: string }[] = [
 ]
 
 function allIssues() {
-  const grouped = list.value?.grouped ?? {}
-  return Object.entries(grouped).flatMap(([category, issues]) =>
-    issues.map((row) => ({ ...row, category })),
-  )
+  return flattenForest(list.value?.forest ?? []).map(({ node }) => node)
 }
 
 function onDeactivateId(value: unknown) {
@@ -92,8 +90,8 @@ async function deactivate() {
     notice.value = 'Group deactivated.'
     deactivateId.value = ''
     const href = typeRouteAfterDeactivate(viewing, deactivated)
-    if (href) { await router.push(href) }
-    await store.invalidate({ taxonomy: true, inbox: true })
+    if (href) { await router.replace(href) }
+    await store.invalidate({ taxonomy: true, inbox: true, issue: true }, issueIdAfterLeave(href, viewing))
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -158,7 +156,7 @@ defineExpose({ show })
         Deactivate a group
       </h3>
       <p class="ch-muted-text mb-2">
-        Hide a type from the active taxonomy. Labeled comments return to Unlabeled. Undo restores the labels.
+        Hide a type from the active taxonomy. Its children become siblings of this type. Labeled comments on this type return to Unlabeled. Undo restores the labels.
       </p>
       <Select :model-value="deactivateId || undefined" @update:model-value="onDeactivateId">
         <SelectTrigger class="mb-2 w-full" title="Issue type to hide from the active taxonomy">

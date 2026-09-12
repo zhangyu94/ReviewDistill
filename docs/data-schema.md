@@ -1,6 +1,6 @@
 # Data schema
 
-Stored shape of a **project** (paper) and a proofreading **observation** in the ReviewDistill store.
+Stored shape of a **project** (paper), a proofreading **observation**, and an **issue type** in the ReviewDistill store.
 
 Identity (when a source comment is new, a revision, a move, or gone) is defined in [`comment-identity.md`](comment-identity.md). Product spec: [`spec.md`](spec.md). This file is the schema of the rows that identity acts on.
 
@@ -185,6 +185,26 @@ Workbench views:
 ### What extract updates in place
 
 On unchanged, revised, moved, or resurrected rows, extract refreshes location and git, and rebuilds `context_text` / `section`. On revision it also updates `raw_text`, `fingerprint`, `source_command`, and `source_type`, and clears `verified` to `unreviewed`. It does not change `id`, `project_id`, `created_at`, `supersedes_id`, or `dropped`.
+
+---
+
+## Issue type
+
+Live taxonomy node (`issue_types.jsonl`). The store is a forest: `parent_id` is null for a root, otherwise another type’s `id`. `position` is order among siblings (`0..n-1` after each sibling-list rewrite). A type may have children and its own accepted comments.
+
+| Column | Type | Null | Default |
+| --- | --- | --- | --- |
+| `id` | string | no | — |
+| `code` | string | no | — |
+| `name` | string | no | — |
+| `parent_id` | string | yes | null (root) |
+| `position` | int | no | 0 |
+| `definition` | string | no | — |
+| `status` | `active` / `inactive` | no | `active` |
+
+An active type’s `parent_id` must be an active type; missing, inactive, or cyclic parents fail load. Inactive rows keep last `parent_id` / `position` for undo. Leftover `category` keys in old files are ignored; they are not rewritten and are not promoted into parent types.
+
+`codings.proposed_parent_id` is the parent for a proposed **new** type (`null` = root). Unknown or inactive ids are treated as root.
 
 ---
 

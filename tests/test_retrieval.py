@@ -36,14 +36,12 @@ def test_retrieval_ranks_overlapping_issue_highest(db):
     overclaim = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="A claim is stated more strongly than the evidence supports.",
     )
     add_example(overclaim.id, text="demonstrate is too strong; prefer suggest")
     create_issue_type(
         code="AMBIG",
         name="Ambiguous terminology",
-        category="Clarity",
         definition="A term is used without a precise definition.",
     )
     ranked = retrieve_candidates(
@@ -58,7 +56,6 @@ def test_retrieval_ignores_inactive_issues(db):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="demonstrate too strong",
     )
     deactivate_issue_type(issue.id)
@@ -73,7 +70,6 @@ def test_retrieval_ignores_examples_from_dropped_comments(db):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="A claim exceeds the evidence.",
     )
     with get_session() as session:
@@ -103,7 +99,6 @@ def test_retrieve_candidates_loads_store_once(db, monkeypatch):
         create_issue_type(
             code=f"ISSUE{index}",
             name=f"Issue {index} demonstrate",
-            category="Argumentation",
             definition="A claim is stated more strongly than the evidence supports.",
         )
     loads = _count_store_loads(monkeypatch)

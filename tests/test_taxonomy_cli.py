@@ -15,7 +15,6 @@ def test_export_cli_writes_markdown(db, tmp_path):
     create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="too strong",
     )
     out = tmp_path / "review-rubric.md"

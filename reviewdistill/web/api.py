@@ -36,10 +36,13 @@ from reviewdistill.projects import (
 from reviewdistill.taxonomy.export import export_rubric
 from reviewdistill.taxonomy.operations import (
     add_counterexample,
+    create_empty_issue_type,
     deactivate_issue_type,
     edit_issue_type,
+    flatten_issue_type,
     merge_issue_types,
     move_issue_type,
+    remove_issue_type,
     rename_issue_type,
     split_issue_type,
 )
@@ -136,11 +139,15 @@ class RenameBody(BaseModel):
 class EditBody(BaseModel):
     definition: str
     notes: str = ""
-    category: str
 
 
 class MoveBody(BaseModel):
-    category: str
+    parent_id: str | None = None
+    position: int
+
+
+class CreateBody(BaseModel):
+    parent_id: str | None = None
 
 
 class CounterexampleBody(BaseModel):
@@ -155,7 +162,6 @@ class MergeBody(BaseModel):
 class SplitSide(BaseModel):
     code: str
     name: str
-    category: str
     definition: str
 
 
@@ -170,6 +176,15 @@ def get_taxonomy():
         return taxonomy_payload()
     except ValueError as exc:
         raise _domain_http(exc, mutate=False) from exc
+
+
+@router.post("/taxonomy")
+def post_create(body: CreateBody):
+    try:
+        issue = create_empty_issue_type(parent_id=body.parent_id)
+    except ValueError as exc:
+        raise _domain_http(exc, mutate=True) from exc
+    return {"ok": True, "id": issue.id}
 
 
 @router.post("/taxonomy/merge")
@@ -267,21 +282,28 @@ def post_rename(issue_id: str, body: RenameBody):
 
 @router.post("/taxonomy/{issue_id}/edit")
 def post_edit(issue_id: str, body: EditBody):
-    def run():
-        edit_issue_type(
+    return _mutate(
+        lambda: edit_issue_type(
             issue_id,
             definition=body.definition,
             notes=body.notes or None,
         )
-        move_issue_type(issue_id, category=body.category)
-
-    return _mutate(run)
+    )
 
 
 @router.post("/taxonomy/{issue_id}/move")
 def post_move(issue_id: str, body: MoveBody):
-    """Category-only move so a workbench drag does not round-trip definition fields."""
-    return _mutate(lambda: move_issue_type(issue_id, category=body.category))
+    return _mutate(lambda: move_issue_type(issue_id, parent_id=body.parent_id, position=body.position))
+
+
+@router.post("/taxonomy/{issue_id}/flatten")
+def post_flatten(issue_id: str):
+    return _mutate(lambda: flatten_issue_type(issue_id))
+
+
+@router.post("/taxonomy/{issue_id}/remove")
+def post_remove(issue_id: str):
+    return _mutate(lambda: remove_issue_type(issue_id))
 
 
 @router.post("/taxonomy/{issue_id}/deactivate")

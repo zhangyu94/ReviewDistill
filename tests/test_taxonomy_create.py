@@ -9,7 +9,6 @@ def test_create_issue_type_logs_add_event(db):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="A claim is stated more strongly than the evidence supports.",
     )
     assert issue.code == "OVERCLAIM"
@@ -28,7 +27,6 @@ def test_add_example_from_comment_text(db):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="A claim is too strong.",
     )
     example = add_example(issue.id, text=' "demonstrate" → "suggest" ', source_comment_id="c1")
@@ -43,7 +41,6 @@ def test_add_example_is_idempotent_per_comment(db):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="A claim is too strong.",
     )
     add_example(issue.id, text="demo", source_comment_id="c1")

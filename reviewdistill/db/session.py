@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Self, TypeVar
 
 from reviewdistill.db.models import (
+    ISSUE_ACTIVE,
     Coding,
     GitCommitRecord,
     IssueCounterexample,
@@ -21,6 +22,7 @@ from reviewdistill.db.models import (
     TaxonomyEvent,
     comment_quality,
 )
+from reviewdistill.errors import CorruptStore
 from reviewdistill.paths import LOCK_NAME, STAGING_DIRNAME, home_dir
 
 T = TypeVar("T")
@@ -130,13 +132,14 @@ class StoreSession:
                 try:
                     data = json.loads(line)
                 except json.JSONDecodeError as exc:
-                    from reviewdistill.errors import CorruptStore
-
                     raise CorruptStore(f"Invalid JSON in {name}") from exc
                 row = model.model_validate(data)
+                # Leftover keys such as category / proposed_issue_category are ignored.
+                # Missing parent_id is a root; do not rewrite those old fields on load.
                 if model is ProofreadingComment:
                     comment_quality(row)
                 self._tables[model][row.id] = row
+        _validate_issue_parents(self._tables[IssueType])
 
     def _save(self) -> None:
         for row in self._tables[ProofreadingComment].values():
@@ -161,6 +164,28 @@ class StoreSession:
             shutil.rmtree(staging, ignore_errors=True)
         finally:
             _cleanup_tmp(self._home)
+
+
+def _validate_issue_parents(table: dict) -> None:
+    """Active parent_id must name an active type. Cycles fail. Inactive rows may keep a stale parent for undo."""
+    for row in table.values():
+        if row.parent_id is None:
+            continue
+        parent = table.get(row.parent_id)
+        if parent is None:
+            raise CorruptStore(f"Issue type {row.id} parent_id {row.parent_id!r} is missing")
+        if row.status == ISSUE_ACTIVE and parent.status != ISSUE_ACTIVE:
+            raise CorruptStore(f"Issue type {row.id} parent_id {row.parent_id!r} is inactive")
+        seen: set[str] = set()
+        current = row
+        while current.parent_id is not None:
+            if current.id in seen:
+                raise CorruptStore(f"Issue type {row.id} parent_id cycle")
+            seen.add(current.id)
+            parent = table.get(current.parent_id)
+            if parent is None:
+                break
+            current = parent
 
 
 def _jsonl_text(rows) -> str:

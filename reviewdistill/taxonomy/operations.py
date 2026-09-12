@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from reviewdistill.db.models import (
     CODING_ACCEPTED,
+    CODING_PROPOSED,
     ISSUE_ACTIVE,
     ISSUE_INACTIVE,
     Coding,
@@ -15,12 +16,47 @@ from reviewdistill.db.models import (
     utcnow,
 )
 from reviewdistill.db.session import get_session, init_db
-from reviewdistill.errors import Conflict, NotFound
+from reviewdistill.errors import BadInput, Conflict, NotFound
 from reviewdistill.history import dump_row, record
+from reviewdistill.taxonomy.tree import (
+    active_children,
+    compact_positions,
+    descendant_ids,
+    is_under,
+    lift_children,
+    next_new_code,
+    place_among_siblings,
+)
+
+
+def _require_active(session, issue_type_id: str) -> IssueType:
+    issue = session.get(IssueType, issue_type_id)
+    if issue is None or issue.status != ISSUE_ACTIVE:
+        raise NotFound(f"Unknown issue type {issue_type_id}")
+    return issue
 
 
 def _log(session, event_type: str, payload: dict) -> None:
     record(session, event_type, payload)
+
+
+def _retire_codings_for_types(session, type_ids: set[str]) -> list[dict]:
+    deleted = []
+    labeled_comments = {
+        coding.comment_id
+        for type_id in type_ids
+        for coding in session.find(Coding, issue_type_id=type_id)
+        if coding.status == CODING_ACCEPTED
+    }
+    for comment_id in labeled_comments:
+        for row in list(session.find(Coding, comment_id=comment_id)):
+            deleted.append(dump_row(row))
+            session.delete(row)
+    for type_id in type_ids:
+        for row in list(session.find(Coding, issue_type_id=type_id, status=CODING_PROPOSED)):
+            deleted.append(dump_row(row))
+            session.delete(row)
+    return deleted
 
 
 def _active_code_taken(session, code: str, *, except_id: str | None = None) -> bool:
@@ -35,18 +71,28 @@ def add_issue_type(
     *,
     code: str,
     name: str,
-    category: str,
     definition: str,
+    parent_id: str | None = None,
     notes: str | None = None,
     detection_guidance: str | None = None,
 ) -> IssueType:
     if _active_code_taken(session, code):
         raise Conflict(f"Issue code {code} is already in use")
+    if parent_id is not None:
+        parent = session.get(IssueType, parent_id)
+        if parent is None or parent.status != ISSUE_ACTIVE:
+            raise NotFound(f"Unknown issue type {parent_id}")
+    siblings = [
+        row
+        for row in session.find(IssueType, status=ISSUE_ACTIVE)
+        if row.parent_id == parent_id
+    ]
     issue = IssueType(
         id=str(uuid4()),
         code=code,
         name=name,
-        category=category,
+        parent_id=parent_id,
+        position=len(siblings),
         definition=definition,
         notes=notes,
         detection_guidance=detection_guidance,
@@ -61,8 +107,8 @@ def create_issue_type(
     *,
     code: str,
     name: str,
-    category: str,
     definition: str,
+    parent_id: str | None = None,
     notes: str | None = None,
     detection_guidance: str | None = None,
 ) -> IssueType:
@@ -72,10 +118,26 @@ def create_issue_type(
             session,
             code=code,
             name=name,
-            category=category,
             definition=definition,
+            parent_id=parent_id,
             notes=notes,
             detection_guidance=detection_guidance,
+        )
+        session.commit()
+        session.refresh(issue)
+        return issue
+
+
+def create_empty_issue_type(*, parent_id: str | None) -> IssueType:
+    init_db()
+    with get_session() as session:
+        taken = [row.code for row in session.find(IssueType, status=ISSUE_ACTIVE)]
+        issue = add_issue_type(
+            session,
+            code=next_new_code(taken),
+            name="New type",
+            definition="",
+            parent_id=parent_id,
         )
         session.commit()
         session.refresh(issue)
@@ -87,7 +149,7 @@ def list_active_issue_types() -> list[IssueType]:
     with get_session() as session:
         return sorted(
             session.find(IssueType, status=ISSUE_ACTIVE),
-            key=lambda issue: (issue.category, issue.name),
+            key=lambda issue: (issue.parent_id or "", issue.position, issue.name),
         )
 
 
@@ -203,10 +265,12 @@ def accepted_counts_by_issue_type() -> dict[str, int]:
 def list_working_observations(issue_type_id: str) -> list[ProofreadingComment]:
     init_db()
     with get_session() as session:
+        types = session.find(IssueType)
+        ids = descendant_ids(types, issue_type_id) | {issue_type_id}
         seen: set[str] = set()
         comments: list[ProofreadingComment] = []
-        for coding in session.find(Coding, issue_type_id=issue_type_id, status=CODING_ACCEPTED):
-            if coding.comment_id in seen:
+        for coding in session.find(Coding, status=CODING_ACCEPTED):
+            if coding.issue_type_id not in ids or coding.comment_id in seen:
                 continue
             comment = session.get(ProofreadingComment, coding.comment_id)
             if comment is None or not in_working_set(comment):
@@ -285,16 +349,38 @@ def edit_issue_type(
         return issue
 
 
-def move_issue_type(issue_type_id: str, *, category: str) -> IssueType:
+def move_issue_type(issue_type_id: str, *, parent_id: str | None, position: int) -> IssueType:
     with get_session() as session:
-        issue = session.get(IssueType, issue_type_id)
-        if issue is None:
-            raise NotFound(f"Unknown issue type {issue_type_id}")
-        before = issue.category
-        issue.category = category
+        issue = _require_active(session, issue_type_id)
+        if parent_id is not None:
+            parent = session.get(IssueType, parent_id)
+            if parent is None or parent.status != ISSUE_ACTIVE:
+                raise NotFound(f"Unknown issue type {parent_id}")
+        types = session.find(IssueType)
+        if parent_id is not None and is_under(types, child=parent_id, ancestor=issue_type_id):
+            raise BadInput("Cannot move a type under itself or a descendant")
+        before_parent = issue.parent_id
+        before_pos = issue.position
+        place_among_siblings(types, issue, parent_id, position)
+        for row in session.find(IssueType):
+            session.add(row)
+        if before_parent == parent_id and before_pos == issue.position:
+            session.commit()
+            session.refresh(issue)
+            return issue
         issue.updated_at = utcnow()
-        if before != category:
-            _log(session, "move", {"issue_type_id": issue_type_id, "from": before, "to": category})
+        _log(
+            session,
+            "move",
+            {
+                "issue_type_id": issue_type_id,
+                "from_parent_id": before_parent,
+                "from_position": before_pos,
+                "to_parent_id": parent_id,
+                "to_position": issue.position,
+                "code": issue.code,
+            },
+        )
         session.add(issue)
         session.commit()
         session.refresh(issue)
@@ -302,20 +388,15 @@ def move_issue_type(issue_type_id: str, *, category: str) -> IssueType:
 
 
 def deactivate_issue_type(issue_type_id: str) -> IssueType:
+    """Hide this type. Children become siblings; labels on this type go Unlabeled."""
     with get_session() as session:
         issue = session.get(IssueType, issue_type_id)
         if issue is None:
             raise NotFound(f"Unknown issue type {issue_type_id}")
-        comment_ids = {
-            coding.comment_id
-            for coding in session.find(Coding, issue_type_id=issue_type_id)
-            if coding.status == CODING_ACCEPTED
-        }
-        deleted_codings = []
-        for comment_id in comment_ids:
-            for row in list(session.find(Coding, comment_id=comment_id)):
-                deleted_codings.append(dump_row(row))
-                session.delete(row)
+        deleted_codings = _retire_codings_for_types(session, {issue_type_id})
+        reparented_children = lift_children(session.find(IssueType), issue)
+        for row in session.find(IssueType):
+            session.add(row)
         issue.status = ISSUE_INACTIVE
         issue.updated_at = utcnow()
         _log(
@@ -325,6 +406,7 @@ def deactivate_issue_type(issue_type_id: str) -> IssueType:
                 "issue_type_id": issue_type_id,
                 "code": issue.code,
                 "deleted_codings": deleted_codings,
+                "reparented_children": reparented_children,
             },
         )
         session.add(issue)
@@ -336,19 +418,32 @@ def deactivate_issue_type(issue_type_id: str) -> IssueType:
 def merge_issue_types(*, source_ids: list[str], target_id: str) -> IssueType:
     """Fold sources into target: reassign codings/examples/counterexamples, then deactivate sources."""
     with get_session() as session:
-        target = session.get(IssueType, target_id)
-        if target is None:
-            raise NotFound(f"Unknown issue type {target_id}")
+        target = _require_active(session, target_id)
         reassigned_codings = []
         reassigned_examples = []
         deleted_examples = []
         reassigned_counters = []
+        reparented_children = []
+        types = session.find(IssueType)
         for source_id in source_ids:
             if source_id == target_id:
                 continue
-            source = session.get(IssueType, source_id)
-            if source is None:
-                raise NotFound(f"Unknown issue type {source_id}")
+            source = _require_active(session, source_id)
+            if is_under(types, child=target_id, ancestor=source_id):
+                raise BadInput("Cannot merge a type into itself or a descendant")
+            for child in active_children(types, source_id):
+                if child.id == target_id:
+                    continue
+                reparented_children.append(
+                    {
+                        "id": child.id,
+                        "from_parent_id": source_id,
+                        "from_position": child.position,
+                    }
+                )
+                child.parent_id = target_id
+                session.add(child)
+            compact_positions(session.find(IssueType), target_id)
             for coding in session.find(Coding, issue_type_id=source_id):
                 reassigned_codings.append({"id": coding.id, "from_issue_type_id": source_id})
                 coding.issue_type_id = target_id
@@ -374,6 +469,7 @@ def merge_issue_types(*, source_ids: list[str], target_id: str) -> IssueType:
             source.status = ISSUE_INACTIVE
             source.updated_at = utcnow()
             session.add(source)
+            compact_positions(session.find(IssueType), source.parent_id)
         _log(
             session,
             "merge",
@@ -384,6 +480,7 @@ def merge_issue_types(*, source_ids: list[str], target_id: str) -> IssueType:
                 "reassigned_examples": reassigned_examples,
                 "deleted_examples": deleted_examples,
                 "reassigned_counters": reassigned_counters,
+                "reparented_children": reparented_children,
             },
         )
         session.add(target)
@@ -392,11 +489,105 @@ def merge_issue_types(*, source_ids: list[str], target_id: str) -> IssueType:
         return target
 
 
+def flatten_issue_type(issue_type_id: str) -> IssueType:
+    with get_session() as session:
+        issue = _require_active(session, issue_type_id)
+        types = session.find(IssueType)
+        desc = descendant_ids(types, issue_type_id)
+        if not desc:
+            raise BadInput("Cannot flatten a type with no children")
+        reassigned_codings = []
+        reassigned_examples = []
+        deleted_examples = []
+        reassigned_counters = []
+        descendant_ids_list = list(desc)
+        for source_id in descendant_ids_list:
+            source = session.get(IssueType, source_id)
+            for coding in session.find(Coding, issue_type_id=source_id):
+                reassigned_codings.append({"id": coding.id, "from_issue_type_id": source_id})
+                coding.issue_type_id = issue_type_id
+                session.add(coding)
+            for example in list(session.find(IssueExample, issue_type_id=source_id)):
+                if example.source_comment_id:
+                    existing = session.first(
+                        IssueExample,
+                        issue_type_id=issue_type_id,
+                        source_comment_id=example.source_comment_id,
+                    )
+                    if existing is not None:
+                        deleted_examples.append(dump_row(example))
+                        session.delete(example)
+                        continue
+                reassigned_examples.append({"id": example.id, "from_issue_type_id": source_id})
+                example.issue_type_id = issue_type_id
+                session.add(example)
+            for counter in session.find(IssueCounterexample, issue_type_id=source_id):
+                reassigned_counters.append({"id": counter.id, "from_issue_type_id": source_id})
+                counter.issue_type_id = issue_type_id
+                session.add(counter)
+            source.status = ISSUE_INACTIVE
+            source.updated_at = utcnow()
+            session.add(source)
+        _log(
+            session,
+            "flatten",
+            {
+                "issue_type_id": issue_type_id,
+                "code": issue.code,
+                "descendant_ids": descendant_ids_list,
+                "reassigned_codings": reassigned_codings,
+                "reassigned_examples": reassigned_examples,
+                "deleted_examples": deleted_examples,
+                "reassigned_counters": reassigned_counters,
+            },
+        )
+        session.add(issue)
+        session.commit()
+        session.refresh(issue)
+        return issue
+
+
+def remove_issue_type(issue_type_id: str) -> None:
+    with get_session() as session:
+        issue = _require_active(session, issue_type_id)
+        ids = descendant_ids(session.find(IssueType), issue_type_id, active_only=False) | {
+            issue_type_id
+        }
+        dumped_types = [dump_row(session.get(IssueType, i)) for i in ids]
+        deleted_codings = _retire_codings_for_types(session, ids)
+        dumped_examples = []
+        dumped_counters = []
+        for type_id in ids:
+            for example in list(session.find(IssueExample, issue_type_id=type_id)):
+                dumped_examples.append(dump_row(example))
+                session.delete(example)
+            for counter in list(session.find(IssueCounterexample, issue_type_id=type_id)):
+                dumped_counters.append(dump_row(counter))
+                session.delete(counter)
+            session.delete(session.get(IssueType, type_id))
+        compact_positions(session.find(IssueType), issue.parent_id)
+        for row in session.find(IssueType):
+            session.add(row)
+        _log(
+            session,
+            "remove",
+            {
+                "issue_type_id": issue_type_id,
+                "code": issue.code,
+                "types": dumped_types,
+                "deleted_codings": deleted_codings,
+                "examples": dumped_examples,
+                "counters": dumped_counters,
+            },
+        )
+        session.commit()
+
+
 def split_issue_type(source_id: str, *, left: dict, right: dict) -> tuple[IssueType, IssueType]:
     with get_session() as session:
-        source = session.get(IssueType, source_id)
-        if source is None:
-            raise NotFound(f"Unknown issue type {source_id}")
+        source = _require_active(session, source_id)
+        if active_children(session.find(IssueType), source_id):
+            raise BadInput("Cannot split a type that has children")
         left_code = left["code"]
         right_code = right["code"]
         if left_code == right_code:
@@ -404,16 +595,7 @@ def split_issue_type(source_id: str, *, left: dict, right: dict) -> tuple[IssueT
         for code in (left_code, right_code):
             if _active_code_taken(session, code, except_id=source_id):
                 raise Conflict(f"Issue code {code} is already in use")
-        comment_ids = {
-            coding.comment_id
-            for coding in session.find(Coding, issue_type_id=source_id)
-            if coding.status == CODING_ACCEPTED
-        }
-        deleted_codings = []
-        for comment_id in comment_ids:
-            for row in list(session.find(Coding, comment_id=comment_id)):
-                deleted_codings.append(dump_row(row))
-                session.delete(row)
+        deleted_codings = _retire_codings_for_types(session, {source_id})
         source.status = ISSUE_INACTIVE
         source.updated_at = utcnow()
         created = []
@@ -422,12 +604,28 @@ def split_issue_type(source_id: str, *, left: dict, right: dict) -> tuple[IssueT
                 id=str(uuid4()),
                 code=spec["code"],
                 name=spec["name"],
-                category=spec["category"],
+                parent_id=source.parent_id,
+                position=0,
                 definition=spec["definition"],
                 status=ISSUE_ACTIVE,
             )
             session.add(issue)
             created.append(issue)
+        insert_at = source.position
+        created[0].parent_id = source.parent_id
+        created[1].parent_id = source.parent_id
+        siblings = [
+            row
+            for row in active_children(session.find(IssueType), source.parent_id)
+            if row.id not in {created[0].id, created[1].id}
+        ]
+        insert_at = max(0, min(insert_at, len(siblings)))
+        siblings.insert(insert_at, created[0])
+        siblings.insert(insert_at + 1, created[1])
+        for index, row in enumerate(siblings):
+            row.position = index
+            session.add(row)
+        session.add(source)
         _log(
             session,
             "split",

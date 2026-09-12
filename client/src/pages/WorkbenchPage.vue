@@ -8,10 +8,13 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   changeInbox,
+  createIssue,
+  flattenIssue,
   mergeIssues,
   moveIssue,
   postInbox,
   postInboxCode,
+  removeIssue,
 } from '../api/client.ts'
 import CommentInspector from '../components/workbench/CommentInspector.vue'
 import EntriesPanel from '../components/workbench/EntriesPanel.vue'
@@ -22,17 +25,22 @@ import { inboxLocationRows, safeHttpHref } from '../inboxLocation.ts'
 import { selectedIdAfterAction } from '../select.ts'
 import { splitContextText } from '../workbench/contextParts.ts'
 import { dropAction } from '../workbench/dropAction.ts'
+import { descendantIds, findNode, moveBody } from '../workbench/taxonomyTree.ts'
 import {
   activeSelector,
+  afterMergeNavigation,
   allowChangeDrop,
+  chipTypeId,
   dismissTypeHref,
   entryMode,
   groupIdFromRoute,
   inboxItemFromObservation,
+  issueIdAfterLeave,
   labeledTypeIdForComment,
   nextChangeId,
   taxonClickHref,
   thisTypeHref,
+  typeRouteAfterRemove,
   typeSelectorLabel,
   unlabeledHref,
 } from '../workbench/workbenchMode.ts'
@@ -61,8 +69,8 @@ async function loadAll() {
   await store.loadAll(groupId.value)
 }
 
-async function invalidate(parts: InvalidateParts) {
-  await store.invalidate(parts, groupId.value)
+async function invalidate(parts: InvalidateParts, issueId = groupId.value) {
+  await store.invalidate(parts, issueId)
 }
 const notice = ref('')
 const labeling = ref(false)
@@ -73,7 +81,9 @@ watch(groupId, (id) => {
   if (id) { lastTypeId.value = id }
 })
 
-const chipTypeId = computed(() => groupId.value || lastTypeId.value)
+const chipTypeIdValue = computed(() =>
+  chipTypeId(groupId.value, lastTypeId.value, (id) => Boolean(findNode(taxonomy.value?.forest ?? [], id))),
+)
 
 const queueItems = computed(() => inbox.value?.items ?? [])
 
@@ -97,18 +107,13 @@ const commentsLayout = ref<CommentsLayout>('one')
 
 function typeRow(id: string): { code: string, name: string, count: number } | undefined {
   if (!id) { return undefined }
-  const grouped = taxonomy.value?.grouped ?? {}
-  for (const rows of Object.values(grouped)) {
-    const row = rows.find((item) => item.id === id)
-    if (row) { return row }
-  }
-  return undefined
+  return findNode(taxonomy.value?.forest ?? [], id) ?? undefined
 }
 
 const selectedCount = computed(() => typeRow(groupId.value)?.count ?? 0)
-const chipTypeName = computed(() => typeRow(chipTypeId.value)?.name ?? issue.value?.name ?? '')
-const chipTypeCode = computed(() => typeRow(chipTypeId.value)?.code ?? issue.value?.code ?? '')
-const chipTypeCount = computed(() => typeRow(chipTypeId.value)?.count ?? selectedCount.value)
+const chipTypeName = computed(() => typeRow(chipTypeIdValue.value)?.name ?? issue.value?.name ?? '')
+const chipTypeCode = computed(() => typeRow(chipTypeIdValue.value)?.code ?? issue.value?.code ?? '')
+const chipTypeCount = computed(() => typeRow(chipTypeIdValue.value)?.count ?? selectedCount.value)
 const typeChipLabel = computed(() =>
   chipTypeCode.value ? typeSelectorLabel(chipTypeCode.value, chipTypeCount.value) : '',
 )
@@ -128,7 +133,7 @@ const selectedObservation = computed(() => {
     id: issue.value.id,
     code: issue.value.code,
     name: issue.value.name,
-    category: issue.value.category,
+    parent_id: issue.value.parent_id,
   })
 })
 
@@ -295,7 +300,10 @@ async function onDrop(payload: DragPayload, target: DropTarget) {
   const labeledTypeId = payload.kind === 'comment'
     ? labeledTypeIdForComment(queueItems.value, payload.id)
     : null
-  const action = dropAction(payload, target, labeledTypeId)
+  const source = payload.kind === 'issue'
+    ? findNode(taxonomy.value?.forest ?? [], payload.id)
+    : null
+  const action = dropAction(payload, target, labeledTypeId, source ? descendantIds(source) : [])
   if (action.type === 'ignore' || !allowChangeDrop(mode.value, action.type)) { return }
   error.value = ''
   try {
@@ -311,13 +319,67 @@ async function onDrop(payload: DragPayload, target: DropTarget) {
     }
     if (action.type === 'merge') {
       await mergeIssues([action.sourceId], action.targetId)
-      await loadAll()
-      if (selector.value === 'type') { await router.push(`/taxonomy/${action.targetId}`) }
-      else { await router.replace({ query: { type: action.targetId, ...(selectedCommentId.value ? { id: selectedCommentId.value } : {}) } }) }
+      const next = afterMergeNavigation(
+        selector.value,
+        action.targetId,
+        selectedCommentId.value ?? '',
+        groupId.value,
+        action.sourceId,
+      )
+      if (next.replace) { await router.replace(next.href) }
+      else { await router.push(next.href) }
+      await invalidate({ inbox: true, taxonomy: true, issue: true }, next.issueId)
       return
     }
-    await moveIssue(action.issueTypeId, action.category)
+    if (action.type === 'move') {
+      const body = moveBody(taxonomy.value?.forest ?? [], action.issueTypeId, action.targetId, action.placement)
+      if (!body) { return }
+      await moveIssue(action.issueTypeId, body.parent_id, body.position)
+      await invalidate({ taxonomy: true, issue: true })
+    }
+  }
+  catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function onCreateType(parentId: string | null) {
+  error.value = ''
+  try {
+    const created = await createIssue(parentId)
     await invalidate({ taxonomy: true, issue: true })
+    await router.push(`/taxonomy/${created.id}`)
+  }
+  catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function onFlattenType(id: string) {
+  error.value = ''
+  const viewing = groupId.value
+  const node = findNode(taxonomy.value?.forest ?? [], id)
+  const href = typeRouteAfterRemove(viewing, node ? descendantIds(node) : [])
+  try {
+    await flattenIssue(id)
+    if (href) { await router.replace(href) }
+    await invalidate({ taxonomy: true, inbox: true, issue: true }, issueIdAfterLeave(href, viewing))
+  }
+  catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function onRemoveType(id: string) {
+  error.value = ''
+  const viewing = groupId.value
+  const node = findNode(taxonomy.value?.forest ?? [], id)
+  const deletedIds = node ? [id, ...descendantIds(node)] : [id]
+  const href = typeRouteAfterRemove(viewing, deletedIds)
+  try {
+    await removeIssue(id)
+    if (href) { await router.replace(href) }
+    await invalidate({ taxonomy: true, inbox: true, issue: true }, issueIdAfterLeave(href, viewing))
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -333,7 +395,7 @@ async function onIssueRemoved() {
   error.value = ''
   lastTypeId.value = ''
   await invalidate({ taxonomy: true })
-  await router.push('/')
+  await router.replace('/')
 }
 
 function onCommentsLayout(layout: CommentsLayout) {
@@ -374,10 +436,10 @@ watch(groupId, () => { void loadIssue() })
     <SelectorsBar
       :selector="selector"
       :unlabeled-count="inbox?.unlabeled_count ?? 0"
-      :type-href="thisTypeHref(chipTypeId)"
+      :type-href="thisTypeHref(chipTypeIdValue)"
       :type-label="typeChipLabel"
       :type-title="chipTypeName"
-      :unlabeled-href="unlabeledHref(chipTypeId)"
+      :unlabeled-href="unlabeledHref(chipTypeIdValue)"
       @dismiss-type="onDismissType"
     />
     <div class="flex min-h-0 flex-1">
@@ -386,6 +448,9 @@ watch(groupId, () => { void loadIssue() })
         :selected-id="groupId"
         @select="onSelectGroup"
         @drop="onDrop"
+        @create="onCreateType"
+        @flatten="onFlattenType"
+        @remove="onRemoveType"
       />
       <div class="flex min-h-0 min-w-0 flex-1 flex-col border-r border-[var(--ch-color-border)] bg-[var(--ch-color-background-soft)]">
         <div class="flex h-9 shrink-0 items-center border-b border-[var(--ch-color-border)] bg-[var(--ch-color-background)] px-2">
@@ -400,6 +465,7 @@ watch(groupId, () => { void loadIssue() })
             :selected-id="groupId"
             :selected-count="selectedCount"
             :missing="missing"
+            :has-children="Boolean(findNode(taxonomy?.forest ?? [], groupId)?.children.length)"
             @updated="onIssueUpdated"
             @removed="onIssueRemoved"
             @failed="error = $event"
@@ -443,6 +509,7 @@ watch(groupId, () => { void loadIssue() })
             :context-parts="contextParts"
             :suggestion-title="suggestionTitle"
             :change-id="changeId"
+            :forest="taxonomy?.forest ?? []"
             @update:change-id="changeId = $event"
             @accept="act('accept')"
             @change="change"

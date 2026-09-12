@@ -81,7 +81,7 @@ class Coding(SQLModel):
     status: str
     proposed_issue_code: str | None = None
     proposed_issue_name: str | None = None
-    proposed_issue_category: str | None = None
+    proposed_parent_id: str | None = None  # new-type parent; unknown/inactive → root
     proposed_issue_definition: str | None = None
     suggested_evidence: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
@@ -98,7 +98,8 @@ class IssueType(SQLModel):
     id: str
     code: str
     name: str
-    category: str
+    parent_id: str | None = None  # null = root; must be active when this row is active
+    position: int = 0  # sibling order; compacted to 0..n-1
     definition: str
     notes: str | None = None
     detection_guidance: str | None = None

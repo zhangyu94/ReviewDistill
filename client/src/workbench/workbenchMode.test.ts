@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeSelector, allowChangeDrop, changeIssueOptions, clearIssueBeforeLoad, dismissTypeHref, entryMode, groupIdFromRoute, inboxItemFromObservation, inspectorKind, issueLoadErrorView, labeledTypeIdForComment, nextChangeId, shouldApplyIssueLoad, showAssignType, taxonClickHref, thisTypeHref, typeRouteAfterDeactivate, typeSelectorLabel, unlabeledHref } from './workbenchMode.ts'
+import { activeSelector, afterMergeNavigation, allowChangeDrop, changeIssueOptions, chipTypeId, clearIssueBeforeLoad, dismissTypeHref, entryMode, groupIdFromRoute, inboxItemFromObservation, inspectorKind, issueIdAfterLeave, issueLoadErrorView, labeledTypeIdForComment, nextChangeId, shouldApplyIssueLoad, showAssignType, taxonClickHref, thisTypeHref, typeRouteAfterDeactivate, typeRouteAfterRemove, typeSelectorLabel, unlabeledHref } from './workbenchMode.ts'
 
 describe('workbenchMode', () => {
   it('uses the unlabeled queue on the inbox route', () => {
@@ -67,7 +67,7 @@ describe('workbenchMode', () => {
       id: 't1',
       code: 'OVERCLAIM',
       name: 'Overclaiming',
-      category: 'Argumentation',
+      parent_id: null,
     }
     const item = inboxItemFromObservation({
       id: 'c1',
@@ -132,16 +132,43 @@ describe('workbenchMode', () => {
       created_at: '2024-01-01T00:00:00Z',
       project_name: 'paper',
       permalink: null,
-    }, { id: 't1', code: 'OVERCLAIM', name: 'Overclaiming', category: 'Argumentation' })
+    }, { id: 't1', code: 'OVERCLAIM', name: 'Overclaiming', parent_id: null })
     expect(labeledTypeIdForComment([item], 'c1')).toBe('t1')
     expect(labeledTypeIdForComment([item], 'missing')).toBeNull()
     expect(labeledTypeIdForComment([{ ...item, issue: null }], 'c1')).toBeNull()
   })
 
+  it('prefers the comment accepted type over the selected node', () => {
+    const parent = { id: 'p', code: 'P', name: 'Parent', parent_id: null }
+    const child = { id: 'c', code: 'C', name: 'Child', parent_id: 'p' }
+    const item = inboxItemFromObservation({
+      id: 'c1',
+      project_id: 'p1',
+      source_type: 'latex_command',
+      source_command: 'myremark',
+      file_path: 'main.tex',
+      line_number: 1,
+      raw_text: 'Too strong.',
+      context_text: '',
+      section: null,
+      git_commit: null,
+      git_url: null,
+      fingerprint: 'fp',
+      status: 'active',
+      quality: 'unreviewed',
+      supersedes_id: null,
+      created_at: '2024-01-01T00:00:00Z',
+      project_name: 'paper',
+      permalink: null,
+      issue: child,
+    }, parent)
+    expect(item.issue).toEqual(child)
+  })
+
   it('omits the current type from Change options', () => {
     const issues = [
-      { id: 'a', code: 'A', name: 'A', category: 'X' },
-      { id: 'b', code: 'B', name: 'B', category: 'X' },
+      { id: 'a', code: 'A', name: 'A', parent_id: null },
+      { id: 'b', code: 'B', name: 'B', parent_id: null },
     ]
     expect(changeIssueOptions(issues, 'a').map((row) => row.id)).toEqual(['b'])
     expect(changeIssueOptions(issues, null).map((row) => row.id)).toEqual(['a', 'b'])
@@ -149,8 +176,8 @@ describe('workbenchMode', () => {
 
   it('defaults Change to another type when the current one is selected', () => {
     const issues = [
-      { id: 'a', code: 'A', name: 'A', category: 'X' },
-      { id: 'b', code: 'B', name: 'B', category: 'X' },
+      { id: 'a', code: 'A', name: 'A', parent_id: null },
+      { id: 'b', code: 'B', name: 'B', parent_id: null },
     ]
     expect(nextChangeId(issues, 'a', 'a')).toBe('b')
     expect(nextChangeId(issues, 'a', 'b')).toBe('b')
@@ -164,5 +191,40 @@ describe('workbenchMode', () => {
     expect(typeRouteAfterDeactivate('t1', 't1')).toBe('/')
     expect(typeRouteAfterDeactivate('t1', 't2')).toBeNull()
     expect(typeRouteAfterDeactivate('', 't1')).toBeNull()
+  })
+
+  it('leaves the type route when the viewed type is in a removed subtree', () => {
+    expect(typeRouteAfterRemove('child', ['root', 'child'])).toBe('/')
+    expect(typeRouteAfterRemove('other', ['root', 'child'])).toBeNull()
+    expect(typeRouteAfterRemove('', ['root'])).toBeNull()
+  })
+
+  it('drops the remembered type chip when that type is gone from the forest', () => {
+    expect(chipTypeId('', 'gone', () => false)).toBe('')
+    expect(chipTypeId('', 't1', (id) => id === 't1')).toBe('t1')
+    expect(chipTypeId('t1', 't2', () => false)).toBe('t1')
+  })
+
+  it('clears the issue id when a type action navigates home', () => {
+    expect(issueIdAfterLeave('/', 't1')).toBe('')
+    expect(issueIdAfterLeave(null, 't1')).toBe('t1')
+  })
+
+  it('loads the merge target instead of the viewed source', () => {
+    expect(afterMergeNavigation('type', 'target', '', 'source', 'source')).toEqual({
+      href: '/taxonomy/target',
+      issueId: 'target',
+      replace: true,
+    })
+    expect(afterMergeNavigation('type', 'target', '', 'other', 'source')).toEqual({
+      href: '/taxonomy/target',
+      issueId: 'target',
+      replace: false,
+    })
+    expect(afterMergeNavigation('unlabeled', 'target', 'c1')).toEqual({
+      href: '/?type=target&id=c1',
+      issueId: 'target',
+      replace: true,
+    })
   })
 })

@@ -1,41 +1,93 @@
 import { describe, expect, it } from 'vitest'
-import { DRAG_MIME, dropAction, parseDragPayload, serializeDragPayload } from './dropAction.ts'
+import { allowDropHighlight, DRAG_MIME, dropAction, parseDragPayload, serializeDragPayload, showSiblingDropGuide } from './dropAction.ts'
 
 describe('dropAction', () => {
-  it('assigns a comment dropped on an issue type', () => {
+  it('assigns a comment dropped on a leaf', () => {
     expect(
-      dropAction({ kind: 'comment', id: 'c1' }, { kind: 'issue', id: 't1' }),
+      dropAction({ kind: 'comment', id: 'c1' }, { kind: 'issue', id: 't1', placement: 'inner', isLeaf: true }),
     ).toEqual({ type: 'change', commentId: 'c1', issueTypeId: 't1' })
+  })
+
+  it('ignores a comment dropped on a parent', () => {
+    expect(
+      dropAction({ kind: 'comment', id: 'c1' }, { kind: 'issue', id: 't1', placement: 'inner', isLeaf: false }),
+    ).toEqual({ type: 'ignore' })
   })
 
   it('ignores a comment dropped on the type it already has', () => {
     expect(
-      dropAction({ kind: 'comment', id: 'c1' }, { kind: 'issue', id: 't1' }, 't1'),
+      dropAction({ kind: 'comment', id: 'c1' }, { kind: 'issue', id: 't1', placement: 'inner', isLeaf: true }, 't1'),
     ).toEqual({ type: 'ignore' })
   })
 
-  it('merges an issue dropped on a different issue', () => {
+  it('merges only on the merge placement of a leaf', () => {
     expect(
-      dropAction({ kind: 'issue', id: 'src' }, { kind: 'issue', id: 'dst' }),
+      dropAction({ kind: 'issue', id: 'src' }, { kind: 'issue', id: 'dst', placement: 'merge', isLeaf: true }),
     ).toEqual({ type: 'merge', sourceId: 'src', targetId: 'dst' })
+  })
+
+  it('ignores merge on a parent', () => {
+    expect(
+      dropAction({ kind: 'issue', id: 'src' }, { kind: 'issue', id: 'dst', placement: 'merge', isLeaf: false }),
+    ).toEqual({ type: 'ignore' })
+  })
+
+  it('nests when dropping inner on another issue', () => {
+    expect(
+      dropAction({ kind: 'issue', id: 'src' }, { kind: 'issue', id: 'dst', placement: 'inner', isLeaf: false }),
+    ).toEqual({ type: 'move', issueTypeId: 'src', targetId: 'dst', placement: 'inner' })
   })
 
   it('ignores an issue dropped on itself', () => {
     expect(
-      dropAction({ kind: 'issue', id: 't1' }, { kind: 'issue', id: 't1' }),
+      dropAction({ kind: 'issue', id: 't1' }, { kind: 'issue', id: 't1', placement: 'inner', isLeaf: true }),
     ).toEqual({ type: 'ignore' })
   })
 
-  it('moves an issue dropped on a category', () => {
+  it('ignores merge onto a descendant', () => {
     expect(
-      dropAction({ kind: 'issue', id: 't1' }, { kind: 'category', name: 'Clarity' }),
-    ).toEqual({ type: 'move', issueTypeId: 't1', category: 'Clarity' })
+      dropAction(
+        { kind: 'issue', id: 'src' },
+        { kind: 'issue', id: 'kid', placement: 'merge', isLeaf: true },
+        null,
+        ['kid'],
+      ),
+    ).toEqual({ type: 'ignore' })
   })
 
-  it('still merges when dropping A on B even if they share a category', () => {
+  it('ignores move onto a descendant', () => {
     expect(
-      dropAction({ kind: 'issue', id: 'a' }, { kind: 'issue', id: 'b' }),
-    ).toEqual({ type: 'merge', sourceId: 'a', targetId: 'b' })
+      dropAction(
+        { kind: 'issue', id: 'src' },
+        { kind: 'issue', id: 'kid', placement: 'inner', isLeaf: true },
+        null,
+        ['kid'],
+      ),
+    ).toEqual({ type: 'ignore' })
+  })
+})
+
+describe('allowDropHighlight', () => {
+  it('hides parent highlight while dragging a comment', () => {
+    expect(allowDropHighlight({ dragKind: '', isLeaf: false, isSelf: false, isDescendant: false })).toBe(false)
+    expect(allowDropHighlight({ dragKind: '', isLeaf: true, isSelf: false, isDescendant: false })).toBe(true)
+  })
+
+  it('keeps parent highlight while dragging an issue', () => {
+    expect(allowDropHighlight({ dragKind: 'issue', isLeaf: false, isSelf: false, isDescendant: false })).toBe(true)
+    expect(allowDropHighlight({ dragKind: 'issue', isLeaf: false, isSelf: true, isDescendant: false })).toBe(false)
+    expect(allowDropHighlight({ dragKind: 'issue', isLeaf: true, isSelf: false, isDescendant: true })).toBe(false)
+  })
+})
+
+describe('showSiblingDropGuide', () => {
+  it('shows before/after bars only while dragging a type', () => {
+    expect(showSiblingDropGuide('issue', 'before')).toBe(true)
+    expect(showSiblingDropGuide('issue', 'after')).toBe(true)
+    expect(showSiblingDropGuide('issue', 'inner')).toBe(false)
+    expect(showSiblingDropGuide('comment', 'before')).toBe(false)
+    expect(showSiblingDropGuide('comment', 'after')).toBe(false)
+    expect(showSiblingDropGuide('', 'before')).toBe(false)
   })
 })
 

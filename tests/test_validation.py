@@ -1,6 +1,7 @@
 import json
 
 import pytest
+
 from reviewdistill.cli.init import init_project
 from reviewdistill.coding.coder import code_uncoded_comments, uncoded_comments
 from reviewdistill.coding.validation import (
@@ -17,14 +18,18 @@ from reviewdistill.coding.validation import (
 from reviewdistill.context.manuscript import extract_context
 from reviewdistill.db.models import Coding, IssueExample, IssueType, ProofreadingComment
 from reviewdistill.db.session import get_session
+from reviewdistill.errors import BadInput, NotFound
 from reviewdistill.extraction.incremental import extract_project
+from reviewdistill.history import undo
 from reviewdistill.llm.mock import MockLLMProvider
 from reviewdistill.taxonomy.operations import (
     accepted_counts_by_issue_type,
     create_issue_type,
+    deactivate_issue_type,
     list_active_issue_types,
     list_examples,
     list_working_observations,
+    remove_issue_type,
 )
 
 
@@ -44,7 +49,6 @@ def test_accept_existing_marks_coding_and_adds_example(db, tmp_path):
     issue = create_issue_type(
         code="METHJUST",
         name="Missing methodological justification",
-        category="Methodology",
         definition="A design choice is unexplained.",
     )
     comment_id = _seed_proposed(
@@ -67,6 +71,105 @@ def test_accept_existing_marks_coding_and_adds_example(db, tmp_path):
         assert coding.coder_type == "ai"
 
 
+def test_remove_drops_proposed_for_that_type(db, tmp_path):
+    issue = create_issue_type(
+        code="METHJUST",
+        name="Missing methodological justification",
+        definition="A design choice is unexplained.",
+    )
+    comment_id = _seed_proposed(
+        tmp_path,
+        {
+            "recommendation": "existing",
+            "issue_type_id": issue.id,
+            "confidence": 0.84,
+            "rationale": "Asks why the method was chosen.",
+        },
+    )
+    remove_issue_type(issue.id)
+    items = inbox_items()
+    assert [item.comment.id for item in items] == [comment_id]
+    assert items[0].labeled is False
+    with get_session() as session:
+        assert session.find(Coding, comment_id=comment_id) == []
+        assert session.find(IssueExample) == []
+    with pytest.raises(BadInput, match="No proposed coding"):
+        accept_coding(comment_id)
+
+
+def test_remove_undo_restores_proposed_so_accept_works(db, tmp_path):
+    issue = create_issue_type(
+        code="METHJUST",
+        name="Missing methodological justification",
+        definition="A design choice is unexplained.",
+    )
+    comment_id = _seed_proposed(
+        tmp_path,
+        {
+            "recommendation": "existing",
+            "issue_type_id": issue.id,
+            "confidence": 0.84,
+            "rationale": "Asks why the method was chosen.",
+        },
+    )
+    remove_issue_type(issue.id)
+    undo()
+    result = accept_coding(comment_id)
+    assert result.issue_type_id == issue.id
+    assert inbox_items() == []
+
+
+def test_deactivate_drops_proposed_for_that_type(db, tmp_path):
+    issue = create_issue_type(
+        code="METHJUST",
+        name="Missing methodological justification",
+        definition="A design choice is unexplained.",
+    )
+    comment_id = _seed_proposed(
+        tmp_path,
+        {
+            "recommendation": "existing",
+            "issue_type_id": issue.id,
+            "confidence": 0.84,
+            "rationale": "Asks why the method was chosen.",
+        },
+    )
+    deactivate_issue_type(issue.id)
+    items = inbox_items()
+    assert [item.comment.id for item in items] == [comment_id]
+    assert items[0].labeled is False
+    with pytest.raises(BadInput, match="No proposed coding"):
+        accept_coding(comment_id)
+
+
+def test_accept_rejects_an_inactive_type(db, tmp_path):
+    issue = create_issue_type(
+        code="METHJUST",
+        name="Missing methodological justification",
+        definition="A design choice is unexplained.",
+    )
+    comment_id = _seed_proposed(
+        tmp_path,
+        {
+            "recommendation": "existing",
+            "issue_type_id": issue.id,
+            "confidence": 0.84,
+            "rationale": "Asks why the method was chosen.",
+        },
+    )
+    with get_session() as session:
+        row = session.get(IssueType, issue.id)
+        row.status = "inactive"
+        session.add(row)
+        session.commit()
+    with pytest.raises(NotFound, match="Unknown issue type"):
+        accept_coding(comment_id)
+    with get_session() as session:
+        coding = session.first(Coding, comment_id=comment_id)
+        assert coding.status == "proposed"
+        assert session.find(IssueExample) == []
+
+
 def test_accept_new_creates_issue_type(db, tmp_path):
     comment_id = _seed_proposed(
         tmp_path,
@@ -74,7 +177,7 @@ def test_accept_new_creates_issue_type(db, tmp_path):
             "recommendation": "new",
             "issue_code": "METHJUST",
             "issue_name": "Missing methodological justification",
-            "category": "Methodology",
+            "parent_id": None,
             "definition": "A design choice is unexplained.",
             "confidence": 0.78,
             "rationale": "Unexplained design decision.",
@@ -88,6 +191,51 @@ def test_accept_new_creates_issue_type(db, tmp_path):
         assert issue.status == "active"
 
 
+def test_unknown_proposed_parent_id_becomes_root(db, tmp_path):
+    comment_id = _seed_proposed(
+        tmp_path,
+        {
+            "recommendation": "new",
+            "issue_code": "METHJUST",
+            "issue_name": "Missing methodological justification",
+            "parent_id": "not-a-type",
+            "definition": "A design choice is unexplained.",
+            "confidence": 0.78,
+            "rationale": "Unexplained design decision.",
+        },
+    )
+    with get_session() as session:
+        coding = session.first(Coding)
+        assert coding.proposed_parent_id is None
+    result = accept_coding(comment_id)
+    with get_session() as session:
+        issue = session.get(IssueType, result.issue_type_id)
+        assert issue.parent_id is None
+
+
+def test_existing_proposed_parent_id_is_kept(db, tmp_path):
+    parent = create_issue_type(code="P", name="Parent", definition="")
+    comment_id = _seed_proposed(
+        tmp_path,
+        {
+            "recommendation": "new",
+            "issue_code": "METHJUST",
+            "issue_name": "Missing methodological justification",
+            "parent_id": parent.id,
+            "definition": "A design choice is unexplained.",
+            "confidence": 0.78,
+            "rationale": "Unexplained design decision.",
+        },
+    )
+    with get_session() as session:
+        coding = session.first(Coding)
+        assert coding.proposed_parent_id == parent.id
+    result = accept_coding(comment_id)
+    with get_session() as session:
+        issue = session.get(IssueType, result.issue_type_id)
+        assert issue.parent_id == parent.id
+
+
 def test_accept_new_issue_commits_once(db, tmp_path, monkeypatch):
     comment_id = _seed_proposed(
         tmp_path,
@@ -95,7 +243,7 @@ def test_accept_new_issue_commits_once(db, tmp_path, monkeypatch):
             "recommendation": "new",
             "issue_code": "METHJUST",
             "issue_name": "Missing methodological justification",
-            "category": "Methodology",
+            "parent_id": None,
             "definition": "A design choice is unexplained.",
             "confidence": 0.78,
             "rationale": "Unexplained design decision.",
@@ -141,7 +289,6 @@ def test_accept_new_reuses_existing_code(db, tmp_path):
     existing = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="too strong",
     )
     comment_id = _seed_proposed(
@@ -150,7 +297,7 @@ def test_accept_new_reuses_existing_code(db, tmp_path):
             "recommendation": "new",
             "issue_code": "OVERCLAIM",
             "issue_name": "Overclaiming",
-            "category": "Argumentation",
+            "parent_id": None,
             "definition": "A claim exceeds the evidence.",
             "confidence": 0.9,
             "rationale": "duplicate proposal",
@@ -165,13 +312,11 @@ def test_change_creates_human_coding(db, tmp_path):
     chosen = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="too strong",
     )
     other = create_issue_type(
         code="WEAK",
         name="Weak evidence",
-        category="Argumentation",
         definition="evidence is thin",
     )
     comment_id = _seed_proposed(
@@ -198,13 +343,11 @@ def test_change_reassigns_from_one_type_to_another(db, tmp_path):
     first = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="too strong",
     )
     second = create_issue_type(
         code="WEAK",
         name="Weak evidence",
-        category="Argumentation",
         definition="evidence is thin",
     )
     comment_id = _seed_proposed(
@@ -244,13 +387,11 @@ def test_change_rejects_an_inactive_type(db, tmp_path):
     active = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="too strong",
     )
     inactive = create_issue_type(
         code="WEAK",
         name="Weak evidence",
-        category="Argumentation",
         definition="evidence is thin",
     )
     comment_id = _seed_proposed(
@@ -272,7 +413,6 @@ def test_change_rejects_the_current_type(db, tmp_path):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="too strong",
     )
     comment_id = _seed_proposed(
@@ -306,7 +446,6 @@ def test_labeled_absent_unreviewed_stays_in_unlabeled_inbox(db, tmp_path):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="too strong",
     )
     comment_id = _seed_proposed(
@@ -339,7 +478,6 @@ def test_verify_labeled_absent_moves_off_unlabeled_onto_type(db, tmp_path):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="too strong",
     )
     comment_id = _seed_proposed(
@@ -368,7 +506,7 @@ def test_not_accepting_leaves_comment_unlabeled(db, tmp_path):
             "recommendation": "new",
             "issue_code": "X",
             "issue_name": "Nope",
-            "category": "General",
+            "parent_id": None,
             "definition": "nope",
             "confidence": 0.2,
             "rationale": "weak",
@@ -515,7 +653,6 @@ def test_accept_uses_newest_proposed_coding_not_lexicographic_id(db):
                 status="proposed",
                 proposed_issue_name="Old",
                 proposed_issue_code="OLD",
-                proposed_issue_category="General",
                 proposed_issue_definition="older proposal",
                 created_at=datetime(2020, 1, 1, tzinfo=UTC),
             )
@@ -528,7 +665,6 @@ def test_accept_uses_newest_proposed_coding_not_lexicographic_id(db):
                 status="proposed",
                 proposed_issue_name="New",
                 proposed_issue_code="NEWISSUE",
-                proposed_issue_category="General",
                 proposed_issue_definition="newer proposal",
                 created_at=datetime(2024, 6, 1, tzinfo=UTC),
             )

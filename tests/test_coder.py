@@ -33,7 +33,7 @@ def test_parse_existing_and_new_recommendations():
                 "recommendation": "new",
                 "issue_code": "METHJUST",
                 "issue_name": "Missing methodological justification",
-                "category": "Methodology",
+                "parent_id": None,
                 "definition": "A design decision is unexplained.",
                 "confidence": 0.78,
                 "rationale": "Asks why the design was necessary.",
@@ -60,7 +60,7 @@ def test_build_prompt_separates_observation_from_interpretation():
             "id": "iss-1",
             "code": "OVERCLAIM",
             "name": "Overclaiming",
-            "category": "Argumentation",
+            "parent_id": None,
             "definition": "too strong",
         },
     )()
@@ -85,7 +85,6 @@ def test_code_uncoded_comments_writes_proposed_coding(db, tmp_path):
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="A claim is stronger than the evidence supports.",
     )
     provider = MockLLMProvider(
@@ -157,7 +156,7 @@ def test_code_replaces_placeholder_mock_proposal(db, tmp_path):
                     "recommendation": "new",
                     "issue_name": "Unclear thesis",
                     "issue_code": "UNCLEAR",
-                    "category": "Writing",
+                    "parent_id": None,
                     "definition": "The paragraph thesis is not clear.",
                     "confidence": 0.8,
                     "rationale": "The reviewer asks for a clearer thesis.",
@@ -182,7 +181,6 @@ def test_unknown_issue_type_id_does_not_fall_back_to_top_candidate(db, tmp_path)
     issue = create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="A claim is stronger than the evidence supports.",
     )
     add_example(issue.id, text='I think "demonstrate" is too strong here.')
@@ -193,7 +191,7 @@ def test_unknown_issue_type_id_does_not_fall_back_to_top_candidate(db, tmp_path)
                 "issue_type_id": "not-a-real-issue",
                 "issue_name": "Overclaiming (proposed)",
                 "issue_code": "OVERCLAIM2",
-                "category": "Argumentation",
+                "parent_id": None,
                 "definition": "A claim exceeds the evidence.",
                 "confidence": 0.91,
                 "rationale": "Hallucinated id.",
@@ -239,7 +237,6 @@ def test_code_uncoded_comments_ranks_all_comments_without_reloading_store(db, tm
     create_issue_type(
         code="OVERCLAIM",
         name="Overclaiming",
-        category="Argumentation",
         definition="A claim is stronger than the evidence supports.",
     )
     from reviewdistill.coding import coder as coder_mod

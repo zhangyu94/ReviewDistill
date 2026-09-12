@@ -51,7 +51,7 @@ export function typeSelectorLabel(code: string, count: number): string {
 export type CommentsLayout = 'list' | 'one'
 
 export function inboxItemFromObservation(row: TaxonomyCommentJson, issue: IssueOption): InboxItemJson {
-  const { project_name, permalink, ...comment } = row
+  const { project_name, permalink, issue: accepted, ...comment } = row
   return {
     comment,
     project_name,
@@ -59,7 +59,7 @@ export function inboxItemFromObservation(row: TaxonomyCommentJson, issue: IssueO
     guess: null,
     in_manuscript: comment.status === 'active',
     labeled: true,
-    issue,
+    issue: accepted ?? issue,
     coding: null,
   }
 }
@@ -83,6 +83,41 @@ export function issueLoadErrorView(status: number | null): 'missing' | 'error' {
 export function typeRouteAfterDeactivate(groupId: string, deactivatedId: string): string | null {
   if (groupId && groupId === deactivatedId) { return '/' }
   return null
+}
+
+export function typeRouteAfterRemove(groupId: string, deletedIds: string[]): string | null {
+  if (groupId && deletedIds.includes(groupId)) { return '/' }
+  return null
+}
+
+export function issueIdAfterLeave(href: string | null, viewing: string): string {
+  return href ? '' : viewing
+}
+
+export function afterMergeNavigation(
+  selector: SelectorId,
+  targetId: string,
+  commentId = '',
+  viewing = '',
+  sourceId = '',
+): { href: string, issueId: string, replace: boolean } {
+  const replace = selector !== 'type' || viewing === sourceId || viewing === targetId
+  if (selector === 'type') {
+    return { href: `/taxonomy/${targetId}`, issueId: targetId, replace }
+  }
+  const href = unlabeledHref(targetId)
+  if (!commentId) { return { href, issueId: targetId, replace: true } }
+  return { href: `${href}&id=${encodeURIComponent(commentId)}`, issueId: targetId, replace: true }
+}
+
+export function chipTypeId(
+  groupId: string,
+  lastTypeId: string,
+  typeExists: (id: string) => boolean,
+): string {
+  if (groupId) { return groupId }
+  if (lastTypeId && typeExists(lastTypeId)) { return lastTypeId }
+  return ''
 }
 
 export function labeledTypeIdForComment(items: InboxItemJson[], commentId: string): string | null {

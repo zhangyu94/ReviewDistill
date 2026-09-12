@@ -15,13 +15,17 @@ from reviewdistill.taxonomy.operations import (
 
 def export_rubric(fmt: str = "md") -> str:
     with get_session():
+        active = list_active_issue_types()
+        by_id = {issue.id: issue for issue in active}
         issues = []
-        for issue in list_active_issue_types():
+        for issue in active:
             issues.append(
                 {
+                    "id": issue.id,
                     "code": issue.code,
                     "name": issue.name,
-                    "category": issue.category,
+                    "parent_id": issue.parent_id,
+                    "parent_code": by_id[issue.parent_id].code if issue.parent_id else None,
                     "definition": issue.definition,
                     "examples": [example.text for example in list_examples(issue.id)],
                     "counterexamples": [item.text for item in list_counterexamples(issue.id)],
@@ -31,16 +35,31 @@ def export_rubric(fmt: str = "md") -> str:
     if fmt == "md":
         return _to_markdown(issues)
     if fmt == "yaml":
-        return yaml.safe_dump({"issue_types": issues}, sort_keys=False)
+        return yaml.safe_dump({"issue_types": [_structured(issue) for issue in issues]}, sort_keys=False)
     if fmt == "json":
-        return json.dumps({"issue_types": issues}, indent=2)
+        return json.dumps({"issue_types": [_structured(issue) for issue in issues]}, indent=2)
     raise BadInput(f"Unknown export format: {fmt}")
+
+
+def _structured(issue: dict) -> dict:
+    return {key: issue[key] for key in (
+        "id",
+        "code",
+        "name",
+        "parent_id",
+        "definition",
+        "examples",
+        "counterexamples",
+        "notes",
+    )}
 
 
 def _to_markdown(issues: list[dict]) -> str:
     lines = ["# Scholarly Review Rubric"]
     for issue in issues:
         lines.append(f"## {issue['name']}")
+        if issue["parent_code"]:
+            lines.append(f"Parent: {issue['parent_code']}")
         lines.append("### Definition")
         lines.append(issue["definition"])
         lines.append("### Examples")

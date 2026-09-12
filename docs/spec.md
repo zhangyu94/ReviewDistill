@@ -10,7 +10,7 @@ The user should be able to proofread papers naturally, using whatever commenting
 
 Over multiple papers and multiple review sessions, these observations are progressively distilled into an evolving taxonomy of review issues, including:
 
-* issue categories
+* nested issue types (`parent_id`)
 * definitions
 * examples
 * counterexamples
@@ -326,18 +326,27 @@ IssueType(
     id,
     code,
     name,
-    category,
+    parent_id,
+    position,
     definition,
     status,
     created_at,
     updated_at
 )
 
+The live taxonomy is a forest of arbitrary depth. `parent_id` is null for a root, otherwise another type’s id. `position` is order among siblings and is rewritten to `0..n-1` whenever that sibling list changes. Every node is a real issue type: it can have children and its own labeled comments. There are no folder-only nodes.
+
+Invariants: `parent_id` is null or an **active** type; there are no cycles. Inactive types keep their last parent and position so undo can restore them; they are omitted from the live tree. Active `code` stays unique. Create uses name `New type` and code `NEW`, `NEW_2`, … skipping taken active codes.
+
+Load does not rewrite leftover `category` or `proposed_issue_category` fields. Missing `parent_id` is a root. An active type whose parent is missing, inactive, or cyclic fails fast. Do not promote old category strings into parent types.
+
+A proposal for a **new** type stores `proposed_parent_id`: an existing active type id, or null for a root. Unknown or omitted parent becomes a root. Do not mint an intermediate parent from a free-text name.
+
 Example:
 
 code: OVERCLAIM
 name: Overclaiming
-category: Argumentation
+parent_id: null
 definition: >
   A claim is stated more strongly than the evidence or analysis
   presented in the manuscript supports.
@@ -397,11 +406,19 @@ Split
 
 Move
 
-Move an issue type between higher-level categories.
+Nest a type under another, or reorder it among siblings (before / after).
+
+Flatten
+
+Reassign descendant comments onto this type and deactivate the descendants.
+
+Remove
+
+Delete this type and its subtree. Undo restores the dump.
 
 Deactivate
 
-The group leaves the live taxonomy. Labeled comments return to Unlabeled. Codings are stored on the history event so undo restores them.
+The group leaves the live taxonomy. Its children become siblings under the same parent. Labeled comments on that type (not descendants) return to Unlabeled. Codings are stored on the history event so undo restores them.
 
 Historical data must never be silently deleted when the taxonomy changes.
 
@@ -640,13 +657,13 @@ Selectors  [MISSINGINTRODUCT (17) ×]                    [Unlabeled (8)]
 Issue Taxonomy  Issue Details        Comments
 Argumentation   Overclaiming         17 total · 1 selected
   Overclaiming  Definition
-  17 accepted   Rename / Split
+    Causal lang Rename / Split
 Clarity
 ```
 
 The top bar switches Workbench and History, and opens Export (format plus deactivate). Selectors are a second header: a dismissable chip named with the issue **code** once a group is selected, and a persistent Unlabeled chip on the right. Unlabeled and issue groups share this one screen.
 
-Column order is always Issue Taxonomy | Issue Details | Comments. Clicking a type selects it: Issue Details shows that type, Comments filters to its accepted comments, and its code chip becomes the active selector. The Comments header shows total and selected counts.
+Column order is always Issue Taxonomy | Issue Details | Comments. Clicking a type selects it: Issue Details shows that type, Comments filters to the subtree working set, and its code chip becomes the active selector. The Comments header shows total and selected counts.
 
 The Comments panel can switch between a list of comments and a single comment. The list shows truncated text so you can scan, and marks comments that are not in the manuscript. The single-comment view shows the full text, manuscript context, location, and record metadata. **Accept** and **Change** assign or change the issue type (there is no Reject: not accepting a suggestion leaves the comment unlabeled). **Verify** and **Drop** stamp quality, independent of the label.
 
@@ -656,22 +673,25 @@ Selector chips are mutually exclusive. Sure/Unsure confidence chips are not in t
 
 15. Taxonomy View
 
-The same workbench is the taxonomy view. Issue Taxonomy stays on the left; Issue Details stays in the middle. Clicking an issue type selects it: Issue Details shows the definition, Comments shows that type’s labeled working-set comments, and a selector chip named with its code (for example `MISSINGINTRODUCT (17)`) becomes active.
+The same workbench is the taxonomy view. Issue Taxonomy stays on the left; Issue Details stays in the middle. Clicking an issue type selects it: Issue Details shows the definition, Comments shows the **subtree** working-set comments (this type and descendants), and a selector chip named with its code (for example `MISSINGINTRODUCT (17)`) becomes active.
 
 ```
 Selectors  [MISSINGINTRODUCT (17) ×]                    [Unlabeled]
 Issue Taxonomy         Issue Details             Comments
-Argumentation          Overclaiming              17 total · 1 selected
-  Overclaiming    17   Definition
+Argumentation     17   Argumentation             17 total · 1 selected
+  Overclaiming    12   Definition
+    Causal lang    5
 ```
 
 Issue Details does not repeat comment text and does not collect counterexamples. Labeled comments in the Comments panel are the examples. Export (and deactivate) live in the header Export dialog.
 
-Drag an unlabeled comment onto a type: same as Change.
-Drag a type onto another type: merge (source into target).
-Drag a type onto a category heading: move (`POST /api/taxonomy/{id}/move` with `{ "category" }` so the drag does not round-trip definition fields).
-Split stays in Issue Details. Rename and definition editing are in-place on the Issue type and Definition panels. Deactivate is chosen in Export.
-Divide, flatten, and ungrouped nodes are not in this product. Drag uses native HTML5 only.
+Drag an unlabeled comment onto a **leaf**: same as Change. Dropping onto a parent is ignored (Accept and the Change picker can still label a parent).
+Drag a type onto the top or bottom of another row: reorder as a sibling (`before` / `after`).
+Drag onto the middle of a row: nest as a child (`inner`).
+On a leaf, a **merge** chip appears while dragging a type; dropping on the chip merges (source into target; source children are reparented onto the target).
+Header **+** adds a root type. Hover **+** adds a child. Flatten reassigns descendant comments onto the node and deactivates descendants. Remove deletes the subtree (undoable). Split stays in Issue Details and creates two siblings under the same parent. Rename and definition editing are in-place on the Issue type and Definition panels. The inspector path (`Root / … / This`) is read-only. Deactivate is chosen in Export.
+The tree defaults to expanded. The chevron expands or collapses; clicking the **name** selects (it does not expand).
+Drag uses native HTML5 only.
 
 The Comments header has list / one-comment controls. The list is for scanning. One comment shows context and metadata, with prev / pager / next at the bottom (one comment per page).
 
@@ -692,9 +712,11 @@ Label with AI is one `propose` event for the batch. Accept of a newly created is
 | `add` | New issue type | Deactivate that type |
 | `rename` | Name/code change | Restore `before` |
 | `edit` | Definition/notes | Restore `before` |
-| `move` | Category change only (`from` ≠ `to`) | Move back to `from` |
-| `deactivate` | Deactivate (labeled comments return to Unlabeled) | Reactivate; restore labels |
-| `merge` | Merge (payload includes reassigned ids) | Reactivate sources; move rows back |
+| `move` | Parent/position change (`from_parent_id` / `to_parent_id`) | Move back |
+| `flatten` | Descendants deactivated; their comments reassigned to this type | Reactivate descendants; restore labels |
+| `remove` | Delete subtree (payload includes type/coding dumps) | Restore the dump |
+| `deactivate` | Deactivate (children become siblings; labeled comments on this type return to Unlabeled) | Reactivate; restore child parents and labels |
+| `merge` | Merge (payload includes reassigned ids; source children reparented) | Reactivate sources; move rows back |
 | `split` | Split (payload includes deleted coding dumps) | Reactivate source; deactivate created types; restore codings |
 | `propose` | Label with AI | Delete created proposed rows; restore any it replaced |
 | `accept` | Accept | Coding back to proposed; delete example if this accept created it |
@@ -753,7 +775,7 @@ Flag claims whose strength exceeds the evidence presented.
 Do not flag strong claims when the experimental design directly
 supports the stated conclusion.
 
-A YAML/JSON representation should also be supported for programmatic use.
+A YAML/JSON representation should also be supported for programmatic use. Those formats are a flat list of types with `parent_id` (null for roots), not a nested `children` blob. Markdown may show a `Parent:` line by code.
 
 ⸻
 
@@ -981,12 +1003,14 @@ Reviewer observation:
 Manuscript context:
 "The experiment..."
 Existing issue types:
+id, code, name, parent_id
 ...
 Task:
 Determine whether this observation is best explained by an
 existing issue type. If so, recommend the best match.
 If no existing issue type adequately captures the observation,
-propose a candidate new issue type.
+propose a candidate new issue type (parent_id of an existing
+type, or omit for a root).
 Do not modify the taxonomy automatically.
 
 This helps preserve the qualitative-analysis character of the system.
@@ -1034,7 +1058,7 @@ Automatically identify patterns that have not yet been formally coded.
 
 Taxonomy refinement
 
-Detect when an existing category has become too broad.
+Detect when an existing issue type has become too broad.
 
 Reviewer-specific modeling
 

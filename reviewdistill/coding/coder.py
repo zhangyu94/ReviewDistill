@@ -26,7 +26,7 @@ class ModelProposal:
     issue_type_id: str | None = None
     issue_code: str | None = None
     issue_name: str | None = None
-    category: str | None = None
+    parent_id: str | None = None
     definition: str | None = None
     confidence: float | None = None
     rationale: str | None = None
@@ -55,7 +55,7 @@ def parse_model_output(text: str) -> ModelProposal:
         issue_type_id=data.get("issue_type_id"),
         issue_code=data.get("issue_code"),
         issue_name=data.get("issue_name"),
-        category=data.get("category"),
+        parent_id=data.get("parent_id"),
         definition=data.get("definition"),
         confidence=data.get("confidence"),
         rationale=data.get("rationale"),
@@ -82,7 +82,9 @@ def build_prompt(*, raw_text: str, context_text: str, section: str | None, candi
     if not candidates:
         lines.append("(none yet)")
     for issue in candidates:
-        lines.append(f"- id={issue.id} code={issue.code} name={issue.name} category={issue.category}")
+        lines.append(
+            f"- id={issue.id} code={issue.code} name={issue.name} parent_id={issue.parent_id}"
+        )
         lines.append(f"  definition: {issue.definition}")
     lines.extend(
         [
@@ -92,11 +94,21 @@ def build_prompt(*, raw_text: str, context_text: str, section: str | None, candi
             "If so, recommend the best match using recommendation=existing and issue_type_id.",
             "If no existing issue type adequately captures the observation, propose a candidate new issue type.",
             "Return JSON with keys:",
-            "recommendation, issue_type_id, issue_code, issue_name, category, definition,",
+            "recommendation, issue_type_id, issue_code, issue_name, parent_id, definition,",
             "confidence, rationale, suggested_evidence",
         ]
     )
     return "\n".join(lines)
+
+
+def _proposal_parent_id(session, parent_id: str | None) -> str | None:
+    """Keep only an existing active type id. Unknown or omitted → root (None)."""
+    if not parent_id:
+        return None
+    parent = session.get(IssueType, parent_id)
+    if parent is None or parent.status != ISSUE_ACTIVE:
+        return None
+    return parent.id
 
 
 _UNSET = object()
@@ -202,7 +214,7 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
                     status=CODING_PROPOSED,
                     proposed_issue_code=proposal.issue_code,
                     proposed_issue_name=proposal.issue_name,
-                    proposed_issue_category=proposal.category,
+                    proposed_parent_id=_proposal_parent_id(session, proposal.parent_id),
                     proposed_issue_definition=proposal.definition,
                     suggested_evidence=proposal.suggested_evidence,
                 )

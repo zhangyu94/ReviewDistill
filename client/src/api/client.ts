@@ -2,7 +2,7 @@ export interface IssueOption {
   id: string
   code: string
   name: string
-  category: string
+  parent_id: string | null
 }
 
 export interface CommentJson {
@@ -108,15 +108,24 @@ export function changeInbox(commentId: string, issueTypeId: string): Promise<{ o
   })
 }
 
+export interface TaxonomyNode {
+  id: string
+  code: string
+  name: string
+  count: number
+  children: TaxonomyNode[]
+}
+
 export interface TaxonomyListResponse {
-  grouped: Record<string, { id: string, code: string, name: string, count: number }[]>
+  forest: TaxonomyNode[]
 }
 
 export interface TaxonomyDetail {
   id: string
   code: string
   name: string
-  category: string
+  parent_id: string | null
+  path: { id: string, name: string }[]
   definition: string
   notes: string | null
   status: string
@@ -128,6 +137,7 @@ export interface TaxonomyDetail {
 export type TaxonomyCommentJson = CommentJson & {
   project_name: string
   permalink: string | null
+  issue?: IssueOption | null
 }
 
 export function fetchTaxonomy(): Promise<TaxonomyListResponse> {
@@ -144,16 +154,28 @@ export function renameIssue(id: string, name: string, code: string): Promise<{ o
 
 export function editIssue(
   id: string,
-  body: { definition: string, notes: string, category: string },
+  body: { definition: string, notes: string },
 ): Promise<{ ok: true }> {
   return api(`/api/taxonomy/${id}/edit`, { method: 'POST', body: JSON.stringify(body) })
 }
 
-export function moveIssue(id: string, category: string): Promise<{ ok: true }> {
+export function createIssue(parentId: string | null): Promise<{ ok: true, id: string }> {
+  return api('/api/taxonomy', { method: 'POST', body: JSON.stringify({ parent_id: parentId }) })
+}
+
+export function moveIssue(id: string, parentId: string | null, position: number): Promise<{ ok: true }> {
   return api(`/api/taxonomy/${id}/move`, {
     method: 'POST',
-    body: JSON.stringify({ category }),
+    body: JSON.stringify({ parent_id: parentId, position }),
   })
+}
+
+export function flattenIssue(id: string): Promise<{ ok: true }> {
+  return api(`/api/taxonomy/${id}/flatten`, { method: 'POST' })
+}
+
+export function removeIssue(id: string): Promise<{ ok: true }> {
+  return api(`/api/taxonomy/${id}/remove`, { method: 'POST' })
 }
 
 export function deactivateIssue(id: string): Promise<{ ok: true }> {
@@ -173,8 +195,8 @@ export function mergeIssues(sourceIds: string[], targetId: string): Promise<{ ok
 
 export function splitIssue(
   id: string,
-  left: { code: string, name: string, category: string, definition: string },
-  right: { code: string, name: string, category: string, definition: string },
+  left: { code: string, name: string, definition: string },
+  right: { code: string, name: string, definition: string },
 ): Promise<{ ok: true }> {
   return api(`/api/taxonomy/${id}/split`, { method: 'POST', body: JSON.stringify({ left, right }) })
 }

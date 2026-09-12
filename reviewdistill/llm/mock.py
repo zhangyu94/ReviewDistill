@@ -12,7 +12,7 @@ class MockLLMProvider:
             return self.scripted_response
         return (
             '{"recommendation":"new","issue_code":"MOCKISSUE",'
-            '"issue_name":"Mock issue","category":"General",'
+            '"issue_name":"Mock issue","parent_id":null,'
             '"definition":"A placeholder issue from the mock provider.",'
             '"confidence":0.5,"rationale":"Mock provider used in tests.",'
             '"suggested_evidence":null}'

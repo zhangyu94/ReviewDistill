@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { InboxItemJson, InboxResponse } from '../../api/client.ts'
+import type { InboxItemJson, InboxResponse, TaxonomyNode } from '../../api/client.ts'
 import type { LocationRow } from '../../inboxLocation.ts'
 import { computed, ref, watch } from 'vue'
 import {
@@ -8,6 +8,7 @@ import {
   dropTooltip,
   verifyTooltip,
 } from '../../inboxTooltips.ts'
+import { flattenForest } from '../../workbench/taxonomyTree.ts'
 import { changeIssueOptions, showAssignType } from '../../workbench/workbenchMode.ts'
 import {
   Select,
@@ -27,6 +28,7 @@ const props = defineProps<{
   contextParts: { prose: string, extras: string }
   suggestionTitle: string | null
   changeId: string
+  forest?: TaxonomyNode[]
 }>()
 
 const emit = defineEmits<{
@@ -42,9 +44,19 @@ function onChangeId(value: unknown) {
   if (typeof value === 'string') { emit('update:changeId', value) }
 }
 
-const changeIssues = computed(() =>
-  changeIssueOptions(props.data?.issues ?? [], props.selected?.issue?.id ?? null),
-)
+const changeIssues = computed(() => {
+  const forest = props.forest
+  if (forest && forest.length) {
+    const current = props.selected?.issue?.id ?? null
+    return flattenForest(forest)
+      .filter(({ node }) => node.id !== current)
+      .map(({ node, depth }) => ({ id: node.id, code: node.code, name: node.name, depth }))
+  }
+  return changeIssueOptions(props.data?.issues ?? [], props.selected?.issue?.id ?? null).map((issue) => ({
+    ...issue,
+    depth: 0,
+  }))
+})
 const changeEmpty = computed(() => changeIssues.value.length === 0)
 const whyOpen = ref(false)
 watch(() => props.selected?.comment.id, () => {
@@ -247,7 +259,7 @@ watch(() => props.selected?.comment.id, () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem v-for="issue in changeIssues" :key="issue.id" :value="issue.id">
-                      {{ issue.name }}
+                      <span :style="{ paddingLeft: `${issue.depth * 12}px` }">{{ issue.name }}</span>
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -281,7 +293,7 @@ watch(() => props.selected?.comment.id, () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem v-for="issue in changeIssues" :key="issue.id" :value="issue.id">
-                    {{ issue.name }}
+                    <span :style="{ paddingLeft: `${issue.depth * 12}px` }">{{ issue.name }}</span>
                   </SelectItem>
                 </SelectContent>
               </Select>

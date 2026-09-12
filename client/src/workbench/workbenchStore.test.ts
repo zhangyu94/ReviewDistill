@@ -38,11 +38,11 @@ describe('workbenchStore', () => {
       issues: [],
       items: [],
     })
-    vi.mocked(fetchTaxonomy).mockResolvedValue({ grouped: {} })
+    vi.mocked(fetchTaxonomy).mockResolvedValue({ forest: [] })
     const store = useWorkbenchStore()
     await store.invalidate({ inbox: true, taxonomy: true })
     expect(store.inbox?.unlabeled_count).toBe(1)
-    expect(store.taxonomy).toEqual({ grouped: {} })
+    expect(store.taxonomy).toEqual({ forest: [] })
   })
 
   it('treats a 500 issue load as an error, not missing', async () => {
@@ -79,7 +79,8 @@ describe('workbenchStore', () => {
       id,
       code: id,
       name: id,
-      category: 'X',
+      parent_id: null,
+      path: [{ id, name: id }],
       definition: '',
       notes: null,
       status: 'active',
@@ -99,5 +100,34 @@ describe('workbenchStore', () => {
     finishFirst(issue('t1'))
     await Promise.all([first, second])
     expect(store.issue?.id).toBe('t2')
+  })
+
+  it('ignores a stale 404 when a newer issue load succeeded', async () => {
+    const issue = (id: string) => ({
+      id,
+      code: id,
+      name: id,
+      parent_id: null,
+      path: [{ id, name: id }],
+      definition: '',
+      notes: null,
+      status: 'active',
+      examples: [],
+      counterexamples: [],
+      comments: [],
+    })
+    let failFirst: (err: ApiError) => void = () => {}
+    vi.mocked(fetchIssue)
+      .mockImplementationOnce(() => new Promise((_, reject) => {
+        failFirst = reject
+      }))
+      .mockResolvedValueOnce(issue('t2'))
+    const store = useWorkbenchStore()
+    const first = store.loadIssue('t1')
+    const second = store.loadIssue('t2')
+    failFirst(new ApiError('Unknown issue type', 404))
+    await Promise.all([first, second])
+    expect(store.issue?.id).toBe('t2')
+    expect(store.missing).toBe(false)
   })
 })

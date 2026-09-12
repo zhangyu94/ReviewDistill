@@ -23,7 +23,7 @@ def test_second_paper_reuses_accepted_taxonomy(db, tmp_path):
                 "recommendation": "new",
                 "issue_code": "OVERCLAIM",
                 "issue_name": "Overclaiming",
-                "category": "Argumentation",
+                "parent_id": None,
                 "definition": "A claim is stronger than the evidence supports.",
                 "confidence": 0.9,
                 "rationale": "Strength of claim vs evidence.",

@@ -38,6 +38,8 @@ INVERTIBLE = frozenset(
         "rename",
         "edit",
         "move",
+        "flatten",
+        "remove",
         "deactivate",
         "merge",
         "split",
@@ -48,6 +50,25 @@ INVERTIBLE = frozenset(
         "drop",
     }
 )
+
+
+def _touch_types(session) -> None:
+    for row in session.find(IssueType):
+        session.add(row)
+
+
+def _place(session, issue: IssueType, parent_id: str | None, position: int) -> None:
+    from reviewdistill.taxonomy.tree import place_among_siblings
+
+    place_among_siblings(session.find(IssueType), issue, parent_id, position)
+    _touch_types(session)
+
+
+def _compact(session, parent_id: str | None) -> None:
+    from reviewdistill.taxonomy.tree import compact_positions
+
+    compact_positions(session.find(IssueType), parent_id)
+    _touch_types(session)
 
 
 def dump_row(row) -> dict:
@@ -74,6 +95,19 @@ def example_from_dump(data: dict) -> IssueExample:
     return IssueExample(**data)
 
 
+def counter_from_dump(data: dict) -> IssueCounterexample:
+    data = dict(data)
+    data["created_at"] = _parse_dt(data.get("created_at")) or utcnow()
+    return IssueCounterexample(**data)
+
+
+def issue_from_dump(data: dict) -> IssueType:
+    data = dict(data)
+    data["created_at"] = _parse_dt(data.get("created_at")) or utcnow()
+    data["updated_at"] = _parse_dt(data.get("updated_at")) or utcnow()
+    return IssueType(**data)
+
+
 def record(session, event_type: str, payload: dict) -> None:
     for event in session.find(TaxonomyEvent, undone=True):
         session.delete(event)
@@ -97,7 +131,11 @@ def event_summary(event_type: str, payload: dict) -> str:
     if event_type == "edit":
         return "Edit definition"
     if event_type == "move":
-        return f"Move {payload.get('from')} → {payload.get('to')}"
+        return f"Move {payload.get('code')}"
+    if event_type == "flatten":
+        return f"Flatten {payload.get('code')}"
+    if event_type == "remove":
+        return f"Remove {payload.get('code')}"
     if event_type == "deactivate":
         return f"Deactivate {payload.get('code')}"
     if event_type == "merge":
@@ -128,6 +166,12 @@ def can_invert(event: TaxonomyEvent) -> bool:
         return "deleted_codings" in payload
     if event.event_type == "propose":
         return "created" in payload
+    if event.event_type == "move":
+        return "from_parent_id" in payload
+    if event.event_type == "flatten":
+        return "reassigned_codings" in payload and "descendant_ids" in payload
+    if event.event_type == "remove":
+        return "types" in payload
     return True
 
 
@@ -235,23 +279,23 @@ def _apply_edit(session, payload: dict) -> None:
 
 def _invert_move(session, payload: dict) -> None:
     issue = session.get(IssueType, payload["issue_type_id"])
-    issue.category = payload["from"]
+    _place(session, issue, payload["from_parent_id"], payload["from_position"])
     issue.updated_at = utcnow()
-    session.add(issue)
 
 
 def _apply_move(session, payload: dict) -> None:
     issue = session.get(IssueType, payload["issue_type_id"])
-    issue.category = payload["to"]
+    _place(session, issue, payload["to_parent_id"], payload["to_position"])
     issue.updated_at = utcnow()
-    session.add(issue)
 
 
 def _invert_add(session, payload: dict) -> None:
     issue = session.get(IssueType, payload["issue_type_id"])
+    parent_id = issue.parent_id
     issue.status = ISSUE_INACTIVE
     issue.updated_at = utcnow()
     session.add(issue)
+    _compact(session, parent_id)
 
 
 def _apply_add(session, payload: dict) -> None:
@@ -259,6 +303,7 @@ def _apply_add(session, payload: dict) -> None:
     issue.status = ISSUE_ACTIVE
     issue.updated_at = utcnow()
     session.add(issue)
+    _place(session, issue, issue.parent_id, issue.position)
 
 
 def _invert_deactivate(session, payload: dict) -> None:
@@ -266,15 +311,26 @@ def _invert_deactivate(session, payload: dict) -> None:
     issue.status = ISSUE_ACTIVE
     issue.updated_at = utcnow()
     session.add(issue)
+    _place(session, issue, issue.parent_id, issue.position)
+    for row in payload.get("reparented_children") or []:
+        child = session.get(IssueType, row["id"])
+        if child is not None:
+            _place(session, child, row["from_parent_id"], row.get("from_position", 0))
     for row in payload.get("deleted_codings") or []:
         session.add(coding_from_dump(row))
 
 
 def _apply_deactivate(session, payload: dict) -> None:
+    from reviewdistill.taxonomy.tree import lift_children
+
     issue = session.get(IssueType, payload["issue_type_id"])
+    if "reparented_children" in payload:
+        lift_children(session.find(IssueType), issue)
     issue.status = ISSUE_INACTIVE
     issue.updated_at = utcnow()
     session.add(issue)
+    for row in session.find(IssueType):
+        session.add(row)
     for row in payload.get("deleted_codings") or []:
         existing = session.get(Coding, row["id"])
         if existing is not None:
@@ -419,6 +475,16 @@ def _invert_merge(session, payload: dict) -> None:
             source.status = ISSUE_ACTIVE
             source.updated_at = utcnow()
             session.add(source)
+            _place(session, source, source.parent_id, source.position)
+    for row in payload.get("reparented_children") or []:
+        child = session.get(IssueType, row["id"])
+        if child is not None:
+            _place(
+                session,
+                child,
+                row["from_parent_id"],
+                row.get("from_position", 0),
+            )
 
 
 def _apply_merge(session, payload: dict) -> None:
@@ -442,14 +508,24 @@ def _apply_merge(session, payload: dict) -> None:
         if counter is not None:
             counter.issue_type_id = target_id
             session.add(counter)
+    parents: set[str | None] = set()
+    for row in payload.get("reparented_children") or []:
+        child = session.get(IssueType, row["id"])
+        if child is not None:
+            child.parent_id = target_id
+            session.add(child)
+    _compact(session, target_id)
     for source_id in payload.get("source_ids") or []:
         if source_id == target_id:
             continue
         source = session.get(IssueType, source_id)
         if source is not None:
+            parents.add(source.parent_id)
             source.status = ISSUE_INACTIVE
             source.updated_at = utcnow()
             session.add(source)
+    for parent_id in parents:
+        _compact(session, parent_id)
 
 
 def _invert_split(session, payload: dict) -> None:
@@ -463,6 +539,7 @@ def _invert_split(session, payload: dict) -> None:
             created.status = ISSUE_INACTIVE
             created.updated_at = utcnow()
             session.add(created)
+    _place(session, source, source.parent_id, source.position)
     for row in payload.get("deleted_codings") or []:
         session.add(coding_from_dump(row))
 
@@ -472,16 +549,117 @@ def _apply_split(session, payload: dict) -> None:
     source.status = ISSUE_INACTIVE
     source.updated_at = utcnow()
     session.add(source)
+    _compact(session, source.parent_id)
+    placements = []
     for created_id in payload.get("created_ids") or []:
         created = session.get(IssueType, created_id)
         if created is not None:
-            created.status = ISSUE_ACTIVE
-            created.updated_at = utcnow()
-            session.add(created)
+            placements.append((created, created.parent_id, created.position))
+    placements.sort(key=lambda item: (item[2], item[0].name, item[0].id))
+    for created, parent_id, position in placements:
+        created.status = ISSUE_ACTIVE
+        created.updated_at = utcnow()
+        session.add(created)
+        _place(session, created, parent_id, position)
     for row in payload.get("deleted_codings") or []:
         existing = session.get(Coding, row["id"])
         if existing is not None:
             session.delete(existing)
+
+
+def _invert_flatten(session, payload: dict) -> None:
+    target_id = payload["issue_type_id"]
+    for row in payload.get("reassigned_codings") or []:
+        coding = session.get(Coding, row["id"])
+        if coding is not None:
+            coding.issue_type_id = row["from_issue_type_id"]
+            session.add(coding)
+    for row in payload.get("reassigned_examples") or []:
+        example = session.get(IssueExample, row["id"])
+        if example is not None:
+            example.issue_type_id = row["from_issue_type_id"]
+            session.add(example)
+    for row in payload.get("deleted_examples") or []:
+        session.add(example_from_dump(row))
+    for row in payload.get("reassigned_counters") or []:
+        counter = session.get(IssueCounterexample, row["id"])
+        if counter is not None:
+            counter.issue_type_id = row["from_issue_type_id"]
+            session.add(counter)
+    for issue_id in payload.get("descendant_ids") or []:
+        row = session.get(IssueType, issue_id)
+        if row is not None:
+            row.status = ISSUE_ACTIVE
+            row.updated_at = utcnow()
+            session.add(row)
+
+
+def _apply_flatten(session, payload: dict) -> None:
+    target_id = payload["issue_type_id"]
+    for row in payload.get("reassigned_codings") or []:
+        coding = session.get(Coding, row["id"])
+        if coding is not None:
+            coding.issue_type_id = target_id
+            session.add(coding)
+    for row in payload.get("reassigned_examples") or []:
+        example = session.get(IssueExample, row["id"])
+        if example is not None:
+            example.issue_type_id = target_id
+            session.add(example)
+    for row in payload.get("deleted_examples") or []:
+        example = session.get(IssueExample, row["id"])
+        if example is not None:
+            session.delete(example)
+    for row in payload.get("reassigned_counters") or []:
+        counter = session.get(IssueCounterexample, row["id"])
+        if counter is not None:
+            counter.issue_type_id = target_id
+            session.add(counter)
+    for issue_id in payload.get("descendant_ids") or []:
+        row = session.get(IssueType, issue_id)
+        if row is not None:
+            row.status = ISSUE_INACTIVE
+            row.updated_at = utcnow()
+            session.add(row)
+
+
+def _invert_remove(session, payload: dict) -> None:
+    for row in payload.get("types") or []:
+        session.add(issue_from_dump(row))
+    for row in payload.get("examples") or []:
+        session.add(example_from_dump(row))
+    for row in payload.get("counters") or []:
+        session.add(counter_from_dump(row))
+    for row in payload.get("deleted_codings") or []:
+        session.add(coding_from_dump(row))
+    root = session.get(IssueType, payload["issue_type_id"])
+    if root is not None:
+        _place(session, root, root.parent_id, root.position)
+
+
+def _apply_remove(session, payload: dict) -> None:
+    parent_id = None
+    for row in payload.get("types") or []:
+        if row.get("id") == payload.get("issue_type_id"):
+            parent_id = row.get("parent_id")
+            break
+    for row in payload.get("deleted_codings") or []:
+        existing = session.get(Coding, row["id"])
+        if existing is not None:
+            session.delete(existing)
+    for row in payload.get("examples") or []:
+        existing = session.get(IssueExample, row["id"])
+        if existing is not None:
+            session.delete(existing)
+    for row in payload.get("counters") or []:
+        existing = session.get(IssueCounterexample, row["id"])
+        if existing is not None:
+            session.delete(existing)
+    for row in payload.get("types") or []:
+        existing = session.get(IssueType, row["id"])
+        if existing is not None:
+            session.delete(existing)
+    _compact(session, parent_id)
 
 
 HANDLERS = {
@@ -497,4 +675,6 @@ HANDLERS = {
     "change": (_apply_change, _invert_change),
     "verify": (_apply_verify, _invert_quality),
     "drop": (_apply_drop, _invert_quality),
+    "flatten": (_apply_flatten, _invert_flatten),
+    "remove": (_apply_remove, _invert_remove),
 }

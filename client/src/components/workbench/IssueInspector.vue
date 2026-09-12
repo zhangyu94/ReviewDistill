@@ -3,7 +3,6 @@ import type { TaxonomyDetail } from '../../api/client.ts'
 import { ref, watch } from 'vue'
 import {
   editIssue,
-  moveIssue,
   renameIssue,
   splitIssue,
 } from '../../api/client.ts'
@@ -13,6 +12,7 @@ const props = defineProps<{
   selectedId: string
   selectedCount: number
   missing: boolean
+  hasChildren?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -25,28 +25,28 @@ const editingType = ref(false)
 const editingDefinition = ref(false)
 const editName = ref('')
 const editCode = ref('')
-const editCategory = ref('')
 const editDefinition = ref('')
 const editNotes = ref('')
-const left = ref({ code: '', name: '', category: '', definition: '' })
-const right = ref({ code: '', name: '', category: '', definition: '' })
+const left = ref({ code: '', name: '', definition: '' })
+const right = ref({ code: '', name: '', definition: '' })
+
+function pathLabel(issue: TaxonomyDetail) {
+  return issue.path.map((part) => part.name).join(' / ')
+}
 
 function syncFromIssue(issue: TaxonomyDetail) {
   editName.value = issue.name
   editCode.value = issue.code
-  editCategory.value = issue.category
   editDefinition.value = issue.definition
   editNotes.value = issue.notes ?? ''
   left.value = {
     code: `${issue.code}A`,
     name: `${issue.name} (A)`,
-    category: issue.category,
     definition: issue.definition,
   }
   right.value = {
     code: `${issue.code}B`,
     name: `${issue.name} (B)`,
-    category: issue.category,
     definition: issue.definition,
   }
 }
@@ -99,7 +99,6 @@ async function saveType() {
   if (!issue) { return }
   await wrap(async () => {
     await renameIssue(issue.id, editName.value, editCode.value)
-    if (editCategory.value !== issue.category) { await moveIssue(issue.id, editCategory.value) }
     emit('updated')
   }, () => {
     editingType.value = false
@@ -113,7 +112,6 @@ async function saveDefinition() {
     await editIssue(issue.id, {
       definition: editDefinition.value,
       notes: editNotes.value,
-      category: issue.category,
     })
     emit('updated')
   }, () => {
@@ -141,7 +139,7 @@ async function saveDefinition() {
               v-if="!editingType"
               class="ch-btn ch-btn-outline"
               type="button"
-              title="Edit this issue type’s name, code, and category"
+              title="Edit this issue type’s name and code"
               @click="startTypeEdit"
             >
               Edit
@@ -150,7 +148,7 @@ async function saveDefinition() {
               <button
                 class="ch-btn ch-btn-outline"
                 type="button"
-                title="Discard name, code, and category changes"
+                title="Discard name and code changes"
                 @click="cancelTypeEdit"
               >
                 Cancel
@@ -158,8 +156,8 @@ async function saveDefinition() {
               <button
                 class="ch-btn ch-btn-default"
                 type="button"
-                title="Save name, code, and category"
-                :disabled="!editName.trim() || !editCode.trim() || !editCategory.trim()"
+                title="Save name and code"
+                :disabled="!editName.trim() || !editCode.trim()"
                 @click="saveType"
               >
                 Save
@@ -186,13 +184,10 @@ async function saveDefinition() {
               <input v-model="editCode" class="ch-input font-[var(--ch-font-mono)]">
             </dd>
             <dt class="ch-muted-text">
-              Category
+              Path
             </dt>
-            <dd v-if="!editingType">
-              {{ issue.category }}
-            </dd>
-            <dd v-else>
-              <input v-model="editCategory" class="ch-input" placeholder="e.g. Argumentation">
+            <dd>
+              {{ pathLabel(issue) }}
             </dd>
             <dt class="ch-muted-text">
               Labeled comments
@@ -259,7 +254,7 @@ async function saveDefinition() {
           </template>
         </section>
 
-        <details class="ch-panel">
+        <details v-if="!hasChildren" class="ch-panel">
           <summary class="cursor-pointer font-medium">
             Split into two types
           </summary>
@@ -275,8 +270,6 @@ async function saveDefinition() {
               <input v-model="left.code" class="ch-input mb-1.5 font-[var(--ch-font-mono)]">
               <label class="ch-field-label">Name</label>
               <input v-model="left.name" class="ch-input mb-1.5">
-              <label class="ch-field-label">Category</label>
-              <input v-model="left.category" class="ch-input mb-1.5">
               <label class="ch-field-label">Definition</label>
               <textarea v-model="left.definition" class="ch-input h-16 py-1.5" />
             </div>
@@ -288,8 +281,6 @@ async function saveDefinition() {
               <input v-model="right.code" class="ch-input mb-1.5 font-[var(--ch-font-mono)]">
               <label class="ch-field-label">Name</label>
               <input v-model="right.name" class="ch-input mb-1.5">
-              <label class="ch-field-label">Category</label>
-              <input v-model="right.category" class="ch-input mb-1.5">
               <label class="ch-field-label">Definition</label>
               <textarea v-model="right.definition" class="ch-input h-16 py-1.5" />
             </div>

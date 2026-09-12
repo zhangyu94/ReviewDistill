@@ -35,12 +35,22 @@ VERIFY_FILE_MISSING = "Verify (source file missing)"
 CONTEXT_CHANGE_THRESHOLD = 0.8
 
 
+def _resolved_parent_id(session, parent_id: str | None) -> str | None:
+    """Keep only an existing active type id. Unknown or omitted → root (None)."""
+    if not parent_id:
+        return None
+    parent = session.get(IssueType, parent_id)
+    if parent is None or parent.status != ISSUE_ACTIVE:
+        return None
+    return parent.id
+
+
 @dataclass
 class InboxIssue:
     id: str
     code: str
     name: str
-    category: str
+    parent_id: str | None
 
 
 @dataclass
@@ -58,7 +68,7 @@ def _accepted_issue(session, comment_id: str) -> InboxIssue | None:
         issue = session.get(IssueType, row.issue_type_id)
         if issue is None:
             continue
-        return InboxIssue(id=issue.id, code=issue.code, name=issue.name, category=issue.category)
+        return InboxIssue(id=issue.id, code=issue.code, name=issue.name, parent_id=issue.parent_id)
     return None
 
 
@@ -161,10 +171,14 @@ def accept_coding(comment_id: str) -> Coding:
                     session,
                     code=code,
                     name=coding.proposed_issue_name,
-                    category=coding.proposed_issue_category or "General",
+                    parent_id=_resolved_parent_id(session, coding.proposed_parent_id),
                     definition=coding.proposed_issue_definition or coding.proposed_issue_name,
                 )
                 issue_type_id = issue.id
+        else:
+            issue = session.get(IssueType, issue_type_id)
+            if issue is None or issue.status != ISSUE_ACTIVE:
+                raise NotFound(f"Unknown issue type {issue_type_id}")
         coding.issue_type_id = issue_type_id
         coding.status = CODING_ACCEPTED
         session.add(coding)
