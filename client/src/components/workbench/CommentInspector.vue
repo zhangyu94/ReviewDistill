@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { InboxItemJson, InboxResponse } from '../../api/client.ts'
 import type { LocationRow } from '../../inboxLocation.ts'
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   acceptTooltip,
   changeTooltip,
@@ -46,6 +46,10 @@ const changeIssues = computed(() =>
   changeIssueOptions(props.data?.issues ?? [], props.selected?.issue?.id ?? null),
 )
 const changeEmpty = computed(() => changeIssues.value.length === 0)
+const whyOpen = ref(false)
+watch(() => props.selected?.comment.id, () => {
+  whyOpen.value = false
+})
 </script>
 
 <template>
@@ -187,14 +191,23 @@ const changeEmpty = computed(() => changeIssues.value.length === 0)
                 <span class="rounded-[var(--ch-radius)] bg-[var(--ch-color-secondary)] px-1.5 py-0.5 text-xs font-medium uppercase tracking-[0.06em]">
                   {{ selected.coding.kind === 'existing' ? 'Existing issue' : 'New issue type' }}
                 </span>
-                <span v-if="selected.coding.confidence != null" class="ch-muted-text ml-2">{{ Math.round(selected.coding.confidence * 100) }}% confidence</span>
               </p>
               <p class="font-semibold">
                 {{ suggestionTitle }}
               </p>
-              <p class="ch-prose mt-1 text-[var(--ch-color-body)]">
-                {{ selected.coding.rationale }}
-              </p>
+              <template v-if="selected.coding.rationale">
+                <button
+                  class="mt-1 text-[var(--ch-color-muted-foreground)] underline"
+                  type="button"
+                  :aria-expanded="whyOpen"
+                  @click="whyOpen = !whyOpen"
+                >
+                  Why?
+                </button>
+                <p v-if="whyOpen" class="ch-prose mt-1 text-[var(--ch-color-body)]">
+                  {{ selected.coding.rationale }}
+                </p>
+              </template>
             </template>
             <p v-else-if="!data?.llm_provider" class="ch-muted-text">
               No AI suggestion.
@@ -208,7 +221,7 @@ const changeEmpty = computed(() => changeIssues.value.length === 0)
               </button>
             </p>
             <p v-else class="ch-muted-text">
-              No AI suggestion. Use <strong>Get AI suggestions</strong> to propose types for unlabeled comments.
+              No AI suggestion. Use <strong>Label with AI</strong> to propose types for unlabeled comments.
             </p>
             <div class="mt-3 border-t border-[var(--ch-color-border)] pt-3">
               <p class="ch-muted-text mb-1.5">

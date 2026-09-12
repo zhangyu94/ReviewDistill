@@ -267,7 +267,7 @@ defineExpose({ show })
 
         <label class="ch-field-label">Provider</label>
         <Select :model-value="provider || undefined" @update:model-value="onProviderId">
-          <SelectTrigger class="mb-3 w-full" title="LLM provider for Get AI suggestions">
+          <SelectTrigger class="mb-3 w-full" title="LLM provider for Label with AI">
             <SelectValue placeholder="Choose an LLM provider…" />
           </SelectTrigger>
           <SelectContent>

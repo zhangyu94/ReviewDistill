@@ -186,7 +186,7 @@ def test_propose_is_one_event_and_undo_removes_suggestions(db, tmp_path):
     propose = [event for event in list_history()["events"] if event["event_type"] == "propose"]
     assert len(propose) == 1
     assert len(propose[0]["payload"]["created"]) == 2
-    assert propose[0]["summary"].startswith("Get AI suggestions")
+    assert propose[0]["summary"].startswith("Label with AI")
     undo()
     with get_session() as session:
         assert session.find(Coding) == []

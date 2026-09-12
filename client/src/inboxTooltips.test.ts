@@ -14,7 +14,7 @@ describe('inboxTooltips', () => {
 
   it('explains why Accept is disabled without an AI suggestion', () => {
     expect(acceptTooltip(false)).toMatch(/no AI suggestion/i)
-    expect(acceptTooltip(false)).toMatch(/Get AI suggestions/i)
+    expect(acceptTooltip(false)).toMatch(/Label with AI/i)
   })
 
   it('explains Change as assigning the selected issue type', () => {

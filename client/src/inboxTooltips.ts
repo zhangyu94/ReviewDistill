@@ -2,7 +2,7 @@ export function acceptTooltip(hasProposal: boolean): string {
   if (hasProposal) {
     return 'Apply the AI suggestion. If it proposed a new issue type, that type is added to the taxonomy and this comment becomes an example.'
   }
-  return 'No AI suggestion yet. Use Get AI suggestions first.'
+  return 'No AI suggestion yet. Use Label with AI first.'
 }
 
 export function changeTooltip(hasIssues: boolean): string {

@@ -1,6 +1,6 @@
 # LLM settings
 
-There is no default model. Until `llm.provider` is set, the Unlabeled inspector shows **No AI suggestion** and **Get AI suggestions** stays disabled. Mock proposals from older runs are ignored.
+There is no default model. Until `llm.provider` is set, the Unlabeled inspector shows **No AI suggestion** and **Label with AI** stays disabled. Mock proposals from older runs are ignored.
 
 Workbench **Settings** (header, next to Export) **Assistant** panel writes `llm.provider` / `llm.model` to the chosen paper’s `.reviewdistill/config.yaml` and the API key to that paper’s `.reviewdistill/.env` (gitignored). **Configure LLM** in the Unlabeled empty state opens the same dialog.
 
@@ -32,10 +32,10 @@ A process environment variable of the same name wins if both are set. Settings *
 
 Calls go through [LiteLLM](https://github.com/BerriAI/litellm).
 
-## Get AI suggestions
+## Label with AI
 
 The button sends every unlabeled working-set comment in one request. A paper’s `llm` block and `.env` are used even if you start `reviewdistill serve` from another directory, as long as **exactly one** registered paper has an LLM config. If two papers both have keys, set `llm` in `~/.reviewdistill/config.yaml` (or serve from the paper directory) so the workbench does not pick a key at random.
 
-External providers receive the comment, nearby manuscript context, and candidate issue summaries — not the rest of your disk. After **Get AI suggestions**, the workbench shows that warning.
+External providers receive the comment, nearby manuscript context, and candidate issue summaries — not the rest of your disk. After **Label with AI**, the workbench shows that warning.
 
 Key lookup order: process environment, then the paper’s `.reviewdistill/.env`.

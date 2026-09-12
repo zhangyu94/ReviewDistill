@@ -39,7 +39,7 @@ That puts the `reviewdistill` command on your `PATH`. In a paper repository:
 1. `reviewdistill init --name paper-01 --command myremark`
 2. Proofread with `\myremark{...}` (or the commands you passed to `init`). Define `\newcommand{\myremark}[1]{#1}` in the preamble if needed.
 3. `reviewdistill extract` (add `--watch` to keep extracting).
-4. `reviewdistill serve` → http://127.0.0.1:8765 — **Get AI suggestions**, then Accept / Change a type. **Verify** or **Drop** stamps quality.
+4. `reviewdistill serve` → http://127.0.0.1:8765 — **Label with AI**, then Accept / Change a type. **Verify** or **Drop** stamps quality.
 5. Repeat on the next paper; the taxonomy is reused.
 6. `reviewdistill export --format md -o review-rubric.md`
 7. Point a coding agent at that file.

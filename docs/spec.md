@@ -172,7 +172,7 @@ ReviewDistill identifies new comments and extracts:
 
 Step 4 — AI-assisted coding
 
-In `reviewdistill serve`, Unlabeled → **Get AI suggestions**.
+In `reviewdistill serve`, Unlabeled → **Label with AI**.
 
 Workbench **Settings** (header, next to Export) has two panels. **Assistant** writes `llm.provider` / `llm.model` to the chosen paper’s `.reviewdistill/config.yaml` and the matching API key to that paper’s `.reviewdistill/.env` (gitignored). **Data** shows the home folder (same as `reviewdistill paths`) and does not Save. Opening Settings always lands on Assistant. The Unlabeled empty state **Configure LLM** opens the same dialog. GET `/api/llm-settings` never returns the secret (`key_set` only). File editing still works. Process environment still wins over `.env`. Do not write `llm.api_key` into YAML; do not store keys in the JSONL store.
 
@@ -685,7 +685,7 @@ A claim is stronger than the evidence supports.
 
 History is a chronological log of taxonomy mutations and workbench verdicts (the `taxonomy_events` table). The History page lists each event with a short summary and the raw payload JSON. **Undo** and **Redo** invert or reapply the tip of the log. They mark the row undone (`undone` column) rather than appending a new event. A new forward action deletes the redo tail. Undo/Redo act on the tip, not on a selected row. Jump-to-event restore is out of scope.
 
-Get AI suggestions is one `propose` event for the batch. Accept of a newly created issue type is `add` then `accept`; Undo Accept first. Old `merge`/`split` rows without invert payload fields cannot be undone (Undo disabled while they are the tip).
+Label with AI is one `propose` event for the batch. Accept of a newly created issue type is `add` then `accept`; Undo Accept first. Old `merge`/`split` rows without invert payload fields cannot be undone (Undo disabled while they are the tip).
 
 | Type | When | Undo |
 |------|------|------|
@@ -696,7 +696,7 @@ Get AI suggestions is one `propose` event for the batch. Accept of a newly creat
 | `deactivate` | Deactivate (labeled comments return to Unlabeled) | Reactivate; restore labels |
 | `merge` | Merge (payload includes reassigned ids) | Reactivate sources; move rows back |
 | `split` | Split (payload includes deleted coding dumps) | Reactivate source; deactivate created types; restore codings |
-| `propose` | Get AI suggestions | Delete created proposed rows; restore any it replaced |
+| `propose` | Label with AI | Delete created proposed rows; restore any it replaced |
 | `accept` | Accept | Coding back to proposed; delete example if this accept created it |
 | `change` | Change | Delete human coding; restore proposal; delete example if created |
 | `verify` | Verify | Restore `previous_quality` |
@@ -1069,7 +1069,7 @@ The prototype is successful if the following workflow works end-to-end:
        reviewdistill extract
 5. ReviewDistill automatically finds the comments.
 6. It extracts manuscript context.
-7. In the workbench, Get AI suggestions.
+7. In the workbench, Label with AI.
 8. AI proposes codes using the accumulated taxonomy.
 9. The reviewer rapidly labels comments (Accept / Change) and stamps quality (Verify / Drop).
 10. The taxonomy accumulates examples and definitions.

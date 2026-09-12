@@ -17,11 +17,16 @@ const props = defineProps<{
   loading: boolean
   error?: string
   notice?: string
+  showLabelWithAi: boolean
+  labeling: boolean
+  canLabelWithAi: boolean
+  labelWithAiTitle: string
 }>()
 
 const emit = defineEmits<{
   'select': [id: string]
   'update:layout': [layout: CommentsLayout]
+  'labelWithAi': []
 }>()
 
 const pageIds = computed(() => {
@@ -48,12 +53,6 @@ function emptyCopy(mode: EntryMode): string {
   return 'No unlabeled observations.'
 }
 
-function pct(item: InboxItemJson): string | null {
-  const c = item.coding?.confidence
-  if (c == null) { return null }
-  return `${Math.round(c * 100)}%`
-}
-
 function toggleClass(active: boolean): string {
   return active ? 'ch-chip ch-chip-active' : 'ch-chip ch-chip-idle'
 }
@@ -61,7 +60,7 @@ function toggleClass(active: boolean): string {
 
 <template>
   <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-    <div class="flex h-9 shrink-0 items-center gap-1.5 border-b border-[var(--ch-color-border)] px-2 text-xs">
+    <div class="flex min-h-9 shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--ch-color-border)] px-2 py-1 text-xs">
       <span class="font-medium">Comments</span>
       <button
         :class="toggleClass(layout === 'list')"
@@ -87,7 +86,26 @@ function toggleClass(active: boolean): string {
           <rect width="10" height="12" x="3" y="2" stroke="currentColor" stroke-width="1.5" rx="1" />
         </svg>
       </button>
-      <span class="ch-muted-text ml-auto">{{ totalCount }} total · {{ selectedCount }} selected</span>
+      <span class="ml-auto inline-flex items-center gap-1.5">
+        <span v-if="showLabelWithAi" class="inline-flex" :title="labelWithAiTitle">
+          <button
+            class="ch-btn ch-btn-outline gap-1"
+            type="button"
+            :disabled="labeling || !canLabelWithAi"
+            @click="emit('labelWithAi')"
+          >
+            <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M8 1.2 8.9 5.1 12.8 6 8.9 6.9 8 10.8 7.1 6.9 3.2 6l3.9-.9z"
+              />
+              <path fill="currentColor" d="M12.2 9.4 12.7 11.4 14.7 11.9 12.7 12.4 12.2 14.4 11.7 12.4 9.7 11.9 11.7 11.4z" />
+            </svg>
+            {{ labeling ? 'Labeling…' : 'Label with AI' }}
+          </button>
+        </span>
+        <span class="ch-muted-text">{{ totalCount }} total · {{ selectedCount }} selected</span>
+      </span>
     </div>
     <div v-if="layout === 'list'" class="min-h-0 flex-1 overflow-auto">
       <p v-if="error" class="ch-error-text px-2 pt-2">
@@ -135,7 +153,6 @@ function toggleClass(active: boolean): string {
           <div class="ch-muted-text mt-0.5">
             {{ item.project_name }} · {{ item.comment.file_path }}:{{ item.comment.line_number }}
             <span v-if="!item.in_manuscript"> · not in manuscript</span>
-            <span v-if="mode === 'unlabeled' && pct(item)"> · {{ pct(item) }}</span>
           </div>
         </button>
         <p v-if="!loading && items.length === 0" class="ch-muted-text p-2">

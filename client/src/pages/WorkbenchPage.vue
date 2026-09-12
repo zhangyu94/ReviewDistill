@@ -65,7 +65,7 @@ async function invalidate(parts: InvalidateParts) {
   await store.invalidate(parts, groupId.value)
 }
 const notice = ref('')
-const coding = ref(false)
+const labeling = ref(false)
 const changeId = ref('')
 
 const lastTypeId = ref('')
@@ -183,11 +183,11 @@ const suggestionTitle = computed(() => {
   return match?.name ?? 'Existing issue type'
 })
 
-const canRequestSuggestions = computed(() =>
+const canLabelWithAi = computed(() =>
   Boolean(inbox.value?.llm_provider && inbox.value.pending_code_count),
 )
 
-function codeAllTitle(): string {
+function labelWithAiTitle(): string {
   if (!inbox.value?.llm_provider) { return 'Configure llm.provider and .reviewdistill/.env first' }
   if (!inbox.value.pending_code_count) { return 'No unlabeled comments need suggestions' }
   return 'Ask the LLM to propose issue types for every unlabeled comment'
@@ -226,9 +226,9 @@ function onSelectEntry(id: string) {
   selectComment(id)
 }
 
-async function codeAll() {
-  if (coding.value) { return }
-  coding.value = true
+async function labelWithAi() {
+  if (labeling.value) { return }
+  labeling.value = true
   error.value = ''
   notice.value = ''
   try {
@@ -240,7 +240,7 @@ async function codeAll() {
     error.value = err instanceof Error ? err.message : String(err)
   }
   finally {
-    coding.value = false
+    labeling.value = false
   }
 }
 
@@ -378,11 +378,6 @@ watch(groupId, () => { void loadIssue() })
       :type-label="typeChipLabel"
       :type-title="chipTypeName"
       :unlabeled-href="unlabeledHref(chipTypeId)"
-      :coding="coding"
-      :can-request-suggestions="canRequestSuggestions"
-      :code-all-title="codeAllTitle()"
-      :show-code-all="mode === 'unlabeled'"
-      @code-all="codeAll"
       @dismiss-type="onDismissType"
     />
     <div class="flex min-h-0 flex-1">
@@ -423,8 +418,13 @@ watch(groupId, () => { void loadIssue() })
           :loading="loading"
           :error="error"
           :notice="notice"
+          :show-label-with-ai="mode === 'unlabeled'"
+          :labeling="labeling"
+          :can-label-with-ai="canLabelWithAi"
+          :label-with-ai-title="labelWithAiTitle()"
           @select="onSelectEntry"
           @update:layout="onCommentsLayout"
+          @label-with-ai="labelWithAi"
         >
           <p v-if="error" class="ch-error-text mb-3">
             {{ error }}

@@ -8,14 +8,9 @@ defineProps<{
   typeLabel: string
   typeTitle: string
   unlabeledHref: string
-  coding: boolean
-  canRequestSuggestions: boolean
-  codeAllTitle: string
-  showCodeAll: boolean
 }>()
 
 const emit = defineEmits<{
-  codeAll: []
   dismissType: []
 }>()
 
@@ -48,14 +43,6 @@ function chipClass(active: boolean): string {
       >×</button>
     </span>
     <div class="ml-auto flex flex-wrap items-center gap-1.5">
-      <span v-if="showCodeAll" class="inline-flex" :title="codeAllTitle">
-        <button
-          class="ch-btn ch-btn-outline"
-          type="button"
-          :disabled="coding || !canRequestSuggestions"
-          @click="emit('codeAll')"
-        >{{ coding ? 'Suggesting…' : 'Get AI suggestions' }}</button>
-      </span>
       <RouterLink :class="chipClass(selector === 'unlabeled')" :to="unlabeledHref" title="Unlabeled comments, plus comments not in the manuscript that still need Verify or Drop">
         Unlabeled ({{ unlabeledCount }})
       </RouterLink>

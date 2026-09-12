@@ -2,7 +2,7 @@
 
 Undo/Redo mark ``undone`` on the tip instead of appending. A new forward
 action deletes the redo tail. Old merge/split rows without invert payload
-fields are not invertible. ``propose`` is one event per Get AI suggestions
+fields are not invertible. ``propose`` is one event per Label with AI
 batch. Accept of a new issue type is ``add`` then ``accept``; undo Accept first.
 """
 
@@ -106,7 +106,7 @@ def event_summary(event_type: str, payload: dict) -> str:
         return "Split issue type"
     if event_type == "propose":
         n = len(payload.get("created") or [])
-        return f"Get AI suggestions ({n})"
+        return f"Label with AI ({n})"
     if event_type == "accept":
         return "Accept label"
     if event_type == "change":
