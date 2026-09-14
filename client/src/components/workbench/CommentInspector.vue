@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { InboxItemJson, InboxResponse, TaxonomyNode } from '../../api/client.ts'
-import type { LocationRow } from '../../inboxLocation.ts'
+import { fileRevealAccessibleName, fileRevealLabel, type LocationRow } from '../../inboxLocation.ts'
 import { computed, ref, watch } from 'vue'
 import { assignSuggestion, shouldAssignOnSelect } from '../../workbench/assignType.ts'
 import { assignableIssueRows } from '../../workbench/taxonomyTree.ts'
@@ -29,6 +29,7 @@ const emit = defineEmits<{
   verify: []
   drop: []
   configureLlm: []
+  reveal: []
 }>()
 
 function onAssignId(value: unknown) {
@@ -227,6 +228,16 @@ watch(() => props.selected?.comment.id, () => {
                   target="_blank"
                   rel="noreferrer"
                 >{{ row.value }}</a>
+                <button
+                  v-else-if="row.reveal"
+                  class="ch-link cursor-pointer border-0 bg-transparent p-0 text-left"
+                  type="button"
+                  :title="fileRevealLabel()"
+                  :aria-label="fileRevealAccessibleName(row.value)"
+                  @click="emit('reveal')"
+                >
+                  <code>{{ row.value }}</code>
+                </button>
                 <code v-else-if="row.label === 'Command' || row.label === 'File'">{{ row.value }}</code>
                 <template v-else>
                   {{ row.value }}

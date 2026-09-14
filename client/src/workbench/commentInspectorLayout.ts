@@ -39,3 +39,11 @@ export function qualitySectionBetweenTypeAndLocation(headings: string[]): boolea
   }
   return typeIndexes.every((index) => index < quality) && quality < location
 }
+
+export function inspectorFileRevealUsesButton(source: string): boolean {
+  return source.includes('row.reveal')
+    && source.includes('type="button"')
+    && source.includes('fileRevealAccessibleName(row.value)')
+    && source.includes('emit(\'reveal\')')
+    && !source.includes('file://')
+}

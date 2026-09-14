@@ -41,6 +41,7 @@ function item(partial: Partial<InboxItemJson> & { id: string }): InboxItemJson {
     issue: null,
     coding: null,
     in_working_set: true,
+    local_file: false,
     ...rest,
   }
 }

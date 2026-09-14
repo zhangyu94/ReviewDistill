@@ -164,6 +164,37 @@ def _open_in_file_manager(path: Path) -> None:
         subprocess.Popen(["xdg-open", target])
 
 
+def reveal_in_file_manager(path: Path) -> None:
+    """Select ``path`` in the OS file manager.
+
+    Do not call ``_open_in_file_manager``: ``open`` / ``xdg-open`` on a ``.tex``
+    file launches the default editor instead of showing the file in Finder.
+    """
+    target = str(path)
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", target])
+        elif sys.platform == "win32":
+            subprocess.Popen(["explorer", "/select,", target])
+        else:
+            _reveal_linux(path)
+    except OSError as exc:
+        raise HomePathError("Could not show this file on this computer.") from exc
+
+
+def _reveal_linux(path: Path) -> None:
+    for args in (
+        ["nautilus", "--select", str(path)],
+        ["dolphin", "--select", str(path)],
+    ):
+        try:
+            subprocess.Popen(args)
+            return
+        except FileNotFoundError:
+            continue
+    subprocess.Popen(["xdg-open", str(path.parent)])
+
+
 def open_data_folder() -> Path:
     home = home_dir().expanduser().resolve()
     if home.exists() and not home.is_dir():

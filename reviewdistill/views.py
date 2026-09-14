@@ -21,6 +21,8 @@ from reviewdistill.db.session import get_session
 from reviewdistill.errors import NotFound
 from reviewdistill.gitinfo import context_permalink, sanitize_remote_url
 from reviewdistill.llm.base import get_provider
+from reviewdistill.manuscript import comment_source_file
+from reviewdistill.paths import reveal_in_file_manager
 from reviewdistill.taxonomy.operations import (
     accepted_counts_by_issue_type,
     get_issue_type,
@@ -65,15 +67,36 @@ def _project_name(project_id: str) -> str:
     return project.name if project is not None else project_id
 
 
-def _guess(comment: ProofreadingComment) -> str:
+def _source_file(comment: ProofreadingComment, project: Project | None) -> Path | None:
+    if project is None:
+        return None
+    return comment_source_file(project.root_path, comment.file_path)
+
+
+def _guess_from_source(comment: ProofreadingComment, source_path: Path | None) -> str:
+    text = source_path.read_text(errors="replace") if source_path is not None else None
+    return disappearance_guess(comment, source=text)
+
+
+def reveal_comment_file(comment_id: str) -> Path:
+    """Show the comment's ``.tex`` file in the OS file manager.
+
+    The path is resolved from the stored comment and project root. The client
+    sends only ``comment_id``; a ``file://`` href from the UI is blocked on
+    localhost.
+    """
     with get_session() as session:
+        comment = session.get(ProofreadingComment, comment_id)
+        if comment is None:
+            raise NotFound(f"Unknown comment {comment_id}")
         project = session.get(Project, comment.project_id)
-    source = None
-    if project is not None:
-        path = Path(project.root_path) / comment.file_path
-        if path.is_file():
-            source = path.read_text(errors="replace")
-    return disappearance_guess(comment, source=source)
+    if project is None:
+        raise NotFound("This file is not on this computer.")
+    path = comment_source_file(project.root_path, comment.file_path)
+    if path is None:
+        raise NotFound("This file is not on this computer.")
+    reveal_in_file_manager(path)
+    return path
 
 
 def comment_progress(comments: list, labeled_ids: set[str]) -> dict:
@@ -107,17 +130,18 @@ def comment_progress(comments: list, labeled_ids: set[str]) -> dict:
     }
 
 
-def _item_dict(comment, *, labeled: bool, issue, coding) -> dict:
+def _item_dict(comment, *, labeled: bool, issue, coding, project: Project | None) -> dict:
+    source = _source_file(comment, project)
     return {
         "comment": comment_json(comment),
-        "project_name": _project_name(comment.project_id),
+        "project_name": project.name if project is not None else comment.project_id,
         "permalink": context_permalink(
             comment.git_url,
             comment.git_commit,
             comment.file_path,
             comment.line_number,
         ),
-        "guess": _guess(comment) if not in_manuscript(comment) else None,
+        "guess": _guess_from_source(comment, source) if not in_manuscript(comment) else None,
         "in_manuscript": in_manuscript(comment),
         "labeled": labeled,
         "issue": (
@@ -131,6 +155,7 @@ def _item_dict(comment, *, labeled: bool, issue, coding) -> dict:
         ),
         "coding": _coding_json(coding),
         "in_working_set": in_working_set(comment),
+        "local_file": source is not None,
     }
 
 
@@ -142,6 +167,7 @@ def inbox_payload() -> dict:
     """
     with get_session() as session:
         unlabeled = inbox_items()
+        projects = {row.id: row for row in session.find(Project)}
         issues = [
             {"id": issue.id, "name": issue.name, "parent_id": issue.parent_id}
             for issue in list_active_issue_types()
@@ -152,6 +178,7 @@ def inbox_payload() -> dict:
                 labeled=item.labeled,
                 issue=item.issue,
                 coding=item.coding,
+                project=projects.get(item.comment.project_id),
             )
             for item in unlabeled
         ]
@@ -173,6 +200,7 @@ def inbox_payload() -> dict:
                     coding=_latest_proposed(
                         session, comment.id, provider_name=provider_name, skip_placeholders=True
                     ),
+                    project=projects.get(comment.project_id),
                 )
             )
         llm_name = None

@@ -47,7 +47,7 @@ from reviewdistill.taxonomy.operations import (
     remove_issue_type,
     rename_issue_type,
 )
-from reviewdistill.views import inbox_payload, issue_payload, taxonomy_payload
+from reviewdistill.views import inbox_payload, issue_payload, reveal_comment_file, taxonomy_payload
 
 router = APIRouter()
 
@@ -130,6 +130,22 @@ def post_verify(comment_id: str):
 @router.post("/inbox/{comment_id}/drop")
 def post_drop(comment_id: str):
     return _mutate(lambda: drop_comment(comment_id))
+
+
+@router.post("/inbox/{comment_id}/reveal")
+def post_reveal(comment_id: str):
+    """Select the comment's `.tex` file in the computer's file manager.
+
+    Body is empty. Do not accept a filesystem path; browsers also cannot use
+    ``file://`` from this UI.
+    """
+    try:
+        reveal_comment_file(comment_id)
+    except HomePathError as exc:
+        raise _paths_http(exc) from exc
+    except ValueError as exc:
+        raise _domain_http(exc, mutate=True) from exc
+    return {"ok": True}
 
 
 class RenameBody(BaseModel):

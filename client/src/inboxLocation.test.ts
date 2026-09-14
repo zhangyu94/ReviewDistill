@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inboxLocationRows, safeHttpHref } from './inboxLocation.ts'
+import { fileRevealAccessibleName, fileRevealLabel, inboxLocationRows, safeHttpHref } from './inboxLocation.ts'
 
 const base = {
   projectName: 'paper-01',
@@ -10,6 +10,7 @@ const base = {
   gitUrl: 'https://git@git.overleaf.com/aaaaaaaaaaaaaaaaaaaaaaaa',
   gitCommit: 'abc1234def456',
   gitHref: 'https://git@git.overleaf.com/aaaaaaaaaaaaaaaaaaaaaaaa',
+  localFile: false,
 }
 
 describe('inboxLocationRows', () => {
@@ -45,6 +46,26 @@ describe('inboxLocationRows', () => {
       gitHref: null,
     })
     expect(rows.map((row) => row.label)).toEqual(['Project', 'Command', 'File', 'Line'])
+  })
+
+  it('marks File as a reveal control only when the local file exists', () => {
+    const without = inboxLocationRows(base).find((row) => row.label === 'File')
+    expect(without?.href).toBeNull()
+    expect(without?.reveal).toBe(false)
+    const withFile = inboxLocationRows({ ...base, localFile: true }).find((row) => row.label === 'File')
+    expect(withFile?.href).toBeNull()
+    expect(withFile?.reveal).toBe(true)
+    expect(inboxLocationRows({ ...base, localFile: true }).find((row) => row.label === 'Remote')?.reveal).toBe(false)
+  })
+
+  it('names the reveal action without saying Finder or Explorer', () => {
+    expect(fileRevealLabel()).toBe('Show this file on this computer')
+  })
+
+  it('includes the file path in the reveal accessible name', () => {
+    expect(fileRevealAccessibleName('sections/intro.tex')).toBe(
+      'Show this file on this computer: sections/intro.tex',
+    )
   })
 })
 

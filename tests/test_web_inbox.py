@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -82,6 +83,10 @@ def test_inbox_lists_proposed_comments(db, tmp_path):
     assert body["items"][0]["in_manuscript"] is True
     assert body["items"][0]["comment"]["fingerprint"] == comment.fingerprint
     assert body["items"][0]["project_name"] == "paper-01"
+    assert body["items"][0]["local_file"] is True
+    assert "root_path" not in body["items"][0]
+    assert "file_url" not in body["items"][0]
+    assert body["working_items"][0]["local_file"] is True
     assert body["items"][0]["guess"] is None
     assert body["items"][0]["coding"]["kind"] == "existing"
     assert body["items"][0]["coding"]["confidence"] == 0.91
@@ -95,6 +100,17 @@ def test_inbox_lists_proposed_comments(db, tmp_path):
     assert "view" not in body
 
 
+def test_inbox_local_file_false_when_tex_missing(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Pull this.}\n")
+    extract_project(repo)
+    (repo / "main.tex").unlink()
+    body = TestClient(create_app()).get("/api/inbox").json()
+    assert body["items"][0]["local_file"] is False
+
+
 def test_inbox_working_items_include_labeled_working_set(db, tmp_path):
     issue = _seed(tmp_path)
     comment_id = inbox_items()[0].comment.id
@@ -105,6 +121,7 @@ def test_inbox_working_items_include_labeled_working_set(db, tmp_path):
     assert body["items"] == []
     assert {row["comment"]["id"] for row in body["working_items"]} == {comment_id}
     row = body["working_items"][0]
+    assert row["local_file"] is True
     assert row["labeled"] is True
     assert row["in_working_set"] is True
     assert row["issue"]["id"] == issue.id
@@ -233,6 +250,53 @@ def test_verify_unknown_comment_is_404(db):
     response = client.post("/api/inbox/missing/verify")
     assert response.status_code == 404
     assert "Unknown comment" in response.json()["detail"]
+
+
+def test_reveal_opens_resolved_tex_path(db, tmp_path, monkeypatch):
+    _seed(tmp_path)
+    comment = inbox_items()[0].comment
+    opened: list[Path] = []
+    monkeypatch.setattr(
+        "reviewdistill.views.reveal_in_file_manager",
+        lambda path: opened.append(path),
+    )
+    response = TestClient(create_app()).post(f"/api/inbox/{comment.id}/reveal")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert opened == [(tmp_path / "paper" / comment.file_path).resolve()]
+
+
+def test_reveal_unknown_comment_is_404(db):
+    response = TestClient(create_app()).post("/api/inbox/missing/reveal")
+    assert response.status_code == 404
+    assert "Unknown comment" in response.json()["detail"]
+
+
+def test_reveal_missing_file_is_404(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Pull this.}\n")
+    extract_project(repo)
+    (repo / "main.tex").unlink()
+    comment_id = inbox_items()[0].comment.id
+    response = TestClient(create_app()).post(f"/api/inbox/{comment_id}/reveal")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "This file is not on this computer."
+
+
+def test_reveal_file_manager_error_is_400(db, tmp_path, monkeypatch):
+    from reviewdistill.paths import HomePathError
+
+    _seed(tmp_path)
+    comment_id = inbox_items()[0].comment.id
+    monkeypatch.setattr(
+        "reviewdistill.views.reveal_in_file_manager",
+        lambda _path: (_ for _ in ()).throw(HomePathError("Could not show this file on this computer.")),
+    )
+    response = TestClient(create_app()).post(f"/api/inbox/{comment_id}/reveal")
+    assert response.status_code == 400
+    assert "Could not show this file" in response.json()["detail"]
 
 
 def test_drop_post_excludes_from_unlabeled(db, tmp_path):

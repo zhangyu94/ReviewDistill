@@ -43,6 +43,7 @@ export interface InboxItemJson {
   issue: IssueOption | null
   coding: CodingJson | null
   in_working_set: boolean
+  local_file: boolean
 }
 
 export interface CommentProgress {
@@ -106,6 +107,10 @@ export function fetchInbox(): Promise<InboxResponse> {
 
 export function postInbox(commentId: string, action: 'accept' | 'verify' | 'drop'): Promise<{ ok: true }> {
   return api(`/api/inbox/${commentId}/${action}`, { method: 'POST' })
+}
+
+export function revealInboxFile(commentId: string): Promise<{ ok: true }> {
+  return api(`/api/inbox/${commentId}/reveal`, { method: 'POST' })
 }
 
 export function postInboxCode(): Promise<{ ok: true, coded: number, failed: number, privacy_warning: string | null }> {

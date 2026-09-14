@@ -344,3 +344,82 @@ def test_choose_data_folder_returns_none_when_cancelled(tmp_path, monkeypatch):
         lambda _initial: None,
     )
     assert choose_data_folder() is None
+
+
+def test_reveal_in_file_manager_uses_open_r_on_macos(tmp_path, monkeypatch):
+    from reviewdistill.paths import reveal_in_file_manager
+
+    tex = tmp_path / "main.tex"
+    tex.write_text("%\n")
+    calls: list[list[str]] = []
+    monkeypatch.setattr("reviewdistill.paths.sys.platform", "darwin")
+    monkeypatch.setattr(
+        "reviewdistill.paths.subprocess.Popen",
+        lambda args, **_kwargs: calls.append(list(args)),
+    )
+    reveal_in_file_manager(tex)
+    assert calls == [["open", "-R", str(tex)]]
+
+
+def test_reveal_in_file_manager_uses_explorer_select_on_windows(tmp_path, monkeypatch):
+    from reviewdistill.paths import reveal_in_file_manager
+
+    tex = tmp_path / "main.tex"
+    tex.write_text("%\n")
+    calls: list[list[str]] = []
+    monkeypatch.setattr("reviewdistill.paths.sys.platform", "win32")
+    monkeypatch.setattr(
+        "reviewdistill.paths.subprocess.Popen",
+        lambda args, **_kwargs: calls.append(list(args)),
+    )
+    reveal_in_file_manager(tex)
+    assert calls == [["explorer", "/select,", str(tex)]]
+
+
+def test_reveal_in_file_manager_windows_keeps_spaced_path_as_own_argument(tmp_path, monkeypatch):
+    from reviewdistill.paths import reveal_in_file_manager
+
+    tex = tmp_path / "My Documents" / "main.tex"
+    tex.parent.mkdir()
+    tex.write_text("%\n")
+    calls: list[list[str]] = []
+    monkeypatch.setattr("reviewdistill.paths.sys.platform", "win32")
+    monkeypatch.setattr(
+        "reviewdistill.paths.subprocess.Popen",
+        lambda args, **_kwargs: calls.append(list(args)),
+    )
+    reveal_in_file_manager(tex)
+    assert calls == [["explorer", "/select,", str(tex)]]
+
+
+def test_reveal_in_file_manager_linux_falls_back_to_parent(tmp_path, monkeypatch):
+    from reviewdistill.paths import reveal_in_file_manager
+
+    tex = tmp_path / "main.tex"
+    tex.write_text("%\n")
+    calls: list[list[str]] = []
+
+    def popen(args, **_kwargs):
+        argv = list(args)
+        if argv[0] in {"nautilus", "dolphin"}:
+            raise FileNotFoundError
+        calls.append(argv)
+
+    monkeypatch.setattr("reviewdistill.paths.sys.platform", "linux")
+    monkeypatch.setattr("reviewdistill.paths.subprocess.Popen", popen)
+    reveal_in_file_manager(tex)
+    assert calls == [["xdg-open", str(tex.parent)]]
+
+
+def test_reveal_in_file_manager_oserror_is_home_path_error(tmp_path, monkeypatch):
+    from reviewdistill.paths import HomePathError, reveal_in_file_manager
+
+    tex = tmp_path / "main.tex"
+    tex.write_text("%\n")
+    monkeypatch.setattr("reviewdistill.paths.sys.platform", "darwin")
+    monkeypatch.setattr(
+        "reviewdistill.paths.subprocess.Popen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("nope")),
+    )
+    with pytest.raises(HomePathError, match="Could not show this file on this computer"):
+        reveal_in_file_manager(tex)

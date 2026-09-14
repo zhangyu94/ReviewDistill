@@ -16,6 +16,7 @@ import {
   postInbox,
   postInboxCode,
   removeIssue,
+  revealInboxFile,
   splitIssue,
   splitTaxonomy,
 } from '../api/client.ts'
@@ -81,6 +82,7 @@ async function invalidate(parts: InvalidateParts, issueId = groupId.value) {
   await store.invalidate(parts, issueId)
 }
 const labeling = ref(false)
+const revealing = ref(false)
 const notice = ref('')
 
 const commentsLayout = ref<CommentsLayout>('one')
@@ -164,6 +166,7 @@ const locationRows = computed(() => {
     gitUrl: item.comment.git_url,
     gitCommit: item.comment.git_commit,
     gitHref: gitHref(item),
+    localFile: item.local_file,
   })
 })
 
@@ -264,6 +267,22 @@ async function act(action: 'accept' | 'verify' | 'drop') {
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function revealFile() {
+  const current = inspectorItem.value
+  if (!current || revealing.value) { return }
+  revealing.value = true
+  error.value = ''
+  try {
+    await revealInboxFile(current.comment.id)
+  }
+  catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+  finally {
+    revealing.value = false
   }
 }
 
@@ -493,6 +512,7 @@ watch(
             @assign="change"
             @verify="act('verify')"
             @drop="act('drop')"
+            @reveal="revealFile"
             @configure-llm="openSettings"
           />
           <p v-else-if="!loading" class="ch-muted-text p-2">

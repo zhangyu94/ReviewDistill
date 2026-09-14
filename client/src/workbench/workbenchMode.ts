@@ -28,6 +28,7 @@ export function inboxItemFromObservation(row: TaxonomyCommentJson, issue: IssueO
     issue: accepted ?? issue,
     coding: null,
     in_working_set: comment.status === 'active',
+    local_file: false,
   }
 }
 
