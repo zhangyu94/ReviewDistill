@@ -108,8 +108,7 @@ class IssueType(SQLModel):
     parent_id: str | None = None  # null = root; must be active when this row is active
     position: int = 0  # sibling order; compacted to 0..n-1
     definition: str
-    notes: str | None = None
-    detection_guidance: str | None = None
+    detection_guidance: str | None = None  # retrieval only; not shown in Issue Details
     status: str = "active"
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

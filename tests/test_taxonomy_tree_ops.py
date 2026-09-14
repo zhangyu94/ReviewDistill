@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from reviewdistill.db.models import (
@@ -6,19 +8,22 @@ from reviewdistill.db.models import (
     Coding,
     IssueType,
     ProofreadingComment,
+    TaxonomyEvent,
 )
 from reviewdistill.db.session import get_session
+from reviewdistill.coding.split import SplitPlan
 from reviewdistill.errors import BadInput, NotFound
 from reviewdistill.taxonomy.operations import (
+    apply_split,
     create_empty_issue_type,
     create_issue_type,
     deactivate_issue_type,
     flatten_issue_type,
+    list_active_issue_types,
     merge_issue_types,
     move_issue_type,
     remove_issue_type,
     rename_issue_type,
-    split_issue_type,
 )
 
 
@@ -27,6 +32,38 @@ def test_create_empty_root(db):
     assert issue.name == "New type"
     assert issue.parent_id is None
     assert issue.definition == ""
+    assert [row.name for row in list_active_issue_types()] == ["New type"]
+
+
+def test_first_child_adds_ungrouped_and_moves_parent_labels(db):
+    parent = create_issue_type(name="Parent", definition="")
+    with get_session() as session:
+        session.add(ProofreadingComment(
+            id="c1", project_id="p", source_type="latex_command", source_command="myremark",
+            file_path="main.tex", line_number=1, raw_text="too strong", fingerprint="fp",
+            status="active", quality="unreviewed",
+        ))
+        session.add(Coding(
+            id="k1", comment_id="c1", issue_type_id=parent.id, coder_type="human",
+            status=CODING_ACCEPTED,
+        ))
+        session.commit()
+    created = create_empty_issue_type(parent_id=parent.id)
+    kids = [row for row in list_active_issue_types() if row.parent_id == parent.id]
+    kids.sort(key=lambda row: row.position)
+    assert [row.name for row in kids] == ["New type", "ungrouped"]
+    assert created.id == kids[0].id
+    ungrouped = kids[1]
+    with get_session() as session:
+        assert session.get(Coding, "k1").issue_type_id == ungrouped.id
+        events = session.find(TaxonomyEvent)
+        adds = [row for row in events if row.event_type == "add"]
+        assert len(adds) == 2
+        payload = next(
+            json.loads(row.payload_json) for row in adds if "ungrouped_id" in json.loads(row.payload_json)
+        )
+        assert payload["issue_type_id"] == created.id
+        assert payload["ungrouped_id"] == ungrouped.id
 
 
 def test_create_empty_child_appends(db):
@@ -35,7 +72,10 @@ def test_create_empty_child_appends(db):
     second = create_empty_issue_type(parent_id=parent.id)
     assert second.name == "New type (2)"
     assert second.parent_id == parent.id
-    assert second.position == 1
+    kids = [row for row in list_active_issue_types() if row.parent_id == parent.id]
+    names = [row.name for row in sorted(kids, key=lambda row: row.position)]
+    assert names == ["New type", "ungrouped", "New type (2)"]
+    assert second.position == 2
 
 
 def test_create_empty_uniquifies_new_type_name(db):
@@ -143,10 +183,18 @@ def test_split_refuses_type_with_children(db):
     parent = create_issue_type(name="Parent", definition="")
     create_issue_type(name="Child", definition="", parent_id=parent.id)
     with pytest.raises(BadInput):
-        split_issue_type(
-            parent.id,
-            left={"name": "Left", "definition": "l"},
-            right={"name": "Right", "definition": "r"},
+        apply_split(
+            source_id=parent.id,
+            plan=SplitPlan(
+                types=[
+                    {"name": "Left", "definition": "l"},
+                    {"name": "Right", "definition": "r"},
+                ],
+                assignments=[
+                    {"comment_id": "c1", "type_index": 0},
+                    {"comment_id": "c2", "type_index": 1},
+                ],
+            ),
         )
     with get_session() as session:
         assert session.get(IssueType, parent.id).status == "active"
@@ -215,10 +263,18 @@ def test_inactive_type_mutations_are_not_found(db):
     with pytest.raises(NotFound):
         flatten_issue_type(issue.id)
     with pytest.raises(NotFound):
-        split_issue_type(
-            issue.id,
-            left={"name": "Left", "definition": "l"},
-            right={"name": "Right", "definition": "r"},
+        apply_split(
+            source_id=issue.id,
+            plan=SplitPlan(
+                types=[
+                    {"name": "Left", "definition": "l"},
+                    {"name": "Right", "definition": "r"},
+                ],
+                assignments=[
+                    {"comment_id": "c1", "type_index": 0},
+                    {"comment_id": "c2", "type_index": 1},
+                ],
+            ),
         )
     with pytest.raises(NotFound):
         remove_issue_type(issue.id)
@@ -240,3 +296,65 @@ def test_merge_inactive_types_are_not_found(db):
     deactivate_issue_type(other.id)
     with pytest.raises(NotFound):
         merge_issue_types(source_ids=[other.id], target_id=source.id)
+
+
+def test_move_under_labeled_leaf_parks_labels_on_ungrouped(db):
+    parent = create_issue_type(name="Parent", definition="")
+    child = create_issue_type(name="Child", definition="")
+    with get_session() as session:
+        session.add(ProofreadingComment(
+            id="c1", project_id="p", source_type="latex_command", source_command="myremark",
+            file_path="main.tex", line_number=1, raw_text="too strong", fingerprint="fp",
+            status="active", quality="unreviewed",
+        ))
+        session.add(Coding(
+            id="k1", comment_id="c1", issue_type_id=parent.id, coder_type="human",
+            status=CODING_ACCEPTED,
+        ))
+        session.commit()
+    move_issue_type(child.id, parent_id=parent.id, position=0)
+    kids = [row for row in list_active_issue_types() if row.parent_id == parent.id]
+    kids.sort(key=lambda row: row.position)
+    ungrouped = next(row for row in kids if row.name == "ungrouped")
+    assert {row.name for row in kids} == {"Child", "ungrouped"}
+    with get_session() as session:
+        assert session.get(Coding, "k1").issue_type_id == ungrouped.id
+        moves = [row for row in session.find(TaxonomyEvent) if row.event_type == "move"]
+        payload = json.loads(moves[-1].payload_json)
+        assert payload["ungrouped_id"] == ungrouped.id
+
+
+def test_merge_parent_into_labeled_leaf_parks_labels_on_ungrouped(db):
+    target = create_issue_type(name="Target", definition="t")
+    source = create_issue_type(name="Source", definition="s")
+    kid = create_issue_type(name="Kid", definition="k", parent_id=source.id)
+    with get_session() as session:
+        session.add(ProofreadingComment(
+            id="c-tgt", project_id="p", source_type="latex_command", source_command="myremark",
+            file_path="main.tex", line_number=1, raw_text="on target", fingerprint="fp-tgt",
+            status="active", quality="unreviewed",
+        ))
+        session.add(Coding(
+            id="k-tgt", comment_id="c-tgt", issue_type_id=target.id, coder_type="human",
+            status=CODING_ACCEPTED,
+        ))
+        session.add(ProofreadingComment(
+            id="c-src", project_id="p", source_type="latex_command", source_command="myremark",
+            file_path="main.tex", line_number=2, raw_text="on source", fingerprint="fp-src",
+            status="active", quality="unreviewed",
+        ))
+        session.add(Coding(
+            id="k-src", comment_id="c-src", issue_type_id=source.id, coder_type="human",
+            status=CODING_ACCEPTED,
+        ))
+        session.commit()
+    merge_issue_types(source_ids=[source.id], target_id=target.id)
+    kids = [row for row in list_active_issue_types() if row.parent_id == target.id]
+    ungrouped = next(row for row in kids if row.name == "ungrouped")
+    with get_session() as session:
+        assert session.get(IssueType, kid.id).parent_id == target.id
+        assert session.get(Coding, "k-tgt").issue_type_id == ungrouped.id
+        assert session.get(Coding, "k-src").issue_type_id == ungrouped.id
+        merges = [row for row in session.find(TaxonomyEvent) if row.event_type == "merge"]
+        payload = json.loads(merges[-1].payload_json)
+        assert payload["ungrouped_id"] == ungrouped.id

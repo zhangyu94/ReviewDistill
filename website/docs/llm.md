@@ -36,6 +36,8 @@ Calls go through [LiteLLM](https://github.com/BerriAI/litellm).
 
 The button sends every unlabeled comment to distill in one request. A thin progress bar at the top of the window runs until that request and the UI refresh finish. Label with AI is store-wide: the assistant is the home folder’s `llm` block and `.env`, not a paper.
 
-External providers receive the comment, nearby manuscript context, and candidate issue summaries — not the rest of your disk. After **Label with AI**, the UI shows that warning.
+Taxonomy **fork** (header on an empty forest, or hover on a leaf with at least two labels) uses the same provider in one prompt. Invalid JSON writes nothing. Header fork includes unlabeled comments that already have a proposal; Label with AI skips those.
+
+External providers receive the comment, nearby manuscript context, and candidate issue summaries — not the rest of your disk. The CLI prints that warning; the UI does not.
 
 Lookup: process environment `REVIEWDISTILL_LLM_PROVIDER` / `REVIEWDISTILL_LLM_MODEL` if set, else home `config.yaml`. Key: process environment for that provider, then the home folder’s `.env`. Settings shows the home files, not those process-env overrides.

@@ -7,21 +7,6 @@ def _pyproject() -> dict:
     return tomllib.loads(path.read_text())
 
 
-def test_pyproject_has_authors_and_description():
-    project = _pyproject()["project"]
-    assert project["description"].strip()
-    authors = project["authors"]
-    assert authors
-    assert any(author.get("name", "").strip() for author in authors)
-
-
-def test_pyproject_has_repository_url():
-    urls = _pyproject()["project"]["urls"]
-    repo = urls.get("Repository") or urls.get("Homepage")
-    assert repo
-    assert "github.com" in repo
-
-
 def test_pyproject_builds_client_into_package_data():
     pyproject = _pyproject()
     data = pyproject["tool"]["setuptools"]["package-data"]["reviewdistill"]

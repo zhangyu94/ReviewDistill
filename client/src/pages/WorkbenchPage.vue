@@ -16,6 +16,8 @@ import {
   postInbox,
   postInboxCode,
   removeIssue,
+  splitIssue,
+  splitTaxonomy,
 } from '../api/client.ts'
 import CommentInspector from '../components/workbench/CommentInspector.vue'
 import EntriesPanel from '../components/workbench/EntriesPanel.vue'
@@ -24,6 +26,7 @@ import IssueInspector from '../components/workbench/IssueInspector.vue'
 import ProgressBar from '../components/workbench/ProgressBar.vue'
 import SelectorsBar from '../components/workbench/SelectorsBar.vue'
 import { inboxLocationRows, safeHttpHref } from '../inboxLocation.ts'
+import { privacyNoticeText } from '../llmSettings.ts'
 import { selectedIdAfterAction } from '../select.ts'
 import {
   applyCommentSelectors,
@@ -36,15 +39,16 @@ import {
 } from '../workbench/commentSelectors.ts'
 import { splitContextText } from '../workbench/contextParts.ts'
 import { dropAction } from '../workbench/dropAction.ts'
+import { afterSplitHref, canHeaderSplitFromState } from '../workbench/splitControls.ts'
 import { descendantIds, findNode, moveBody } from '../workbench/taxonomyTree.ts'
 import {
   afterMergeNavigation,
+  afterTypeTreeChangeParts,
   allowChangeDrop,
-  groupIdFromRoute,
   issueIdAfterLeave,
   labeledTypeIdForComment,
+  selectGroupHref,
   typeRouteAfterRemove,
-  typeSelectorLabel,
 } from '../workbench/workbenchMode.ts'
 import { useWorkbenchStore } from '../workbench/workbenchStore.ts'
 
@@ -55,7 +59,7 @@ function queryStr(value: unknown): string {
 const route = useRoute()
 const router = useRouter()
 const paramsIssueId = computed(() => (typeof route.params.id === 'string' ? route.params.id : ''))
-const detailsId = computed(() => groupIdFromRoute(paramsIssueId.value))
+const detailsId = paramsIssueId
 const groupId = detailsId
 const unlabeledOn = computed(() => parseUnlabeledQuery(route.query.unlabeled))
 const typeOn = computed(() => typeChipVisible(detailsId.value, route.query.typechip))
@@ -76,8 +80,8 @@ async function loadAll() {
 async function invalidate(parts: InvalidateParts, issueId = groupId.value) {
   await store.invalidate(parts, issueId)
 }
-const notice = ref('')
 const labeling = ref(false)
+const notice = ref('')
 
 const commentsLayout = ref<CommentsLayout>('one')
 
@@ -90,7 +94,7 @@ const selectedCount = computed(() => typeRow(groupId.value)?.count ?? 0)
 const typeChipLabel = computed(() => {
   const name = typeRow(detailsId.value)?.name ?? issue.value?.name ?? ''
   if (!name) { return '' }
-  return typeSelectorLabel(name, typeRow(detailsId.value)?.count ?? selectedCount.value)
+  return `${name} (${typeRow(detailsId.value)?.count ?? selectedCount.value})`
 })
 const typeChipTitle = computed(() => typeRow(detailsId.value)?.name ?? issue.value?.name ?? '')
 
@@ -129,6 +133,7 @@ const inspectorView = computed(() => {
 })
 
 const commentTotal = computed(() => matchedItems.value.length)
+const toDistillCount = computed(() => inbox.value?.progress.working_set ?? 0)
 
 const emptyCopy = computed(() => commentsEmptyCopy({
   unlabeled: unlabeledOn.value,
@@ -168,6 +173,12 @@ const canLabelWithAi = computed(() =>
   Boolean(inbox.value?.llm_provider && inbox.value.pending_code_count),
 )
 
+const headerSplitEnabled = computed(() => canHeaderSplitFromState({
+  forest: taxonomy.value?.forest,
+  unlabeledWorkingCount: inbox.value?.progress.unlabeled ?? 0,
+  llmConfigured: Boolean(inbox.value?.llm_provider),
+}))
+
 function labelWithAiTitle(): string {
   if (!inbox.value?.llm_provider) { return 'Configure the assistant in Settings first' }
   if (!inbox.value.pending_code_count) { return 'No unlabeled comments need suggestions' }
@@ -180,10 +191,7 @@ function selectComment(id: string) {
 
 function onSelectGroup(id: string) {
   if (!id) { return }
-  void router.push(workbenchHref(id, {
-    unlabeled: unlabeledOn.value,
-    typeChipOff: false,
-  }))
+  void router.push(selectGroupHref(id, unlabeledOn.value))
 }
 
 function onSelectEntry(id: string) {
@@ -192,7 +200,7 @@ function onSelectEntry(id: string) {
 
 const runLabelWithAi = withProgressBar(async () => {
   const result = await postInboxCode()
-  if (result.privacy_warning) { notice.value = result.privacy_warning }
+  notice.value = privacyNoticeText(result.privacy_warning)
   await invalidate({ inbox: true, taxonomy: true })
 })
 
@@ -203,6 +211,29 @@ async function labelWithAi() {
   notice.value = ''
   try {
     await runLabelWithAi()
+  }
+  catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+  finally {
+    labeling.value = false
+  }
+}
+
+const runSplit = withProgressBar(async (id: string | null) => {
+  const result = id ? await splitIssue(id) : await splitTaxonomy()
+  notice.value = privacyNoticeText(result.privacy_warning)
+  await invalidate({ inbox: true, taxonomy: true, issue: true })
+  await router.push(afterSplitHref(id))
+})
+
+async function onSplitType(id: string | null) {
+  if (labeling.value) { return }
+  labeling.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    await runSplit(id)
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -292,7 +323,7 @@ async function onDrop(payload: DragPayload, target: DropTarget) {
       const body = moveBody(taxonomy.value?.forest ?? [], action.issueTypeId, action.targetId, action.placement)
       if (!body) { return }
       await moveIssue(action.issueTypeId, body.parent_id, body.position)
-      await invalidate({ taxonomy: true, issue: true })
+      await invalidate(afterTypeTreeChangeParts())
     }
   }
   catch (err) {
@@ -304,11 +335,8 @@ async function onCreateType(parentId: string | null) {
   error.value = ''
   try {
     const created = await createIssue(parentId)
-    await invalidate({ taxonomy: true, issue: true })
-    await router.push(workbenchHref(created.id, {
-      unlabeled: unlabeledOn.value,
-      typeChipOff: false,
-    }))
+    await invalidate(afterTypeTreeChangeParts())
+    await router.push(selectGroupHref(created.id, unlabeledOn.value))
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -349,15 +377,6 @@ async function onRemoveType(id: string) {
 async function onIssueUpdated() {
   error.value = ''
   await invalidate({ taxonomy: true, issue: true })
-}
-
-async function onIssueRemoved() {
-  error.value = ''
-  await invalidate({ taxonomy: true })
-  await router.replace(workbenchHref('', {
-    unlabeled: unlabeledOn.value,
-    typeChipOff: false,
-  }))
 }
 
 function onCommentsLayout(layout: CommentsLayout) {
@@ -409,44 +428,40 @@ watch(
         dismissHref: workbenchHref(detailsId, { unlabeled: unlabeledOn, typeChipOff: true, commentId: selectedCommentId }),
       } : null"
     />
-    <!-- Issues ~38rem | Comments flex-1. Selectors and Progress stay full-width. -->
+    <!-- Issues (taxonomy over details) | Comments share the row equally. Selectors and Progress stay full-width. -->
     <div class="flex min-h-0 flex-1 gap-2 p-2">
-      <div class="flex min-h-0 min-w-0 w-[38rem] max-w-[38rem] shrink overflow-hidden rounded-[var(--ch-radius)] border border-[var(--ch-color-border)] bg-[var(--ch-color-background)]">
+      <div class="ch-workbench-card flex-col">
         <GroupsPanel
           :list="taxonomy"
           :selected-id="groupId"
+          :header-split-enabled="headerSplitEnabled"
+          :llm-configured="Boolean(inbox?.llm_provider)"
+          :splitting="labeling"
           @select="onSelectGroup"
           @drop="onDrop"
           @create="onCreateType"
           @flatten="onFlattenType"
           @remove="onRemoveType"
+          @split="onSplitType"
         />
-        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div class="flex h-9 shrink-0 items-center border-b border-[var(--ch-color-border)] px-2">
-            <span class="text-xs font-medium">Issue Details</span>
-          </div>
-          <div class="min-h-0 flex-1 overflow-auto p-3 text-xs leading-5">
-            <p v-if="error" class="ch-error-text mb-3">
-              {{ error }}
-            </p>
-            <IssueInspector
-              :issue="issue"
-              :selected-id="groupId"
-              :missing="missing"
-              :has-children="Boolean(findNode(taxonomy?.forest ?? [], groupId)?.children.length)"
-              @updated="onIssueUpdated"
-              @removed="onIssueRemoved"
-              @failed="error = $event"
-            />
-          </div>
-        </div>
+        <IssueInspector
+          :issue="issue"
+          :selected-id="groupId"
+          :missing="missing"
+          :error="error"
+          @updated="onIssueUpdated"
+        />
       </div>
-      <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--ch-radius)] border border-[var(--ch-color-border)] bg-[var(--ch-color-background)]">
+      <div class="ch-workbench-card flex-col">
         <EntriesPanel
           :layout="commentsLayout"
           :items="matchedItems"
           :selected-id="listSelectedId"
+          :forest="taxonomy?.forest ?? []"
           :total-count="commentTotal"
+          :to-distill-count="toDistillCount"
+          :unlabeled="unlabeledOn"
+          :type-on="typeOn"
           :loading="loading"
           :empty-copy="emptyCopy"
           :error="error"
@@ -471,7 +486,6 @@ watch(
             :selected="inspectorItem"
             :data="inbox"
             error=""
-            notice=""
             :location-rows="locationRows"
             :context-parts="contextParts"
             :forest="taxonomy?.forest ?? []"
@@ -481,7 +495,7 @@ watch(
             @drop="act('drop')"
             @configure-llm="openSettings"
           />
-          <p v-else-if="!loading" class="ch-muted-text">
+          <p v-else-if="!loading" class="ch-muted-text p-2">
             {{ emptyCopy }}
           </p>
         </EntriesPanel>

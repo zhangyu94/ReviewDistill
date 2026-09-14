@@ -29,19 +29,19 @@ Proofread as usual. ReviewDistill watches the comments, not a separate review fi
 5. Open the UI:
 
    ```bash
-   reviewdistill serve
+   reviewdistill ui
    ```
 
    Then open http://127.0.0.1:8765. Configure an LLM in **Settings** if you want suggestions. Use **Label with AI** on unlabeled comments, then Accept a suggestion or pick a type in the menu. **Verify** or **Drop** stamps quality; there is no Reject.
 
 6. Repeat on the next paper. The taxonomy (Settings → **Data**, or `reviewdistill paths`) is reused.
 
-7. Export a rubric:
+7. Export a review skill:
 
    ```bash
-   reviewdistill export --format md -o review-rubric.md
+   reviewdistill export --format md -o SKILL.md
    ```
 
-8. Point a coding agent at that file.
+8. Put `SKILL.md` in `.cursor/skills/scholarly-review/` (or the equivalent for another coding agent).
 
 Details for the UI: [UI](./ui.md). LLM keys: [LLM settings](./llm.md). Export formats: [Export](./export.md).

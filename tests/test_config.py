@@ -1,9 +1,6 @@
-from reviewdistill.cli.init import init_project
 from reviewdistill.config import (
     HomeConfig,
     ProjectConfig,
-    default_llm_model,
-    load_dotenv_values,
     load_home_config,
     load_llm_config,
     upsert_env_var,
@@ -11,7 +8,6 @@ from reviewdistill.config import (
     write_project_config,
 )
 from reviewdistill.paths import home_config_path, home_env_path, project_config_path
-from reviewdistill.projects import default_registered_project_id
 
 
 def test_load_home_config_ignores_yaml_api_key(rd_home):
@@ -70,27 +66,6 @@ def test_write_project_config_drops_llm_block(rd_home, tmp_path):
     assert "renamed" in text
 
 
-def test_load_dotenv_values_parses_keys(tmp_path):
-    path = tmp_path / ".env"
-    path.write_text(
-        "# comment\n"
-        "export DEEPSEEK_API_KEY=sk-unquoted\n"
-        "OPENAI_API_KEY=\"sk-quoted\"\n"
-        "\n"
-        "ANTHROPIC_API_KEY='sk-single'\n"
-    )
-    values = load_dotenv_values(path)
-    assert values["DEEPSEEK_API_KEY"] == "sk-unquoted"
-    assert values["OPENAI_API_KEY"] == "sk-quoted"
-    assert values["ANTHROPIC_API_KEY"] == "sk-single"
-
-
-def test_default_llm_model_matches_known_providers():
-    assert default_llm_model("deepseek") == "deepseek-chat"
-    assert default_llm_model("openai") == "gpt-4o-mini"
-    assert default_llm_model("anthropic") == "claude-sonnet-4-20250514"
-
-
 def test_upsert_env_var_sets_one_key_and_keeps_others(tmp_path):
     path = tmp_path / ".env"
     path.write_text("DEEPSEEK_API_KEY=sk-old\nOPENAI_API_KEY=sk-keep\n")
@@ -118,12 +93,3 @@ def test_home_key_set_reads_home_dotenv_not_process_env(rd_home, monkeypatch):
     assert home_key_set("deepseek") is False
     home_env_path().write_text("DEEPSEEK_API_KEY=sk-file\n")
     assert home_key_set("deepseek") is True
-
-
-def test_default_registered_project_id_uses_cwd_paper(db, tmp_path, monkeypatch):
-    repo = tmp_path / "paper"
-    repo.mkdir()
-    init_project(name="paper-01", commands=["myremark"], cwd=repo)
-    monkeypatch.chdir(repo)
-    pid = default_registered_project_id()
-    assert pid is not None

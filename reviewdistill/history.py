@@ -32,6 +32,7 @@ from reviewdistill.db.models import (
 )
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.errors import BadInput
+from reviewdistill.history_details import build_lookup, event_details
 from reviewdistill.taxonomy.tree import next_unique_name
 
 INVERTIBLE = frozenset(
@@ -146,6 +147,12 @@ def event_summary(event_type: str, payload: dict) -> str:
     if event_type == "merge":
         return "Merge issue types"
     if event_type == "split":
+        n = len(payload.get("created_ids") or [])
+        if payload.get("keep_source"):
+            source_name = payload.get("source_name")
+            if source_name:
+                return f"Split {source_name} into {n} types"
+            return f"Split unlabeled comments into {n} types"
         return "Split issue type"
     if event_type == "propose":
         n = len(payload.get("created") or [])
@@ -168,6 +175,8 @@ def can_invert(event: TaxonomyEvent) -> bool:
     if event.event_type == "merge":
         return "reassigned_codings" in payload
     if event.event_type == "split":
+        if payload.get("keep_source"):
+            return "created" in payload
         return "deleted_codings" in payload
     if event.event_type == "propose":
         return "created" in payload
@@ -184,19 +193,22 @@ def list_history() -> dict:
     init_db()
     with get_session() as session:
         rows = session.find(TaxonomyEvent, order_by="created_at", reverse=True)
-    events = []
-    for event in rows:
-        payload = json.loads(event.payload_json)
-        events.append(
-            {
-                "id": event.id,
-                "event_type": event.event_type,
-                "created_at": event.created_at.isoformat() if event.created_at else None,
-                "payload": payload,
-                "undone": bool(event.undone),
-                "summary": event_summary(event.event_type, payload),
-            }
-        )
+        parsed = [(event, json.loads(event.payload_json)) for event in rows]
+        lookup = build_lookup(session, [(event.event_type, payload) for event, payload in parsed])
+        events = []
+        for event, payload in parsed:
+            summary = event_summary(event.event_type, payload)
+            events.append(
+                {
+                    "id": event.id,
+                    "event_type": event.event_type,
+                    "created_at": event.created_at.isoformat() if event.created_at else None,
+                    "payload": payload,
+                    "undone": bool(event.undone),
+                    "summary": summary,
+                    "details": event_details(event.event_type, payload, lookup, summary=summary),
+                }
+            )
     applied = [event for event in reversed(rows) if not event.undone]
     undone = [event for event in rows if event.undone]
     can_undo = bool(applied) and can_invert(applied[-1])
@@ -269,7 +281,7 @@ def _invert_edit(session, payload: dict) -> None:
     issue = session.get(IssueType, payload["issue_type_id"])
     before = payload["before"]
     issue.definition = before["definition"]
-    issue.notes = before.get("notes")
+    # Ignore leftover notes keys on old edit payloads.
     issue.detection_guidance = before.get("detection_guidance")
     issue.updated_at = utcnow()
     session.add(issue)
@@ -279,22 +291,54 @@ def _apply_edit(session, payload: dict) -> None:
     issue = session.get(IssueType, payload["issue_type_id"])
     after = payload["after"]
     issue.definition = after["definition"]
-    issue.notes = after.get("notes")
     issue.detection_guidance = after.get("detection_guidance")
     issue.updated_at = utcnow()
     session.add(issue)
+
+
+def _deactivate_parked_ungrouped(session, payload: dict) -> None:
+    ungrouped_id = payload.get("ungrouped_id")
+    if not ungrouped_id:
+        return
+    extra = session.get(IssueType, ungrouped_id)
+    if extra is None:
+        return
+    extra.status = ISSUE_INACTIVE
+    extra.updated_at = utcnow()
+    session.add(extra)
+    _compact(session, extra.parent_id)
+
+
+def _reactivate_parked_ungrouped(session, payload: dict) -> None:
+    ungrouped_id = payload.get("ungrouped_id")
+    if not ungrouped_id:
+        return
+    extra = session.get(IssueType, ungrouped_id)
+    if extra is None:
+        return
+    extra.status = ISSUE_ACTIVE
+    extra.updated_at = utcnow()
+    session.add(extra)
+    _place(session, extra, extra.parent_id, extra.position)
 
 
 def _invert_move(session, payload: dict) -> None:
     issue = session.get(IssueType, payload["issue_type_id"])
     _place(session, issue, payload["from_parent_id"], payload["from_position"])
     issue.updated_at = utcnow()
+    if payload.get("ungrouped_id"):
+        _deactivate_parked_ungrouped(session, payload)
+        _restore_reassigned(session, payload)
 
 
 def _apply_move(session, payload: dict) -> None:
     issue = session.get(IssueType, payload["issue_type_id"])
     _place(session, issue, payload["to_parent_id"], payload["to_position"])
     issue.updated_at = utcnow()
+    ungrouped_id = payload.get("ungrouped_id")
+    if ungrouped_id:
+        _reactivate_parked_ungrouped(session, payload)
+        _apply_reassigned(session, payload, ungrouped_id)
 
 
 def _invert_add(session, payload: dict) -> None:
@@ -303,6 +347,10 @@ def _invert_add(session, payload: dict) -> None:
     issue.status = ISSUE_INACTIVE
     issue.updated_at = utcnow()
     session.add(issue)
+    ungrouped_id = payload.get("ungrouped_id")
+    if ungrouped_id:
+        _deactivate_parked_ungrouped(session, payload)
+        _restore_reassigned(session, payload)
     _compact(session, parent_id)
 
 
@@ -312,6 +360,46 @@ def _apply_add(session, payload: dict) -> None:
     issue.updated_at = utcnow()
     session.add(issue)
     _place(session, issue, issue.parent_id, issue.position)
+    ungrouped_id = payload.get("ungrouped_id")
+    if ungrouped_id:
+        _reactivate_parked_ungrouped(session, payload)
+        _apply_reassigned(session, payload, ungrouped_id)
+
+
+def _restore_reassigned(session, payload: dict) -> None:
+    for row in payload.get("reassigned_codings") or []:
+        coding = session.get(Coding, row["id"])
+        if coding is not None:
+            coding.issue_type_id = row["from_issue_type_id"]
+            session.add(coding)
+    for row in payload.get("reassigned_examples") or []:
+        example = session.get(IssueExample, row["id"])
+        if example is not None:
+            example.issue_type_id = row["from_issue_type_id"]
+            session.add(example)
+    for row in payload.get("reassigned_counters") or []:
+        counter = session.get(IssueCounterexample, row["id"])
+        if counter is not None:
+            counter.issue_type_id = row["from_issue_type_id"]
+            session.add(counter)
+
+
+def _apply_reassigned(session, payload: dict, target_id: str) -> None:
+    for row in payload.get("reassigned_codings") or []:
+        coding = session.get(Coding, row["id"])
+        if coding is not None:
+            coding.issue_type_id = target_id
+            session.add(coding)
+    for row in payload.get("reassigned_examples") or []:
+        example = session.get(IssueExample, row["id"])
+        if example is not None:
+            example.issue_type_id = target_id
+            session.add(example)
+    for row in payload.get("reassigned_counters") or []:
+        counter = session.get(IssueCounterexample, row["id"])
+        if counter is not None:
+            counter.issue_type_id = target_id
+            session.add(counter)
 
 
 def _invert_deactivate(session, payload: dict) -> None:
@@ -493,19 +581,22 @@ def _invert_merge(session, payload: dict) -> None:
                 row["from_parent_id"],
                 row.get("from_position", 0),
             )
+    _deactivate_parked_ungrouped(session, payload)
 
 
 def _apply_merge(session, payload: dict) -> None:
     target_id = payload["target_id"]
+    dest_id = payload.get("ungrouped_id") or target_id
+    _reactivate_parked_ungrouped(session, payload)
     for row in payload.get("reassigned_codings") or []:
         coding = session.get(Coding, row["id"])
         if coding is not None:
-            coding.issue_type_id = target_id
+            coding.issue_type_id = dest_id
             session.add(coding)
     for row in payload.get("reassigned_examples") or []:
         example = session.get(IssueExample, row["id"])
         if example is not None:
-            example.issue_type_id = target_id
+            example.issue_type_id = dest_id
             session.add(example)
     for row in payload.get("deleted_examples") or []:
         example = session.get(IssueExample, row["id"])
@@ -514,7 +605,7 @@ def _apply_merge(session, payload: dict) -> None:
     for row in payload.get("reassigned_counters") or []:
         counter = session.get(IssueCounterexample, row["id"])
         if counter is not None:
-            counter.issue_type_id = target_id
+            counter.issue_type_id = dest_id
             session.add(counter)
     parents: set[str | None] = set()
     for row in payload.get("reparented_children") or []:
@@ -536,7 +627,57 @@ def _apply_merge(session, payload: dict) -> None:
         _compact(session, parent_id)
 
 
+def _invert_keep_source_split(session, payload: dict) -> None:
+    for created_id in payload.get("created_ids") or []:
+        created = session.get(IssueType, created_id)
+        if created is not None:
+            created.status = ISSUE_INACTIVE
+            created.updated_at = utcnow()
+            session.add(created)
+    _compact(session, payload.get("source_id"))
+    for row in payload.get("created") or []:
+        existing = session.get(Coding, row["id"])
+        if existing is not None:
+            session.delete(existing)
+    for row in payload.get("deleted_codings") or []:
+        session.add(coding_from_dump(row))
+    for row in payload.get("replaced") or []:
+        session.add(coding_from_dump(row))
+    _restore_reassigned(session, payload)
+
+
+def _apply_keep_source_split(session, payload: dict) -> None:
+    placements = []
+    for created_id in payload.get("created_ids") or []:
+        created = session.get(IssueType, created_id)
+        if created is not None:
+            placements.append((created, created.parent_id, created.position))
+    placements.sort(key=lambda item: (item[2], item[0].name, item[0].id))
+    for created, parent_id, position in placements:
+        created.status = ISSUE_ACTIVE
+        created.updated_at = utcnow()
+        session.add(created)
+        _place(session, created, parent_id, position)
+    for row in payload.get("deleted_codings") or []:
+        existing = session.get(Coding, row["id"])
+        if existing is not None:
+            session.delete(existing)
+    for row in payload.get("replaced") or []:
+        existing = session.get(Coding, row["id"])
+        if existing is not None:
+            session.delete(existing)
+    for row in payload.get("created") or []:
+        session.add(coding_from_dump(row))
+    ungrouped_id = payload.get("ungrouped_id")
+    if ungrouped_id:
+        _apply_reassigned(session, payload, ungrouped_id)
+
+
 def _invert_split(session, payload: dict) -> None:
+    if payload.get("keep_source"):
+        # LLM split keeps the parent; rows without this flag are the old sibling-split operator.
+        _invert_keep_source_split(session, payload)
+        return
     source = session.get(IssueType, payload["source_id"])
     source.status = ISSUE_ACTIVE
     source.updated_at = utcnow()
@@ -553,6 +694,9 @@ def _invert_split(session, payload: dict) -> None:
 
 
 def _apply_split(session, payload: dict) -> None:
+    if payload.get("keep_source"):
+        _apply_keep_source_split(session, payload)
+        return
     source = session.get(IssueType, payload["source_id"])
     source.status = ISSUE_INACTIVE
     source.updated_at = utcnow()

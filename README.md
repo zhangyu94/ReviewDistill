@@ -39,14 +39,14 @@ That puts the `reviewdistill` command on your `PATH`. In a paper repository:
 1. `reviewdistill init --name paper-01 --command myremark`
 2. Proofread with `\myremark{...}` (or the commands you passed to `init`). Define `\newcommand{\myremark}[1]{#1}` in the preamble if needed.
 3. `reviewdistill extract` (add `--watch` to keep extracting).
-4. `reviewdistill serve` → http://127.0.0.1:8765 — **Label with AI**, then Accept a suggestion or pick a type in the menu. **Verify** or **Drop** stamps quality.
+4. `reviewdistill ui` → http://127.0.0.1:8765 — **Label with AI**, then Accept a suggestion or pick a type in the menu. **Verify** or **Drop** stamps quality.
 5. Repeat on the next paper; the taxonomy is reused.
-6. `reviewdistill export --format md -o review-rubric.md`
-7. Point a coding agent at that file.
+6. `reviewdistill export --format md -o SKILL.md`
+7. Put that file in `.cursor/skills/scholarly-review/` (or the equivalent for another coding agent).
 
 The full guide: [Install](./website/docs/install.md), [Workflow](./website/docs/workflow.md), [UI](./website/docs/ui.md), [LLM settings](./website/docs/llm.md), [Export](./website/docs/export.md).
 
-To see the data folder: `reviewdistill paths`, or header **Settings → Data**. To store it somewhere else: `reviewdistill paths move ~/Documents/reviewdistill`.
+To see the data folder: `reviewdistill paths`, or header **Settings → Data** (Open folder, or Save a new path). To copy it somewhere else: `reviewdistill paths move ~/Documents/reviewdistill`.
 
 Run the documentation site locally: `pnpm --dir website start`. GitHub Pages will serve it at `https://zhangyu94.github.io/ReviewDistill/` when you enable Pages.
 

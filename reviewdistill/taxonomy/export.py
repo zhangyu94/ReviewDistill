@@ -38,7 +38,6 @@ def export_rubric(fmt: str = "md", issue_ids: list[str] | None = None) -> str:
                     "definition": issue.definition,
                     "examples": [example.text for example in list_examples(issue.id)],
                     "counterexamples": [item.text for item in list_counterexamples(issue.id)],
-                    "notes": issue.notes,
                 }
             )
     if fmt == "md":
@@ -58,12 +57,42 @@ def _structured(issue: dict) -> dict:
         "definition",
         "examples",
         "counterexamples",
-        "notes",
     )}
 
 
+_SKILL_FRONTMATTER = """\
+---
+name: scholarly-review
+description: Review a scholarly manuscript against this author's distilled issue taxonomy. Use when proofreading, reviewing, or checking a paper.
+---
+"""
+
+_SKILL_PROCEDURE = (
+    "Review the manuscript against the issue types below. "
+    "For each type, flag passages that match the definition and examples. "
+    "Do not flag counterexamples."
+)
+
+
+def default_export_filename(fmt: str) -> str:
+    if fmt == "md":
+        return "SKILL.md"
+    if fmt == "yaml":
+        return "review-taxonomy.yaml"
+    if fmt == "json":
+        return "review-taxonomy.json"
+    raise BadInput(f"Unknown export format: {fmt}")
+
+
 def _to_markdown(issues: list[dict]) -> str:
-    lines = ["# Scholarly Review Rubric"]
+    lines = [
+        _SKILL_FRONTMATTER.rstrip(),
+        "",
+        "# Scholarly Review",
+        "",
+        _SKILL_PROCEDURE,
+        "",
+    ]
     for issue in issues:
         lines.append(f"## {issue['name']}")
         if issue["parent_name"]:

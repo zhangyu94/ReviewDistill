@@ -8,7 +8,7 @@ Install from this GitHub repository. You get a `reviewdistill` command to run in
 - **Node ≥ 22**
 - [pnpm](https://pnpm.io/)
 
-Node and pnpm are used once during install so `reviewdistill serve` can open the UI in the browser.
+Node and pnpm are used once during install so `reviewdistill ui` can open the UI in the browser.
 
 ## Install
 
@@ -37,7 +37,7 @@ Print the resolved paths:
 reviewdistill paths
 ```
 
-Header **Settings → Data** shows the same folder. Backup and moving are in that folder’s `README.md`. Do not edit JSONL while `serve` or `extract` is running.
+Header **Settings → Data** shows the same folder. Edit the path or **Choose…** a folder, then **Save** to point ReviewDistill at it (`paths use`; it does not copy files). **Open folder** reveals it in the file manager. Backup and `paths move` are in that folder’s `README.md`. Do not edit JSONL while `ui` or `extract` is running.
 
 To store it in a new folder:
 
@@ -51,11 +51,11 @@ That copies the current folder into an empty destination and stores new comments
 reviewdistill paths use ~/Documents/reviewdistill
 ```
 
-Quit `reviewdistill serve` and `extract --watch` before `move`. Restart them afterwards. Do not put the live folder in Dropbox, iCloud, or Google Drive.
+Quit `reviewdistill ui` and `extract --watch` before `move`. Restart them afterwards. Do not put the live folder in Dropbox, iCloud, or Google Drive.
 
 ## If you change the UI
 
-Rebuild, then restart `reviewdistill serve`:
+Rebuild, then restart `reviewdistill ui`:
 
 `pip install -e ".[dev]"` or `python client_build.py`
 

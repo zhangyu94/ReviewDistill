@@ -4,6 +4,7 @@ import { workbenchHref } from './commentSelectors.ts'
 
 export type EntryMode = 'unlabeled' | 'observations'
 export type InspectorKind = 'comment' | 'issue'
+export type CommentsLayout = 'list' | 'one'
 
 export function entryMode(routeName: string | symbol | undefined | null): EntryMode {
   if (routeName === 'issue') { return 'observations' }
@@ -14,28 +15,6 @@ export function inspectorKind(routeName: string | symbol | undefined | null): In
   if (routeName === 'issue') { return 'issue' }
   return 'comment'
 }
-
-export function groupIdFromRoute(paramsId: string, _queryType?: string): string {
-  return paramsId
-}
-
-export function thisTypeHref(typeId: string): string {
-  return typeId ? `/taxonomy/${typeId}` : ''
-}
-
-export function taxonClickHref(typeId: string): string {
-  return thisTypeHref(typeId)
-}
-
-export function typeSelectorLabel(name: string, count: number): string {
-  return `${name} (${count})`
-}
-
-export function unlabeledSelectorLabel(): string {
-  return 'Unlabeled'
-}
-
-export type CommentsLayout = 'list' | 'one'
 
 export function inboxItemFromObservation(row: TaxonomyCommentJson, issue: IssueOption): InboxItemJson {
   const { project_name, permalink, issue: accepted, ...comment } = row
@@ -82,6 +61,22 @@ export function issueIdAfterLeave(href: string | null, viewing: string): string 
   return href ? '' : viewing
 }
 
+export function afterHomeChange(): { href: string, issueId: string } {
+  return { href: '/', issueId: '' }
+}
+
+export function homeSaveFollowUpOrder(): readonly ['reload', 'llm'] {
+  return ['reload', 'llm']
+}
+
+export function selectGroupHref(id: string, unlabeled: boolean): string {
+  return workbenchHref(id, { unlabeled, typeChipOff: unlabeled })
+}
+
+export function afterTypeTreeChangeParts() {
+  return { taxonomy: true, issue: true, inbox: true } as const
+}
+
 export function afterMergeNavigation(
   chips: { unlabeled: boolean, detailsId: string },
   targetId: string,
@@ -92,7 +87,7 @@ export function afterMergeNavigation(
   const replace = !chips.detailsId || viewing === sourceId || viewing === targetId
   const href = workbenchHref(targetId, {
     unlabeled: chips.unlabeled,
-    typeChipOff: false,
+    typeChipOff: chips.unlabeled,
     commentId: commentId || undefined,
   })
   return { href, issueId: targetId, replace }
@@ -100,10 +95,6 @@ export function afterMergeNavigation(
 
 export function labeledTypeIdForComment(items: InboxItemJson[], commentId: string): string | null {
   return items.find((item) => item.comment.id === commentId)?.issue?.id ?? null
-}
-
-export function changeIssueOptions(issues: IssueOption[]): IssueOption[] {
-  return issues
 }
 
 export function allowChangeDrop(labeled: boolean, actionType: DropAction['type']): boolean {

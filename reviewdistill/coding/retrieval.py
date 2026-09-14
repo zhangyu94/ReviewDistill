@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from reviewdistill.db.models import IssueType, ProofreadingComment
 from reviewdistill.db.session import get_session
 from reviewdistill.taxonomy.operations import list_active_issue_types, list_examples
+from reviewdistill.taxonomy.tree import active_children
 
 TOKEN_RE = re.compile(r"[a-z0-9]+")
 
@@ -24,7 +25,10 @@ def retrieve_candidates(comment: ProofreadingComment, limit: int = 5) -> list[Ra
         return []
     ranked: list[RankedIssue] = []
     with get_session():
-        for issue in list_active_issue_types():
+        active = list_active_issue_types()
+        for issue in active:
+            if active_children(active, issue.id):
+                continue
             example_text = " ".join(example.text for example in list_examples(issue.id))
             doc_tokens = _tokens(
                 f"{issue.name} {issue.definition} {issue.detection_guidance or ''} {example_text}"

@@ -60,6 +60,20 @@ def test_retrieval_ignores_inactive_issues(db):
     assert ranked == []
 
 
+def test_retrieval_skips_types_that_have_children(db):
+    parent = create_issue_type(
+        name="Overclaiming parent",
+        definition="demonstrate too strong",
+    )
+    child = create_issue_type(
+        name="Child leaf",
+        definition="demonstrate too strong",
+        parent_id=parent.id,
+    )
+    ranked = retrieve_candidates(_comment("demonstrate is too strong"))
+    assert [row.id for row in ranked] == [child.id]
+
+
 def test_retrieval_ignores_examples_from_dropped_comments(db):
     from reviewdistill.db.models import ProofreadingComment as Row
     from reviewdistill.db.session import get_session

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { allowDropHighlight, DRAG_MIME, dropAction, parseDragPayload, serializeDragPayload, showSiblingDropGuide } from './dropAction.ts'
+import { allowDropHighlight, dropAction, parseDragPayload, serializeDragPayload, showSiblingDropGuide } from './dropAction.ts'
 
 describe('dropAction', () => {
   it('assigns a comment dropped on a leaf', () => {
@@ -102,10 +102,6 @@ describe('parseDragPayload', () => {
   it('returns null for garbage', () => {
     expect(parseDragPayload('not-json')).toBeNull()
     expect(parseDragPayload('{"kind":"nope"}')).toBeNull()
-  })
-
-  it('exports a stable MIME type', () => {
-    expect(DRAG_MIME).toBe('application/x-reviewdistill')
   })
 
   it('round-trips an issue payload for the groups panel', () => {

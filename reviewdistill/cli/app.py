@@ -4,10 +4,9 @@ from pathlib import Path
 
 import typer
 
-from reviewdistill.cli.cluster import run_cluster
 from reviewdistill.cli.extract import run_extract
 from reviewdistill.cli.init import init_project
-from reviewdistill.taxonomy.export import export_rubric
+from reviewdistill.taxonomy.export import default_export_filename, export_rubric
 
 app = typer.Typer(help="ReviewDistill: distill informal review comments into reusable review knowledge.")
 paths_app = typer.Typer(help="Show or change the data folder.")
@@ -16,7 +15,7 @@ app.add_typer(paths_app, name="paths")
 
 def _write_export(fmt: str, output: Path | None, issue_ids: list[str] | None) -> None:
     text = export_rubric(fmt=fmt, issue_ids=issue_ids)
-    path = output or Path("review-rubric.md" if fmt == "md" else f"review-rubric.{fmt}")
+    path = output or Path(default_export_filename(fmt))
     path.write_text(text)
     typer.echo(f"Wrote {path}")
 
@@ -56,14 +55,8 @@ def export_cmd(
         help="Issue type id to include (repeatable). Default: all active types. Does not change labels in the UI.",
     ),
 ) -> None:
-    """Export reusable review knowledge."""
+    """Export a review skill (Markdown) or taxonomy (YAML/JSON)."""
     _write_export(format, output, id or None)
-
-
-@app.command(hidden=True)
-def cluster() -> None:
-    """Discover recurring patterns among comments."""
-    run_cluster()
 
 
 @paths_app.callback(invoke_without_command=True)
@@ -81,7 +74,7 @@ def paths_callback(ctx: typer.Context) -> None:
         "Copy the home folder to back up (JSONL files; the whole folder, not a single file). "
         "reviewdistill paths move DIR copies this folder to DIR and keeps using it. "
         "reviewdistill paths use DIR points at a folder you already have. "
-        "Restart serve or extract after changing the folder."
+        "Restart ui or extract after changing the folder."
     )
 
 
@@ -98,7 +91,7 @@ def paths_use(
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
     typer.echo(f"Home: {path}")
-    typer.echo("Restart serve or extract if they are running.")
+    typer.echo("Restart ui or extract if they are running.")
 
 
 @paths_app.command("move")
@@ -114,11 +107,11 @@ def paths_move(
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
     typer.echo(f"Home: {path}")
-    typer.echo("Left the previous folder in place. Restart serve or extract if they are running.")
+    typer.echo("Left the previous folder in place. Restart ui or extract if they are running.")
 
 
-@app.command("serve")
-def serve_cmd(
+@app.command("ui")
+def ui_cmd(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8765, "--port"),
 ) -> None:

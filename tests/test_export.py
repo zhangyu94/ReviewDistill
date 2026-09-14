@@ -15,24 +15,21 @@ def test_export_markdown_contains_operational_sections(db):
     add_example(issue.id, text="The results demonstrate... when evidence is correlational.")
     add_counterexample(issue.id, text="Do not flag strong claims when the design supports them.")
     md = export_rubric(fmt="md")
-    assert md.startswith("# Scholarly Review Rubric")
+    assert md.startswith("---\nname: scholarly-review\n")
+    assert "Use when proofreading, reviewing, or checking a paper." in md
+    assert "# Scholarly Review Rubric" not in md
+    assert "# Scholarly Review\n" in md
+    assert (
+        "Review the manuscript against the issue types below. "
+        "For each type, flag passages that match the definition and examples. "
+        "Do not flag counterexamples."
+    ) in md
     assert "## Overclaiming" in md
     assert "### Definition" in md
     assert "### Examples" in md
     assert "### Counterexamples" in md
     assert "### Review guidance" not in md
     assert "demonstrate" in md
-
-
-def test_export_yaml_and_json_are_structured(db):
-    create_issue_type(
-        name="Overclaiming",
-        definition="too strong",
-    )
-    yaml_text = export_rubric(fmt="yaml")
-    json_text = export_rubric(fmt="json")
-    assert "Overclaiming" in yaml_text
-    assert "Overclaiming" in json_text
 
 
 def test_export_yaml_includes_ids_for_parent_links(db):
@@ -48,11 +45,14 @@ def test_export_yaml_includes_ids_for_parent_links(db):
     assert by_name["Parent"]["parent_id"] is None
     assert by_name["Child"]["id"] == child.id
     assert by_name["Child"]["parent_id"] == parent.id
+    assert "notes" not in by_name["Parent"]
+    assert "notes" not in by_name["Child"]
     parsed = json_lib.loads(export_rubric(fmt="json"))
     assert {row["name"]: row["id"] for row in parsed["issue_types"]} == {
         "Parent": parent.id,
         "Child": child.id,
     }
+    assert all("notes" not in row for row in parsed["issue_types"])
     md = export_rubric(fmt="md")
     assert "Parent: Parent" in md
 
@@ -69,9 +69,13 @@ def test_export_includes_only_selected_ids(db):
     assert data["issue_types"][0]["parent_id"] == parent.id
 
 
-def test_export_empty_ids_is_heading_only(db):
+def test_export_empty_ids_is_skill_preamble_only(db):
     create_issue_type(name="Parent", definition="p")
-    assert export_rubric(fmt="md", issue_ids=[]) == "# Scholarly Review Rubric\n"
+    md = export_rubric(fmt="md", issue_ids=[])
+    assert md.startswith("---\nname: scholarly-review\n")
+    assert "# Scholarly Review\n" in md
+    assert "## Parent" not in md
+    assert md.endswith("Do not flag counterexamples.\n")
 
 
 def test_export_unknown_id_is_bad_input(db):

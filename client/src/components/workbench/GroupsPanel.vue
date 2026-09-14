@@ -11,11 +11,15 @@ import {
   showSiblingDropGuide,
 } from '../../workbench/dropAction.ts'
 import { dropPlacement } from '../../workbench/dropPlacement.ts'
+import { canLeafSplit } from '../../workbench/splitControls.ts'
 import { descendantIds, findNode, flattenForest, isLeaf } from '../../workbench/taxonomyTree.ts'
 
 const props = defineProps<{
   list: TaxonomyListResponse | null
   selectedId: string
+  headerSplitEnabled: boolean
+  llmConfigured: boolean
+  splitting: boolean
 }>()
 
 const emit = defineEmits<{
@@ -24,6 +28,7 @@ const emit = defineEmits<{
   create: [parentId: string | null]
   flatten: [id: string]
   remove: [id: string]
+  split: [id: string | null]
 }>()
 
 let dragging = false
@@ -142,17 +147,29 @@ function rowClass(node: TaxonomyNode) {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 w-56 shrink-0 flex-col border-r border-[var(--ch-color-border)] bg-[var(--ch-color-background)]">
+  <div class="flex min-h-0 flex-1 flex-col border-b border-[var(--ch-color-border)] bg-[var(--ch-color-background)]">
     <div class="flex h-9 shrink-0 items-center justify-between border-b border-[var(--ch-color-border)] px-2">
       <span class="text-xs font-medium">Issue Taxonomy</span>
-      <button
-        type="button"
-        class="inline-flex h-5 w-5 items-center justify-center rounded-[3px] text-sm leading-none text-[var(--ch-color-muted-foreground)] hover:bg-[var(--ch-color-background-muted)] hover:text-[var(--ch-color-foreground)]"
-        title="Add a new root type"
-        @click="emit('create', null)"
-      >
-        +
-      </button>
+      <div class="flex items-center gap-0.5">
+        <button
+          type="button"
+          class="inline-flex h-5 w-5 items-center justify-center rounded-[3px] text-[var(--ch-color-muted-foreground)] hover:bg-[var(--ch-color-background-muted)] hover:text-[var(--ch-color-foreground)] disabled:pointer-events-none disabled:opacity-50"
+          title="Split unlabeled comments into types with AI"
+          :disabled="splitting || !headerSplitEnabled"
+          @click="emit('split', null)"
+        >
+          <span class="i-fa6-solid:code-fork h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          class="inline-flex h-5 w-5 items-center justify-center rounded-[3px] text-sm leading-none text-[var(--ch-color-muted-foreground)] hover:bg-[var(--ch-color-background-muted)] hover:text-[var(--ch-color-foreground)]"
+          title="Add a new root type"
+          :disabled="splitting"
+          @click="emit('create', null)"
+        >
+          +
+        </button>
+      </div>
     </div>
     <div class="min-h-0 flex-1 overflow-auto p-1 text-xs">
       <div
@@ -206,9 +223,20 @@ function rowClass(node: TaxonomyNode) {
           </div>
           <template v-if="hoverId === node.id">
             <button
+              v-if="canLeafSplit({ isLeaf: isLeaf(node), count: node.count, llmConfigured })"
+              type="button"
+              class="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[var(--ch-color-muted-foreground)] hover:text-[var(--ch-color-foreground)] disabled:pointer-events-none disabled:opacity-50"
+              title="Split this type into more specific types with AI"
+              :disabled="splitting"
+              @click.stop="emit('split', node.id)"
+            >
+              <span class="i-fa6-solid:code-fork h-3 w-3" />
+            </button>
+            <button
               type="button"
               class="shrink-0 text-[var(--ch-color-muted-foreground)] hover:text-[var(--ch-color-foreground)]"
               title="Add a child type"
+              :disabled="splitting"
               @click.stop="emit('create', node.id)"
             >
               +
@@ -218,6 +246,7 @@ function rowClass(node: TaxonomyNode) {
               type="button"
               class="shrink-0 text-[var(--ch-color-muted-foreground)] hover:text-[var(--ch-color-foreground)]"
               title="Flatten descendants into this type"
+              :disabled="splitting"
               @click.stop="emit('flatten', node.id)"
             >
               ⊃
@@ -226,6 +255,7 @@ function rowClass(node: TaxonomyNode) {
               type="button"
               class="shrink-0 text-[var(--ch-color-muted-foreground)] hover:text-[var(--ch-color-foreground)]"
               title="Remove this type and its descendants"
+              :disabled="splitting"
               @click.stop="emit('remove', node.id)"
             >
               ×

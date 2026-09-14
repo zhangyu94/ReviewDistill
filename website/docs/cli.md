@@ -6,14 +6,14 @@ Visible commands:
 | --- | --- |
 | `reviewdistill init` | Create `.reviewdistill/` in the current paper repo |
 | `reviewdistill extract` | Pull comments from `.tex` (`--watch` keeps going) |
-| `reviewdistill serve` | UI + API on `:8765` |
-| `reviewdistill export` | Write the rubric (`--format`, `--output`) |
+| `reviewdistill ui` | UI + API on `:8765` |
+| `reviewdistill export` | Write a review skill (`md`) or taxonomy dump (`yaml` / `json`) (`--format`, `--output`) |
 | `reviewdistill paths` | Print the data folder and comments JSONL path |
 | `reviewdistill paths use DIR` | Use `DIR` for comments and issue types from now on |
 | `reviewdistill paths move DIR` | Copy the current data folder to `DIR` and keep using it |
 
 `init` options: `--name`, `--command` (repeatable; default `myremark`).
 
-`serve` options: `--host` (default `127.0.0.1`), `--port` (default `8765`).
+`ui` options: `--host` (default `127.0.0.1`), `--port` (default `8765`).
 
-`move` copies the whole current folder into an empty `DIR` and leaves the old folder in place. Quit `serve` and `extract --watch` first; restart them after `use` or `move`.
+`move` copies the whole current folder into an empty `DIR` and leaves the old folder in place. Quit `ui` and `extract --watch` first; restart them after `use` or `move`.

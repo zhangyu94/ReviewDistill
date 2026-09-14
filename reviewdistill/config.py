@@ -100,7 +100,7 @@ comments:
 
 Comment commands are per paper. The LLM assistant (provider, model, API key) is configured in header **Settings → Assistant** and stored in the ReviewDistill folder on this computer, not here.
 
-Then run `reviewdistill extract` (or `extract --watch`) and `reviewdistill serve`.
+Then run `reviewdistill extract` (or `extract --watch`) and `reviewdistill ui`.
 """
 
 

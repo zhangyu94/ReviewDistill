@@ -136,7 +136,6 @@ export interface TaxonomyDetail {
   parent_id: string | null
   path: { id: string, name: string }[]
   definition: string
-  notes: string | null
   status: string
   examples: { id: string, text: string }[]
   counterexamples: { id: string, text: string }[]
@@ -163,7 +162,7 @@ export function renameIssue(id: string, name: string): Promise<{ ok: true }> {
 
 export function editIssue(
   id: string,
-  body: { definition: string, notes: string },
+  body: { definition: string },
 ): Promise<{ ok: true }> {
   return api(`/api/taxonomy/${id}/edit`, { method: 'POST', body: JSON.stringify(body) })
 }
@@ -198,12 +197,28 @@ export function mergeIssues(sourceIds: string[], targetId: string): Promise<{ ok
   })
 }
 
-export function splitIssue(
-  id: string,
-  left: { name: string, definition: string },
-  right: { name: string, definition: string },
-): Promise<{ ok: true }> {
-  return api(`/api/taxonomy/${id}/split`, { method: 'POST', body: JSON.stringify({ left, right }) })
+export function splitIssue(id: string): Promise<{ ok: true, privacy_warning: string | null }> {
+  return api(`/api/taxonomy/${id}/split`, { method: 'POST' })
+}
+
+export function splitTaxonomy(): Promise<{ ok: true, privacy_warning: string | null }> {
+  return api('/api/taxonomy/split', { method: 'POST' })
+}
+
+export interface HistoryComment {
+  text: string
+  type_name: string | null
+}
+
+export interface HistoryQuote {
+  heading: string
+  body: string
+}
+
+export interface HistoryDetails {
+  explanation: string
+  comments: HistoryComment[]
+  quotes: HistoryQuote[]
 }
 
 export interface HistoryEvent {
@@ -213,6 +228,7 @@ export interface HistoryEvent {
   payload: Record<string, unknown>
   undone: boolean
   summary: string
+  details: HistoryDetails
 }
 
 export interface HistoryResponse {
@@ -234,12 +250,6 @@ export function redoHistory(): Promise<{ ok: true }> {
 }
 
 export type ExportFormat = 'md' | 'yaml' | 'json'
-
-export function exportFilename(fmt: ExportFormat): string {
-  if (fmt === 'yaml') { return 'review-rubric.yaml' }
-  if (fmt === 'json') { return 'review-rubric.json' }
-  return 'review-rubric.md'
-}
 
 export async function fetchExport(fmt: ExportFormat, ids: string[]): Promise<string> {
   const params = new URLSearchParams({ format: fmt })
@@ -275,8 +285,21 @@ export function saveLlmSettings(body: {
 export interface DataLocation {
   home: string
   comments: string
+  file_url: string
 }
 
 export function fetchDataLocation(): Promise<DataLocation> {
   return api('/api/paths')
+}
+
+export function saveDataLocation(home: string): Promise<DataLocation> {
+  return api('/api/paths', { method: 'POST', body: JSON.stringify({ home }) })
+}
+
+export function openDataFolder(): Promise<{ ok: true }> {
+  return api('/api/paths/open', { method: 'POST' })
+}
+
+export function chooseDataFolder(): Promise<{ home: string | null }> {
+  return api('/api/paths/choose', { method: 'POST' })
 }

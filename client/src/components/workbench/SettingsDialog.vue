@@ -3,14 +3,18 @@ import type { DataLocation } from '../../api/client.ts'
 import type { SettingsPanelId } from '../../settingsPanels.ts'
 import { storeToRefs } from 'pinia'
 import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import {
+  chooseDataFolder,
   fetchDataLocation,
   fetchLlmSettings,
+  openDataFolder,
+  saveDataLocation,
   saveLlmSettings,
 } from '../../api/client.ts'
+import { canSaveDataPath, folderFileUrl } from '../../dataLocation.ts'
 import {
   apiKeyForSelectedProvider,
-  apiKeyInputType,
   canSaveLlmSettings,
   defaultLlmModel,
   keySetForSelectedProvider,
@@ -20,9 +24,8 @@ import {
   DEFAULT_SETTINGS_PANEL,
   SETTINGS_PANELS,
   settingsErrorMessage,
-  settingsPanelOnOpen,
-  showsSettingsSave,
 } from '../../settingsPanels.ts'
+import { afterHomeChange, homeSaveFollowUpOrder } from '../../workbench/workbenchMode.ts'
 import { useWorkbenchStore } from '../../workbench/workbenchStore.ts'
 import {
   Select,
@@ -33,6 +36,7 @@ import {
 } from '../ui/select'
 
 const store = useWorkbenchStore()
+const router = useRouter()
 const { settingsOpen } = storeToRefs(store)
 const panel = ref<SettingsPanelId>(DEFAULT_SETTINGS_PANEL)
 const busy = ref(false)
@@ -40,7 +44,7 @@ const error = ref('')
 const notice = ref('')
 const showKey = ref(false)
 const location = ref<DataLocation | null>(null)
-const copied = ref(false)
+const homeDraft = ref('')
 const provider = ref('')
 const model = ref('')
 const apiKey = ref('')
@@ -49,13 +53,19 @@ const savedProvider = ref('')
 const savedKeySet = ref(false)
 const savedApiKey = ref('')
 
-const canSave = computed(() =>
-  canSaveLlmSettings({
+const canSave = computed(() => {
+  if (panel.value === 'data') {
+    return canSaveDataPath({
+      draft: homeDraft.value,
+      saved: location.value?.home ?? '',
+    })
+  }
+  return canSaveLlmSettings({
     provider: provider.value,
     apiKey: apiKey.value,
     keySet: keySet.value,
-  }),
-)
+  })
+})
 
 function applyLlmSettings(body: Awaited<ReturnType<typeof fetchLlmSettings>>) {
   provider.value = body.provider ?? ''
@@ -68,10 +78,9 @@ function applyLlmSettings(body: Awaited<ReturnType<typeof fetchLlmSettings>>) {
 }
 
 async function loadSettings() {
-  panel.value = settingsPanelOnOpen()
+  panel.value = DEFAULT_SETTINGS_PANEL
   error.value = ''
   notice.value = ''
-  copied.value = false
   showKey.value = false
   try {
     applyLlmSettings(await fetchLlmSettings())
@@ -81,9 +90,11 @@ async function loadSettings() {
   }
   try {
     location.value = await fetchDataLocation()
+    homeDraft.value = location.value.home
   }
   catch (err) {
     location.value = null
+    homeDraft.value = ''
     error.value = settingsErrorMessage(error.value, err)
   }
 }
@@ -100,14 +111,33 @@ watch(settingsOpen, (open) => {
   if (open) { void loadSettings() }
 })
 
-async function copyHomeFolder() {
-  if (!location.value) { return }
+async function openHomeFolder(event: Event) {
+  event.preventDefault()
+  if (!location.value) {
+    return
+  }
   try {
-    await navigator.clipboard.writeText(location.value.home)
-    copied.value = true
+    await openDataFolder()
   }
   catch {
-    copied.value = false
+    window.open(location.value.file_url || folderFileUrl(location.value.home), '_blank')
+  }
+}
+
+async function chooseHomeFolder() {
+  busy.value = true
+  error.value = ''
+  try {
+    const body = await chooseDataFolder()
+    if (body.home) {
+      homeDraft.value = body.home
+    }
+  }
+  catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+  finally {
+    busy.value = false
   }
 }
 
@@ -123,7 +153,13 @@ function onProviderId(value: unknown) {
 }
 
 async function save() {
-  if (!canSave.value) { return }
+  if (!canSave.value) {
+    return
+  }
+  if (panel.value === 'data') {
+    await saveDataPath()
+    return
+  }
   busy.value = true
   error.value = ''
   notice.value = ''
@@ -136,6 +172,38 @@ async function save() {
     applyLlmSettings(await fetchLlmSettings())
     notice.value = 'Saved.'
     await store.loadInbox()
+  }
+  catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+  finally {
+    busy.value = false
+  }
+}
+
+async function saveDataPath() {
+  busy.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    location.value = await saveDataLocation(homeDraft.value.trim())
+    homeDraft.value = location.value.home
+    const next = afterHomeChange()
+    for (const step of homeSaveFollowUpOrder()) {
+      if (step === 'reload') {
+        await router.push(next.href)
+        await store.loadAll(next.issueId)
+        notice.value = 'Saved.'
+      }
+      else {
+        try {
+          applyLlmSettings(await fetchLlmSettings())
+        }
+        catch (err) {
+          error.value = err instanceof Error ? err.message : String(err)
+        }
+      }
+    }
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -196,7 +264,7 @@ defineExpose({ show })
       <p v-if="error" class="ch-error-text mb-2">
         {{ error }}
       </p>
-      <p v-if="notice && panel === 'assistant'" class="ch-muted-text mb-2">
+      <p v-if="notice" class="ch-muted-text mb-2">
         {{ notice }}
       </p>
 
@@ -204,18 +272,29 @@ defineExpose({ show })
         <p class="ch-muted-text mb-1">
           Comments and issue types live in this folder:
         </p>
-        <p class="mb-1 break-all font-mono text-[11px]">
-          {{ location?.home ?? '…' }}
+        <div class="mb-2 flex items-center gap-1.5">
+          <input
+            v-model="homeDraft"
+            class="ch-input min-w-0 flex-1 font-mono text-[11px]"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            aria-label="Data folder path"
+            title="Folder for comments and issue types"
+          >
+          <button
+            class="ch-btn ch-btn-outline shrink-0"
+            type="button"
+            title="Pick a folder on this computer"
+            :disabled="busy"
+            @click="chooseHomeFolder"
+          >
+            Choose…
+          </button>
+        </div>
+        <p class="ch-muted-text mb-3">
+          Save points ReviewDistill at this folder. It does not copy existing files.
         </p>
-        <button
-          class="ch-btn ch-btn-outline"
-          type="button"
-          title="Copy the folder path"
-          :disabled="!location"
-          @click="copyHomeFolder"
-        >
-          {{ copied ? 'Copied' : 'Copy folder path' }}
-        </button>
       </template>
 
       <template v-else>
@@ -245,7 +324,7 @@ defineExpose({ show })
             <input
               v-model="apiKey"
               class="ch-input pr-14"
-              :type="apiKeyInputType(showKey)"
+              :type="showKey ? 'text' : 'password'"
               autocomplete="off"
               placeholder="Paste an API key for the selected provider"
             >
@@ -267,11 +346,24 @@ defineExpose({ show })
         </template>
       </template>
 
-      <div v-if="showsSettingsSave(panel)" class="flex justify-end">
+      <div class="flex items-center gap-1.5">
+        <a
+          v-if="panel === 'data'"
+          class="ch-btn ch-btn-outline no-underline hover:no-underline"
+          :class="location ? '' : 'pointer-events-none opacity-50'"
+          :href="location?.file_url || folderFileUrl(homeDraft)"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open the folder on this computer"
+          :aria-disabled="!location"
+          @click="openHomeFolder"
+        >
+          Open folder
+        </a>
         <button
-          class="ch-btn ch-btn-default"
+          class="ch-btn ch-btn-default ml-auto"
           type="button"
-          title="Save provider, model, and API key"
+          :title="panel === 'data' ? 'Use this folder for comments and issue types' : 'Save provider, model, and API key'"
           :disabled="busy || !canSave"
           @click="save"
         >

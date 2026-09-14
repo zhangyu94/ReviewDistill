@@ -27,7 +27,7 @@ Presence and quality are independent. Extract only updates presence (and wording
 
 ## Comments to distill
 
-**Comments to distill** are the comments that count for AI suggestions, clustering, taxonomy examples, type chips, and rubric export. Progress shows this count as **to distill**.
+**Comments to distill** are the comments that count for AI suggestions, taxonomy examples, type chips, and export. Progress shows this count as **to distill**.
 
 A comment is **to distill** when it is not `dropped`, and it is either **in the manuscript** or **verified**.
 
@@ -133,13 +133,13 @@ It does not run AI labeling. It does not Verify or Drop. It follows the files as
 
 `reviewdistill extract` without `--watch` is the same extraction, run once.
 
-## Serve UI
+## UI
 
-In `reviewdistill serve`, Selectors chips AND. The right-hand **Unlabeled** control toggles a left-hand Unlabeled chip and is never pressed. No chips: Comments lists comments to distill.
+In `reviewdistill ui`, Selectors chips AND. The right-hand **Unlabeled** control toggles a left-hand Unlabeled chip and is never pressed. No chips: Comments lists comments to distill.
 
 - **Unlabeled** — inbox queue: comments to distill with no **active** issue type, plus comments that left the manuscript and are still unreviewed so you can Verify or Drop. Those rows show a **Left the manuscript** chip. There is no Reject button: not accepting a suggestion leaves the comment unlabeled.
 - **Type chip** — named with the issue type (for example `Missing introduction (3)`). Clicking a type opens Issue Details and replaces the type chip; it does not clear Unlabeled. × on the type chip sets `typechip=0` and keeps `/taxonomy/:id` (Issue Details stays). Comments then lists comments to distill, or the inbox if Unlabeled is still on.
 
 **Verify** and **Drop** are quality stamps on the comment inspector (every comment). They are independent of the label. **Accept** applies the AI suggestion. Picking a type in the menu assigns it.
 
-The Comments panel switches between a list and a single comment. The list and the inspector Comment header show a **Left the manuscript** chip when the remark is no longer in the `.tex` file. The single-comment view shows manuscript context, location, record metadata (including quality), and the guess under Quality when present.
+The Comments panel switches between a list and a single comment. The list shows each comment’s assigned leaf issue type(s) when it has them. The list and the inspector Comment header show a **Left the manuscript** chip when the remark is no longer in the `.tex` file. The single-comment view shows manuscript context, type, quality (Verify / Drop), location, record metadata, and the guess under Quality when present.

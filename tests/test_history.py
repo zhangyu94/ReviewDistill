@@ -11,11 +11,13 @@ from reviewdistill.coding.validation import (
     verify_comment,
 )
 from reviewdistill.db.models import Coding, IssueType, ProofreadingComment
+from reviewdistill.coding.split import SplitPlan
 from reviewdistill.db.session import get_session
 from reviewdistill.extraction.incremental import extract_project
-from reviewdistill.history import list_history, redo, undo
+from reviewdistill.history import list_history, record, redo, undo
 from reviewdistill.llm.mock import MockLLMProvider
 from reviewdistill.taxonomy.operations import (
+    apply_split,
     create_empty_issue_type,
     create_issue_type,
     deactivate_issue_type,
@@ -26,7 +28,6 @@ from reviewdistill.taxonomy.operations import (
     move_issue_type,
     remove_issue_type,
     rename_issue_type,
-    split_issue_type,
 )
 from reviewdistill.web.app import create_app
 
@@ -217,6 +218,38 @@ def test_move_nest_undo_redo_restores_parent(db):
     assert [row.name for row in _active_siblings(parent.id)] == ["Zeta"]
 
 
+def test_move_under_labeled_leaf_undo_redo_restores_labels(db):
+    parent = create_issue_type(name="Parent", definition="")
+    child = create_issue_type(name="Child", definition="")
+    with get_session() as session:
+        session.add(ProofreadingComment(
+            id="c-move", project_id="p", source_type="latex_command", source_command="myremark",
+            file_path="main.tex", line_number=1, raw_text="too strong", fingerprint="fp-move",
+            status="active", quality="unreviewed",
+        ))
+        session.add(Coding(
+            id="k-move", comment_id="c-move", issue_type_id=parent.id, coder_type="human",
+            status="accepted",
+        ))
+        session.commit()
+    move_issue_type(child.id, parent_id=parent.id, position=0)
+    undo()
+    with get_session() as session:
+        assert session.get(Coding, "k-move").issue_type_id == parent.id
+        assert session.get(IssueType, child.id).parent_id is None
+        kids = [
+            row for row in session.find(IssueType)
+            if row.parent_id == parent.id and row.status == "active"
+        ]
+        assert kids == []
+    redo()
+    with get_session() as session:
+        kids = _active_siblings(parent.id)
+        ungrouped = next(row for row in kids if row.name == "ungrouped")
+        assert session.get(IssueType, child.id).parent_id == parent.id
+        assert session.get(Coding, "k-move").issue_type_id == ungrouped.id
+
+
 def _active_siblings(parent_id: str | None) -> list[IssueType]:
     with get_session() as session:
         rows = [
@@ -261,6 +294,42 @@ def test_undo_add_compacts_remaining_siblings(db):
         assert [row.name for row in roots] == ["Alpha", "Beta", "New type"]
         assert session.get(IssueType, created.id).position == 2
         assert session.get(IssueType, extra.id).status == "inactive"
+
+
+def test_undo_first_child_restores_parent_labels(db):
+    parent = create_issue_type(name="Parent", definition="")
+    with get_session() as session:
+        session.add(ProofreadingComment(
+            id="c1", project_id="p", source_type="latex_command", source_command="myremark",
+            file_path="main.tex", line_number=1, raw_text="too strong", fingerprint="fp",
+            status="active", quality="unreviewed",
+        ))
+        session.add(Coding(
+            id="k1", comment_id="c1", issue_type_id=parent.id, coder_type="human",
+            status="accepted",
+        ))
+        session.commit()
+    created = create_empty_issue_type(parent_id=parent.id)
+    undo()
+    with get_session() as session:
+        kids = [
+            row for row in session.find(IssueType)
+            if row.parent_id == parent.id and row.status == "active"
+        ]
+        assert kids == []
+        assert session.get(IssueType, created.id).status == "inactive"
+        assert session.get(Coding, "k1").issue_type_id == parent.id
+    redo()
+    with get_session() as session:
+        kids = sorted(
+            [
+                row for row in session.find(IssueType)
+                if row.parent_id == parent.id and row.status == "active"
+            ],
+            key=lambda row: row.position,
+        )
+        assert [row.name for row in kids] == ["New type", "ungrouped"]
+        assert session.get(Coding, "k1").issue_type_id == kids[1].id
 
 
 def test_merge_undo_restores_child_positions(db):
@@ -346,14 +415,68 @@ def test_merge_redo_matches_forward_child_order(db):
     assert forward_positions == list(range(len(forward_positions)))
 
 
+def test_merge_parent_into_labeled_leaf_undo_redo_restores_labels(db):
+    target = create_issue_type(name="Target", definition="t")
+    source = create_issue_type(name="Source", definition="s")
+    kid = create_issue_type(name="Kid", definition="k", parent_id=source.id)
+    with get_session() as session:
+        session.add(ProofreadingComment(
+            id="c-tgt", project_id="p", source_type="latex_command", source_command="myremark",
+            file_path="main.tex", line_number=1, raw_text="on target", fingerprint="fp-tgt-hist",
+            status="active", quality="unreviewed",
+        ))
+        session.add(Coding(
+            id="k-tgt", comment_id="c-tgt", issue_type_id=target.id, coder_type="human",
+            status="accepted",
+        ))
+        session.add(ProofreadingComment(
+            id="c-src", project_id="p", source_type="latex_command", source_command="myremark",
+            file_path="main.tex", line_number=2, raw_text="on source", fingerprint="fp-src-hist",
+            status="active", quality="unreviewed",
+        ))
+        session.add(Coding(
+            id="k-src", comment_id="c-src", issue_type_id=source.id, coder_type="human",
+            status="accepted",
+        ))
+        session.commit()
+    merge_issue_types(source_ids=[source.id], target_id=target.id)
+    undo()
+    with get_session() as session:
+        assert session.get(Coding, "k-tgt").issue_type_id == target.id
+        assert session.get(Coding, "k-src").issue_type_id == source.id
+        assert session.get(IssueType, kid.id).parent_id == source.id
+        assert session.get(IssueType, source.id).status == "active"
+        extras = [
+            row for row in session.find(IssueType)
+            if row.parent_id == target.id and row.status == "active"
+        ]
+        assert extras == []
+    redo()
+    with get_session() as session:
+        kids = _active_siblings(target.id)
+        ungrouped = next(row for row in kids if row.name == "ungrouped")
+        assert session.get(IssueType, kid.id).parent_id == target.id
+        assert session.get(IssueType, source.id).status == "inactive"
+        assert session.get(Coding, "k-tgt").issue_type_id == ungrouped.id
+        assert session.get(Coding, "k-src").issue_type_id == ungrouped.id
+
+
 def test_split_undo_then_create_appends_last(db):
     create_issue_type(name="Alpha", definition="")
     middle = create_issue_type(name="Zeta", definition="")
     create_issue_type(name="Gamma", definition="")
-    split_issue_type(
-        middle.id,
-        left={"name": "Zeta Left", "definition": "l"},
-        right={"name": "Zeta Right", "definition": "r"},
+    apply_split(
+        source_id=middle.id,
+        plan=SplitPlan(
+            types=[
+                {"name": "Zeta Left", "definition": "l"},
+                {"name": "Zeta Right", "definition": "r"},
+            ],
+            assignments=[
+                {"comment_id": "c1", "type_index": 0},
+                {"comment_id": "c2", "type_index": 1},
+            ],
+        ),
     )
     undo()
     created = create_empty_issue_type(parent_id=None)
@@ -367,37 +490,79 @@ def test_split_redo_matches_forward_sibling_order(db):
     create_issue_type(name="Alpha", definition="")
     middle = create_issue_type(name="Zeta", definition="")
     create_issue_type(name="Gamma", definition="")
-    split_issue_type(
-        middle.id,
-        left={"name": "Zeta Left", "definition": "l"},
-        right={"name": "Zeta Right", "definition": "r"},
+    apply_split(
+        source_id=middle.id,
+        plan=SplitPlan(
+            types=[
+                {"name": "Zeta Left", "definition": "l"},
+                {"name": "Zeta Right", "definition": "r"},
+            ],
+            assignments=[
+                {"comment_id": "c1", "type_index": 0},
+                {"comment_id": "c2", "type_index": 1},
+            ],
+        ),
     )
     forward = [row.name for row in _active_siblings(None)]
     undo()
     redo()
     after = _active_siblings(None)
     assert [row.name for row in after] == forward
-    assert [row.position for row in after] == [0, 1, 2, 3]
+    assert [row.position for row in after] == [0, 1, 2]
     created = create_empty_issue_type(parent_id=None)
     roots = _active_siblings(None)
     assert roots[-1].name == "New type"
-    assert created.position == 4
-    assert [row.position for row in roots] == [0, 1, 2, 3, 4]
+    assert created.position == 3
+    assert [row.position for row in roots] == [0, 1, 2, 3]
 
 
-def test_split_redo_keeps_pair_before_later_sibling(db):
+def test_split_redo_keeps_children_under_source(db):
     first = create_issue_type(name="Zeta", definition="")
     create_issue_type(name="Gamma", definition="")
-    split_issue_type(
-        first.id,
-        left={"name": "Zeta Left", "definition": "l"},
-        right={"name": "Zeta Right", "definition": "r"},
+    apply_split(
+        source_id=first.id,
+        plan=SplitPlan(
+            types=[
+                {"name": "Zeta Left", "definition": "l"},
+                {"name": "Zeta Right", "definition": "r"},
+            ],
+            assignments=[
+                {"comment_id": "c1", "type_index": 0},
+                {"comment_id": "c2", "type_index": 1},
+            ],
+        ),
     )
     forward = [row.name for row in _active_siblings(None)]
     undo()
     redo()
     assert [row.name for row in _active_siblings(None)] == forward
-    assert [row.position for row in _active_siblings(None)] == [0, 1, 2]
+    assert [row.position for row in _active_siblings(None)] == [0, 1]
+    assert [row.name for row in _active_siblings(first.id)] == ["Zeta Left", "Zeta Right"]
+
+
+def test_legacy_split_payload_still_inverts(db):
+    source = create_issue_type(name="Source", definition="")
+    left = create_issue_type(name="Left", definition="")
+    right = create_issue_type(name="Right", definition="")
+    with get_session() as session:
+        row = session.get(IssueType, source.id)
+        row.status = "inactive"
+        session.add(row)
+        record(
+            session,
+            "split",
+            {
+                "source_id": source.id,
+                "created_ids": [left.id, right.id],
+                "deleted_codings": [],
+            },
+        )
+        session.commit()
+    undo()
+    with get_session() as session:
+        assert session.get(IssueType, source.id).status == "active"
+        assert session.get(IssueType, left.id).status == "inactive"
+        assert session.get(IssueType, right.id).status == "inactive"
 
 
 def test_edit_does_not_log_move(db):
@@ -408,11 +573,39 @@ def test_edit_does_not_log_move(db):
     client = TestClient(create_app())
     response = client.post(
         f"/api/taxonomy/{issue.id}/edit",
-        json={"definition": "A claim exceeds the evidence.", "notes": ""},
+        json={"definition": "A claim exceeds the evidence."},
     )
     assert response.status_code == 200
     assert "move" not in _event_types()
     assert "edit" in _event_types()
+
+
+def test_undo_edit_ignores_notes_in_legacy_payload(db):
+    issue = create_issue_type(name="Overclaiming", definition="new def")
+    with get_session() as session:
+        record(
+            session,
+            "edit",
+            {
+                "issue_type_id": issue.id,
+                "before": {
+                    "definition": "old def",
+                    "notes": "Watch epistemic verbs.",
+                    "detection_guidance": None,
+                },
+                "after": {
+                    "definition": "new def",
+                    "notes": "Watch epistemic verbs.",
+                    "detection_guidance": None,
+                },
+            },
+        )
+        session.commit()
+    undo()
+    with get_session() as session:
+        row = session.get(IssueType, issue.id)
+        assert row.definition == "old def"
+        assert "notes" not in row.model_dump()
 
 
 def test_accept_is_logged_and_undo_returns_to_inbox(db, tmp_path):

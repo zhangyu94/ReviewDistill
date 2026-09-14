@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { afterMergeNavigation, allowChangeDrop, changeIssueOptions, clearIssueBeforeLoad, entryMode, groupIdFromRoute, inboxItemFromObservation, inspectorKind, issueIdAfterLeave, issueLoadErrorView, labeledTypeIdForComment, shouldApplyIssueLoad, showAssignType, taxonClickHref, thisTypeHref, typeRouteAfterDeactivate, typeRouteAfterRemove, typeSelectorLabel, unlabeledSelectorLabel } from './workbenchMode.ts'
+import { afterHomeChange, afterMergeNavigation, afterTypeTreeChangeParts, allowChangeDrop, clearIssueBeforeLoad, entryMode, homeSaveFollowUpOrder, inboxItemFromObservation, inspectorKind, issueIdAfterLeave, issueLoadErrorView, labeledTypeIdForComment, selectGroupHref, shouldApplyIssueLoad, showAssignType, typeRouteAfterDeactivate, typeRouteAfterRemove } from './workbenchMode.ts'
 
 describe('workbenchMode', () => {
   it('uses the unlabeled queue on the inbox route', () => {
@@ -20,25 +20,6 @@ describe('workbenchMode', () => {
     expect(allowChangeDrop(true, 'change')).toBe(false)
     expect(allowChangeDrop(false, 'merge')).toBe(true)
     expect(allowChangeDrop(true, 'merge')).toBe(true)
-  })
-
-  it('uses the path id for Issue Details', () => {
-    expect(groupIdFromRoute('from-path', 'from-query')).toBe('from-path')
-    expect(groupIdFromRoute('', 'from-query')).toBe('')
-  })
-
-  it('opens a type from the groups panel on /taxonomy/:id', () => {
-    expect(taxonClickHref('t1')).toBe('/taxonomy/t1')
-    expect(thisTypeHref('t1')).toBe('/taxonomy/t1')
-    expect(thisTypeHref('')).toBe('')
-  })
-
-  it('labels the type chip with name and count', () => {
-    expect(typeSelectorLabel('Overclaiming', 3)).toBe('Overclaiming (3)')
-  })
-
-  it('labels the Unlabeled chip without a count', () => {
-    expect(unlabeledSelectorLabel()).toBe('Unlabeled')
   })
 
   it('offers Accept only for unlabeled comments', () => {
@@ -148,14 +129,6 @@ describe('workbenchMode', () => {
     expect(item.issue).toEqual(child)
   })
 
-  it('keeps the current type in the assign menu', () => {
-    const issues = [
-      { id: 'a', name: 'A', parent_id: null },
-      { id: 'b', name: 'B', parent_id: null },
-    ]
-    expect(changeIssueOptions(issues).map((row) => row.id)).toEqual(['a', 'b'])
-  })
-
   it('leaves the type route only when the viewed type was deactivated', () => {
     expect(typeRouteAfterDeactivate('t1', 't1')).toBe('/')
     expect(typeRouteAfterDeactivate('t1', 't2')).toBeNull()
@@ -173,6 +146,23 @@ describe('workbenchMode', () => {
     expect(issueIdAfterLeave(null, 't1')).toBe('t1')
   })
 
+  it('resets the workbench after switching the data folder', () => {
+    expect(afterHomeChange()).toEqual({ href: '/', issueId: '' })
+  })
+
+  it('reloads the workbench before assistant settings after a data-folder save', () => {
+    expect(homeSaveFollowUpOrder()).toEqual(['reload', 'llm'])
+  })
+
+  it('keeps the type chip off when selecting a type with Unlabeled on', () => {
+    expect(selectGroupHref('abc', true)).toBe('/taxonomy/abc?unlabeled=1&typechip=0')
+    expect(selectGroupHref('abc', false)).toBe('/taxonomy/abc')
+  })
+
+  it('reloads comments after a taxonomy tree change that can move labels', () => {
+    expect(afterTypeTreeChangeParts()).toEqual({ taxonomy: true, issue: true, inbox: true })
+  })
+
   it('loads the merge target instead of the viewed source', () => {
     expect(afterMergeNavigation({ unlabeled: false, detailsId: 'source' }, 'target', '', 'source', 'source')).toEqual({
       href: '/taxonomy/target',
@@ -185,7 +175,7 @@ describe('workbenchMode', () => {
       replace: false,
     })
     expect(afterMergeNavigation({ unlabeled: true, detailsId: '' }, 'target', 'c1')).toEqual({
-      href: '/taxonomy/target?unlabeled=1&id=c1',
+      href: '/taxonomy/target?unlabeled=1&typechip=0&id=c1',
       issueId: 'target',
       replace: true,
     })

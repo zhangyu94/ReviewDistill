@@ -19,7 +19,7 @@ Over multiple papers and multiple review sessions, these observations are progre
 * relationships between issue types
 * eventually, machine-detectable review rules
 
-The resulting knowledge can be exported as a review rubric for coding agents such as Cursor.
+The resulting knowledge can be exported as a review skill for coding agents such as Cursor.
 
 2. Core Concept
 
@@ -51,7 +51,7 @@ Operational Definitions + Examples
         ▼
 Reusable Review Knowledge
         │
-        ├──────────────► Coding-agent review rubric
+        ├──────────────► Coding-agent review skill
         │
         └──────────────► Future AI-assisted coding
 
@@ -172,9 +172,9 @@ ReviewDistill identifies new comments and extracts:
 
 Step 4 — AI-assisted coding
 
-In `reviewdistill serve`, **Label with AI** in the Comments header (shown whenever unlabeled comments still need proposals, even if the Unlabeled chip is off). A thin progress bar at the top of the window runs until the batch finishes.
+In `reviewdistill ui`, **Label with AI** in the Comments header (shown whenever unlabeled comments still need proposals, even if the Unlabeled chip is off). A thin progress bar at the top of the window runs until the batch finishes.
 
-Header **Settings** (next to History and Export) has two panels. **Assistant** writes `llm.provider` / `llm.model` to the ReviewDistill home `config.yaml` and the matching API key to that folder’s `.env` (gitignored). **Data** shows the home folder (same as `reviewdistill paths`) and a copy-path button; it does not Save. Backup and `paths move` / `paths use` are in that folder’s `README.md`. Opening Settings always lands on Assistant. The Unlabeled empty state **Configure LLM** opens the same dialog. GET `/api/llm-settings` returns the saved key (`api_key`) so Settings can show it (password + show/hide); it reads home files only (not `REVIEWDISTILL_LLM_*`). File editing still works. Label with AI is store-wide, so leftover paper `llm:` / `.env` are ignored. Process environment still wins over `.env`. `REVIEWDISTILL_LLM_PROVIDER` / `REVIEWDISTILL_LLM_MODEL` override home YAML at run time. Do not write `llm.api_key` into YAML; do not store keys in the JSONL store.
+Header **Settings** (next to History and Export) has two panels. **Assistant** writes `llm.provider` / `llm.model` to the ReviewDistill home `config.yaml` and the matching API key to that folder’s `.env` (gitignored). **Data** shows the home folder (same as `reviewdistill paths`) in an editable field, or **Choose…** to pick a folder; **Save** is `paths use` (points at that folder, does not copy files). **Open folder** reveals it in the file manager. Backup and `paths move` are in that folder’s `README.md`. Opening Settings always lands on Assistant. The Unlabeled empty state **Configure LLM** opens the same dialog. GET `/api/llm-settings` returns the saved key (`api_key`) so Settings can show it (password + show/hide); it reads home files only (not `REVIEWDISTILL_LLM_*`). File editing still works. Label with AI is store-wide, so leftover paper `llm:` / `.env` are ignored. Process environment still wins over `.env`. `REVIEWDISTILL_LLM_PROVIDER` / `REVIEWDISTILL_LLM_MODEL` override home YAML at run time. Do not write `llm.api_key` into YAML; do not store keys in the JSONL store.
 
 `reviewdistill paths use DIR` persists `DIR` in `~/.config/reviewdistill/home` so later CLI commands use that folder. `reviewdistill paths move DIR` copies the current home (JSONL files, `config.yaml`, `.env`) into an empty `DIR`, then uses it; it leaves the old folder in place and refuses if the store is busy.
 
@@ -226,6 +226,8 @@ New: Insufficient methodological justification  Why?  [Accept]
 [Choose a type… ▾]
 Quality
 [Verify] [Drop]
+Location
+file, line, heading, …
 ────────────────────────────────────────
 
 A stored proposal stays until Accept or a type is picked in the menu. Selecting a type assigns it; there is no Change button. The menu shows the current type when the comment is labeled. Label with AI does not have to be clicked again this session. An existing-type id that is not in the active taxonomy is **No AI suggestion**, not a fake title. A new proposal without `issue_name` is also **No AI suggestion**, is not stored, and stays in the Label with AI queue. An accepted coding on an inactive type is unlabeled and stays in that queue too.
@@ -648,20 +650,22 @@ The central screen is Issue Taxonomy, Issue Details, and Comments on one screen 
 Example:
 
 ```
-ReviewDistill · History · Settings · Export
+ReviewDistill                          History · Settings · Export    GitHub  Docs
 ────────────────────────────────────────
 Selectors  [Unlabeled ×]  ∩  [Missing introduction (17) ×]          [Unlabeled]
 ────────────────────────────────────────
-[ Issue Taxonomy | Issue Details ]     [ Comments ]
-  Argumentation    Overclaiming          17 total
-    Overclaiming   Definition
-      Causal lang  Rename / Split
+[ Issue Taxonomy          ]     [ Comments ]
+  Argumentation                  17 matching · 42 to distill
+    Overclaiming
+      Causal lang
   Clarity
+[ Issue Details           ]
+  Definition
 ────────────────────────────────────────
 Progress  42 to distill    unlabeled 8 · verified 40 · dropped 2
 ```
 
-The top bar stays on this screen. **History**, **Settings**, and **Export** are on the right; History and Settings open dialogs. Export opens a format picker plus a checkbox tree of types to include. Selectors are chips on the left. The right-hand Unlabeled control toggles a left-hand Unlabeled chip and is never pressed. Present chips AND. No chips: Comments lists comments to distill. Clicking a type opens Issue Details and replaces the type chip; it does not clear Unlabeled. × on the type chip sets `typechip=0` and keeps `/taxonomy/:id`. Unlabeled and issue groups share this one screen.
+The top bar stays on this screen. **History**, **Settings**, and **Export** are chips on the right; History and Settings open dialogs. Export opens a format picker plus a checkbox tree of types to include. **GitHub** and **Docs** sit further right as text links and open the repository and documentation website in a new tab. Selectors are chips on the left. The right-hand Unlabeled control toggles a left-hand Unlabeled chip and is never pressed. Present chips AND. No chips: Comments lists comments to distill. Clicking a type opens Issue Details and does not clear Unlabeled. If Unlabeled is off, the type chip is that type. If Unlabeled is on, the type chip stays off (`typechip=0`) so Comments stays the unlabeled queue (Unlabeled ∧ type is almost always empty). Hover **+** and merge use the same rule. × on the type chip sets `typechip=0` and keeps `/taxonomy/:id`. Toggling Unlabeled keeps the current type-chip state. Unlabeled and issue groups share this one screen.
 
 | URL | Issue Details | Unlabeled chip | Type chip |
 | --- | --- | --- | --- |
@@ -672,13 +676,13 @@ The top bar stays on this screen. **History**, **Settings**, and **Export** are 
 | `/taxonomy/:id?typechip=0` | that type | off | none |
 | `/taxonomy/:id?unlabeled=1&typechip=0` | that type | on | none |
 
-`typechip=0` is only set when the user × the type chip. Clicking a type removes it and puts the type chip back. `?id=` still names the open comment.
+`typechip=0` means Issue Details is open and the type chip is off. Selecting a type (click, hover **+**, merge) writes it when Unlabeled is on; × on the type chip always writes it; split always lands Unlabeled on and the type chip off. Clicking a type while Unlabeled is off omits `typechip=0` (type chip on). `?id=` still names the open comment.
 
-Selectors and Progress span the window. Under Selectors, two cards: Issues (Issue Taxonomy | Issue Details, about 38rem) and Comments (remaining width). Clicking a type opens Issue Details and replaces the type chip. That chip ANDs with Unlabeled if Unlabeled is on. The Comments header shows the match count and **Label with AI** whenever unlabeled comments still need proposals. The open comment is the highlighted row (list) or the inspector plus pager (one-at-a-time); it is not a second count.
+Selectors and Progress span the window. Under Selectors, two cards: Issues (Issue Taxonomy over Issue Details) and Comments, equal width. Clicking a type opens Issue Details. The type chip turns on only when Unlabeled is off; with Unlabeled on it stays off so the unlabeled queue is not ANDed empty. The Comments header shows **N to distill** with no chips, or **N matching · M to distill** when chips AND (not dropped + to distill). **Label with AI** appears whenever unlabeled comments still need proposals. The open comment is the highlighted row (list) or the inspector plus pager (one-at-a-time); it is not a second count.
 
 A bottom Progress strip is display-only. The headline is the count of comments to distill. unlabeled is comments to distill with no type (labeled is the rest of those comments). verified is quality-assured comments to distill (the rest of those comments are still unreviewed). dropped is not to distill. The Unlabeled chip has no count. With no chips, Comments lists comments to distill. With only Unlabeled, Comments is the inbox queue (unlabeled comments to distill plus left-the-manuscript + unreviewed), not `progress.unlabeled`. The strip is not clickable.
 
-The Comments panel can switch between a list of comments and a single comment. The list shows truncated text so you can scan, and shows a **Left the manuscript** chip when the remark is no longer in the `.tex` file. The single-comment view shows the full text, manuscript context, location, and record metadata. **Accept** applies the AI suggestion. Picking a type in the menu assigns or changes it (there is no Change button and no Reject: not accepting a suggestion leaves the comment unlabeled). **Verify** and **Drop** stamp quality, independent of the label.
+The Comments panel can switch between a list of comments and a single comment. The list shows truncated text so you can scan, the assigned **leaf issue type(s)** when the comment has them, and a **Left the manuscript** chip when the remark is no longer in the `.tex` file. The single-comment view shows the full text, manuscript context, location, and record metadata. **Accept** applies the AI suggestion. Picking a type in the menu assigns or changes it (there is no Change button and no Reject: not accepting a suggestion leaves the comment unlabeled). **Verify** and **Drop** stamp quality, independent of the label.
 
 Present chips AND. Sure/Unsure confidence chips are not in this product. Counterexamples are not collected in Issue Details (they are not available from LaTeX annotations). **Remove** (undoable) is how a type leaves the live taxonomy. There is no Deactivate control.
 
@@ -686,39 +690,43 @@ Present chips AND. Sure/Unsure confidence chips are not in this product. Counter
 
 15. Taxonomy View
 
-Issue Taxonomy and Issue Details are the same screen as Comments. Issue Taxonomy stays on the left; Issue Details stays in the middle. Clicking an issue type selects it: Issue Details shows the definition, a type chip named with its name (for example `Missing introduction (17)`) replaces any previous type chip, and Comments ANDs that subtree with any other chips. Unlabeled stays on if it was on.
+Issue Taxonomy and Issue Details are the same screen as Comments. Issue Taxonomy is the top of the Issues card; Issue Details is a compact strip under the tree. Clicking an issue type selects it: Issue Details shows the name and definition. Unlabeled stays on if it was on. If Unlabeled is off, a type chip named with that type (for example `Missing introduction (17)`) replaces any previous type chip and Comments is that subtree. If Unlabeled is on, the type chip stays off so Comments stays the unlabeled queue.
 
 ```
 Selectors  [Unlabeled ×]  ∩  [Missing introduction (17) ×]          [Unlabeled]
-[ Issue Taxonomy | Issue Details ]     [ Comments ]
-  Argumentation     17  Argumentation    17 total
-    Overclaiming    12  Definition
+[ Issue Taxonomy          ]     [ Comments ]
+  Argumentation     17            17 matching · 42 to distill
+    Overclaiming    12
       Causal lang    5
+[ Issue Details           ]
+  Overclaiming
+  A claim is stronger than the evidence supports.
 ────────────────────────────────────────
 Progress  42 to distill    unlabeled 8 · verified 40 · dropped 2
 ```
 
+The taxonomy tree is full width of the Issues card and takes leftover height (names still `truncate` if they overflow). Issue Details is a compact `shrink-0` strip under the tree; a long definition scrolls inside the strip (`max-h-40`) so the forest keeps most of the card. View is the name as a title line, then the definition as prose — no **Name** / **Definition** / **Issue type** kickers. The strip stays when nothing is selected (“Select a group.” / “This issue type was not found.”) so the card does not jump.
+
 Issue Details does not repeat comment text and does not collect counterexamples. Labeled comments in the Comments panel are the examples. A comment is labeled only when its accepted type is still active. Export lives in the header: format plus an indented checkbox tree of active types (each node independent; all checked to start). Download writes only the checked ids. Unchecked types stay in the taxonomy. `GET /api/taxonomy/export?id=` (repeatable) and `reviewdistill export --id` are the same filter.
 
-Drag an unlabeled comment onto a **leaf**: same as picking that type in the menu. Dropping onto a parent is ignored (Accept and the type menu can still label a parent).
+Drag an unlabeled comment onto a **leaf**: same as picking that type in the menu. Dropping onto a parent is ignored. The type menu lists leaves only (Accept and Label with AI the same).
 Drag a type onto the top or bottom of another row: reorder as a sibling (`before` / `after`).
 Drag onto the middle of a row: nest as a child (`inner`).
 On a leaf, a **merge** chip appears while dragging a type; dropping on the chip merges (source into target; source children are reparented onto the target).
-Header **+** adds a root type. Hover **+** adds a child. Flatten reassigns descendant comments onto the node and deactivates descendants. Remove deletes the subtree (undoable). Split stays in Issue Details and creates two siblings under the same parent. Rename and definition editing are in-place on the Issue type and Definition panels. The inspector path (`Root / … / This`) is read-only. There is no Deactivate control; flatten / split / merge may still retire types as part of those actions.
+Header **+** adds a root type. Header fork (enabled only when the forest is empty, at least two unlabeled working-set comments exist, and an LLM is configured) creates root types from those comments. Header fork includes unlabeled comments that already have an AI proposal (unlike Label with AI, which skips those). Hover **+** on a **leaf** adds `New type` and `ungrouped`, and reassigns that leaf’s labels onto `ungrouped` (one history event). Hover **+** on a parent only adds `New type`. Hover fork on a leaf with at least two labeled comments keeps that type as parent and creates N ≥ 2 children. The model names and defines each type and proposes a child per comment; it does not rewrite the parent. One prompt per split; invalid or incomplete JSON writes nothing. Drop unused model types; fail the whole call if fewer than two assigned types remain. Accept / Change in Comments review those placements. After a successful split, Unlabeled is on and the type chip is off (`typechip=0`) so Comments lists proposals (a type chip only shows accepted labels). `POST /api/taxonomy/split` is header bootstrap (registered next to merge so `split` is not parsed as an id); `POST /api/taxonomy/{id}/split` is leaf split with no body. Flatten reassigns descendant comments onto the node and deactivates descendants. Remove deletes the subtree (undoable). One **Edit** on the Issue Details header edits name and definition together. **Edit** shows labeled Name and Definition; **Save** is disabled when either is blank after trim; **Cancel** restores both. Save calls `POST /api/taxonomy/{id}/rename` and/or `POST /api/taxonomy/{id}/edit` only for fields that changed (two requests, not one transaction). Issue Details does not show `detection_guidance` (retrieval still concatenates it). Issue Details does not repeat the taxonomy path. There is no Deactivate control; flatten / split / merge may still retire types as part of those actions.
 The tree defaults to expanded. The chevron expands or collapses; clicking the **name** selects (it does not expand).
 Drag uses native HTML5 only.
 
 The Comments header has list / one-comment controls. The list is for scanning. One comment shows context and metadata, with prev / pager / next at the bottom (one comment per page).
 
 Overclaiming
-Definition
 A claim is stronger than the evidence supports.
 
 ⸻
 
 16. Taxonomy Evolution View
 
-History is a chronological log of taxonomy mutations and labeling verdicts (the `taxonomy_events` table). The History dialog lists each event with a short summary and the raw payload JSON. **Undo** and **Redo** invert or reapply the tip of the log. They mark the row undone (`undone` column) rather than appending a new event. A new forward action deletes the redo tail. Undo/Redo act on the tip, not on a selected row. Jump-to-event restore is out of scope.
+History is a chronological log of taxonomy mutations and labeling verdicts (the `taxonomy_events` table). The History dialog lists each event with a short summary. Rows that have extra information (comment text, a saved definition, merge/split names, a move destination) show a chevron that expands those details in place. **Undo** and **Redo** invert or reapply the tip of the log. They mark the row undone (`undone` column) rather than appending a new event. A new forward action deletes the redo tail. Undo/Redo act on the tip, not on a selected row. Jump-to-event restore is out of scope.
 
 Label with AI is one `propose` event for the batch. Accept of a newly created issue type is `add` then `accept`; Undo Accept first. Old `merge`/`split` rows without invert payload fields cannot be undone (Undo disabled while they are the tip).
 
@@ -726,20 +734,24 @@ Label with AI is one `propose` event for the batch. Accept of a newly created is
 |------|------|------|
 | `add` | New issue type | Deactivate that type |
 | `rename` | Name change | Restore `before` |
-| `edit` | Definition/notes | Restore `before` |
+| `edit` | Definition (`before`/`after` have `definition` and `detection_guidance`; leftover `notes` ignored) | Restore `before` |
 | `move` | Parent/position change (`from_parent_id` / `to_parent_id`) | Move back |
 | `flatten` | Descendants deactivated; their comments reassigned to this type | Reactivate descendants; restore labels |
 | `remove` | Delete subtree (payload includes type/coding dumps) | Restore the dump |
 | `deactivate` | Deactivate (children become siblings; labeled comments on this type return to Unlabeled) | Reactivate; restore child parents and labels |
 | `merge` | Merge (payload includes reassigned ids; source children reparented) | Reactivate sources; move rows back |
-| `split` | Split (payload includes deleted coding dumps) | Reactivate source; deactivate created types; restore codings |
+| `split` | LLM split (`keep_source: true`): parent stays; `source_id` is the leaf (omitted for header bootstrap); `created_ids` stay in the store (deactivated on undo); restore `deleted_codings`; delete `created` proposals; restore `replaced`. Legacy rows without `keep_source`: reactivate source; deactivate created types; restore deleted codings |
 | `propose` | Label with AI | Delete created proposed rows; restore any it replaced |
 | `accept` | Accept | Coding back to proposed; delete example if this accept created it |
 | `change` | Change | Delete human coding; restore proposal; delete example if created |
 | `verify` | Verify | Restore `previous_quality` |
 | `drop` | Drop | Restore `previous_quality` |
 
-`GET /api/history` — events newest first, each with `undone` and `summary`; top-level `can_undo`, `can_redo`. `POST /api/history/undo` and `POST /api/history/redo` — `{ ok: true }` or 400 if nothing to do / cannot invert.
+`GET /api/history` — events newest first, each with `undone`, `summary`, and `details`: `{ explanation, comments: [{ text, type_name }], quotes: [{ heading, body }] }`. `payload` remains on the API for undo internals and is not shown in the UI. Top-level `can_undo`, `can_redo`. `POST /api/history/undo` and `POST /api/history/redo` — `{ ok: true }` or 400 if nothing to do / cannot invert.
+
+`details` is built on the server at list time (`reviewdistill/history_details.py`) from the payload plus batched lookups. The client does not construct sentences or join rows. Payload names (`name`, `ungrouped_name`, `before`/`after`, type dumps on `remove`) take precedence over live rows so rename/add/remove stay accurate without a live type. Names are not snapshotted onto newly recorded events; a later rename can change the name shown for an old event that did not store one. `explanation` has no UUIDs. `quotes` are used for `edit` (saved definition; detection guidance only if it changed). `type_name` is `null` when there is no type to caption (Verify, Drop, unlabeled after remove, legacy sibling split). Failure to build `details` for one event falls back to `{ explanation: summary, comments: [], quotes: [] }` and does not fail the list.
+
+Missing comment: skip it in batch lists (`propose`, flatten, merge, `keep_source` split); for a single-comment event (`accept`, `change`, `verify`, `drop`) show “Comment is no longer available.” Missing type: a payload name if any, otherwise “a type that is no longer available.” Unknown event types use `event_type` as the explanation.
 
 A sophisticated visualization of splits and merges is not required for v0.1.
 
@@ -761,7 +773,7 @@ reviewdistill export
 
 Export reusable review knowledge.
 
-reviewdistill serve
+reviewdistill ui
 
 Start the local web UI.
 
@@ -777,9 +789,17 @@ Use the distilled knowledge to review a new manuscript.
 
 The exported review knowledge should be human-readable and usable by coding agents.
 
-For example:
+Markdown is an agent skill (`SKILL.md`): YAML frontmatter, a short review procedure, then the issue types. For example:
 
-# Scholarly Review Rubric
+---
+name: scholarly-review
+description: Review a scholarly manuscript against this author's distilled issue taxonomy. Use when proofreading, reviewing, or checking a paper.
+---
+
+# Scholarly Review
+
+Review the manuscript against the issue types below. For each type, flag passages that match the definition and examples. Do not flag counterexamples.
+
 ## Overclaiming
 ### Definition
 Flag claims whose strength exceeds the evidence presented.
@@ -790,13 +810,13 @@ Flag claims whose strength exceeds the evidence presented.
 Do not flag strong claims when the experimental design directly
 supports the stated conclusion.
 
-A YAML/JSON representation should also be supported for programmatic use. Those formats are a flat list of types with `parent_id` (null for roots), not a nested `children` blob. Markdown may show a `Parent:` line by parent name.
+A YAML/JSON representation should also be supported for programmatic use. Those formats are a taxonomy dump: a flat list of types with `parent_id` (null for roots), not a nested `children` blob. Markdown may show a `Parent:` line by parent name.
 
 ⸻
 
 19. Coding-Agent Integration
 
-The exported taxonomy should be usable by tools such as Cursor.
+The exported Markdown skill should be usable by tools such as Cursor. Put `SKILL.md` in `.cursor/skills/scholarly-review/` (or the equivalent for another agent).
 
 Conceptually:
 
@@ -804,7 +824,7 @@ ReviewDistill
      │
      │ export
      ▼
-review-rubric.md
+SKILL.md
      │
      ▼
 Coding Agent
@@ -819,6 +839,8 @@ The coding agent should not simply receive a list of labels.
 
 It should receive:
 
+When to apply the skill
+How to apply it
 Issue
 Definition
 Examples
@@ -978,7 +1000,7 @@ Frontend
 
 * Vue 3 + TypeScript SPA (`client/`)
 * FastAPI JSON under `/api`
-* `reviewdistill serve` serves the built SPA (no Node at runtime)
+* `reviewdistill ui` serves the built SPA (no Node at runtime)
 
 However, simplicity is more important than these specific technologies.
 
@@ -988,9 +1010,9 @@ However, simplicity is more important than these specific technologies.
 
 reviewdistill/
 │
-├── cli/          init, extract, export, serve
+├── cli/          init, extract, export, ui
 ├── extraction/   LaTeX comments + incremental match
-├── coding/       AI propose, retrieve, validate, cluster
+├── coding/       AI propose, retrieve, validate
 ├── taxonomy/     issue types, merge/split, export
 ├── context/      manuscript neighborhood
 ├── llm/          provider interface
@@ -1108,15 +1130,15 @@ The prototype is successful if the following workflow works end-to-end:
        reviewdistill extract
 5. ReviewDistill automatically finds the comments.
 6. It extracts manuscript context.
-7. In `reviewdistill serve`, Label with AI.
+7. In `reviewdistill ui`, Label with AI.
 8. AI proposes codes using the accumulated taxonomy.
 9. The reviewer rapidly labels comments (Accept or pick a type) and stamps quality (Verify / Drop).
 10. The taxonomy accumulates examples and definitions.
 11. Review a second paper.
 12. The accumulated taxonomy improves the coding of its comments.
 13. Export:
-       review-rubric.md
-14. Use the rubric with a coding agent to review a new paper.
+       SKILL.md
+14. Use the skill with a coding agent to review a new paper.
 
 The key demonstration is therefore not merely that AI can classify proofreading comments.
 

@@ -3,6 +3,14 @@ import type { HistoryEvent } from '../../api/client.ts'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { fetchHistory, redoHistory, undoHistory } from '../../api/client.ts'
+import {
+  historyDetailsOf,
+  historyEventHasExtra,
+  historyHasComments,
+  historyHasQuotes,
+  historyShowExplanation,
+} from '../../workbench/historyDetails.ts'
+import { formatHistoryTime } from '../../workbench/historyTime.ts'
 import { useWorkbenchStore } from '../../workbench/workbenchStore.ts'
 
 const store = useWorkbenchStore()
@@ -13,16 +21,17 @@ const canUndo = ref(false)
 const canRedo = ref(false)
 const busy = ref(false)
 const error = ref('')
-const selectedId = ref('')
-const selected = computed(() => events.value.find((event) => event.id === selectedId.value))
+const expandedId = ref('')
+const expandedEvent = computed(() => events.value.find((event) => event.id === expandedId.value))
+const expandedDetails = computed(() => expandedEvent.value ? historyDetailsOf(expandedEvent.value) : null)
 
 async function load() {
   const body = await fetchHistory()
   events.value = body.events
   canUndo.value = body.can_undo
   canRedo.value = body.can_redo
-  if (!events.value.some((event) => event.id === selectedId.value)) {
-    selectedId.value = events.value[0]?.id ?? ''
+  if (!events.value.some((event) => event.id === expandedId.value)) {
+    expandedId.value = ''
   }
 }
 
@@ -32,6 +41,11 @@ async function show() {
 
 function hide() {
   open.value = false
+  expandedId.value = ''
+}
+
+function toggle(id: string) {
+  expandedId.value = expandedId.value === id ? '' : id
 }
 
 watch(open, (value) => {
@@ -63,7 +77,7 @@ async function wrap(fn: () => Promise<unknown>) {
 
 <template>
   <button
-    class="ch-chip ch-chip-idle ml-auto gap-1"
+    class="ch-chip ch-chip-idle gap-1"
     type="button"
     title="Chronological log of taxonomy and coding changes"
     @click="show"
@@ -76,7 +90,7 @@ async function wrap(fn: () => Promise<unknown>) {
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     @click.self="hide"
   >
-    <div class="flex h-[min(36rem,80vh)] w-full max-w-4xl flex-col overflow-hidden rounded-[4px] border border-[var(--ch-color-border)] bg-[var(--ch-color-background)] text-xs shadow-lg">
+    <div class="flex h-[min(36rem,80vh)] w-full max-w-2xl flex-col overflow-hidden rounded-[4px] border border-[var(--ch-color-border)] bg-[var(--ch-color-background)] text-xs shadow-lg">
       <div class="flex shrink-0 items-center gap-1.5 border-b border-[var(--ch-color-border)] px-3 py-2">
         <h2 class="mr-2 font-semibold">
           History
@@ -116,46 +130,91 @@ async function wrap(fn: () => Promise<unknown>) {
           <span class="i-fa6-solid:xmark h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </div>
-      <div class="flex min-h-0 flex-1">
-        <div class="w-72 shrink-0 overflow-auto border-r border-[var(--ch-color-border)]">
-          <button
-            v-for="event in events"
-            :key="event.id"
-            type="button"
-            class="block w-full border-b border-[var(--ch-color-border)] px-2 py-1.5 text-left"
-            :class="[
-              event.id === selectedId ? 'bg-[var(--ch-color-background-muted)]' : '',
-              event.undone ? 'ch-muted-text' : '',
-            ]"
-            :title="event.undone ? `${event.summary} (undone)` : event.summary"
-            @click="selectedId = event.id"
+      <div class="min-h-0 flex-1 overflow-auto">
+        <div
+          v-for="event in events"
+          :key="event.id"
+          class="border-b border-[var(--ch-color-border)]"
+          :class="event.undone ? 'ch-muted-text' : ''"
+        >
+          <div class="flex items-start">
+            <div class="min-w-0 flex-1 px-3 py-1.5">
+              <div class="uppercase tracking-[0.06em]">
+                {{ event.event_type }}
+              </div>
+              <strong :class="event.undone ? 'font-normal' : ''">{{ event.summary }}</strong>
+              <div class="ch-muted-text" :title="event.created_at">
+                {{ formatHistoryTime(event.created_at) }}
+              </div>
+            </div>
+            <button
+              v-if="historyEventHasExtra(event)"
+              class="ch-btn ch-btn-outline m-1.5 shrink-0 px-1.5"
+              type="button"
+              :title="expandedId === event.id ? 'Hide details' : 'Show details'"
+              :aria-label="expandedId === event.id ? 'Hide details' : 'Show details'"
+              :aria-expanded="expandedId === event.id"
+              @click="toggle(event.id)"
+            >
+              <span
+                class="h-3.5 w-3.5"
+                :class="expandedId === event.id ? 'i-fa6-solid:chevron-down' : 'i-fa6-solid:chevron-right'"
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+          <div
+            v-if="expandedId === event.id && expandedEvent && expandedDetails"
+            class="flex flex-col gap-2 px-3 pb-2"
           >
-            <div class="uppercase tracking-[0.06em]">
-              {{ event.event_type }}
-            </div>
-            <strong :class="event.undone ? 'font-normal' : ''">{{ event.summary }}</strong>
-            <div class="ch-muted-text">
-              {{ event.created_at }}
-            </div>
-          </button>
-          <p v-if="events.length === 0 && !error" class="ch-muted-text p-2">
-            No events.
-          </p>
+            <!-- Server-built details only; do not stringify event.payload. -->
+            <p
+              v-if="historyShowExplanation(expandedDetails.explanation, expandedEvent.summary)"
+            >
+              {{ expandedDetails.explanation }}
+            </p>
+            <section
+              v-if="historyHasQuotes(expandedDetails)"
+              class="flex flex-col gap-2"
+            >
+              <section
+                v-for="(quote, index) in expandedDetails.quotes"
+                :key="`quote-${event.id}-${index}`"
+                class="ch-panel"
+              >
+                <h3 class="ch-kicker">
+                  {{ quote.heading }}
+                </h3>
+                <p class="ch-prose whitespace-pre-wrap">
+                  {{ quote.body }}
+                </p>
+              </section>
+            </section>
+            <section
+              v-if="historyHasComments(expandedDetails)"
+              class="flex flex-col gap-2"
+            >
+              <section
+                v-for="(comment, index) in expandedDetails.comments"
+                :key="`comment-${event.id}-${index}`"
+                class="ch-panel"
+              >
+                <h3 class="ch-kicker mb-0">
+                  Comment
+                </h3>
+                <p v-if="comment.type_name" class="ch-muted-text mb-1.5">
+                  {{ comment.type_name }}
+                </p>
+                <p class="ch-prose whitespace-pre-wrap" :class="comment.type_name ? '' : 'mt-1.5'">
+                  {{ comment.text }}
+                </p>
+              </section>
+            </section>
+          </div>
         </div>
-        <div class="min-h-0 min-w-0 flex-1 overflow-auto p-3">
-          <template v-if="selected">
-            <p class="mb-0.5">
-              <strong>{{ selected.summary }}</strong>
-            </p>
-            <p class="ch-muted-text mb-2">
-              {{ selected.event_type }} · {{ selected.created_at }}
-            </p>
-            <p v-if="selected.undone" class="ch-muted-text mb-2">
-              Undone
-            </p>
-            <pre class="ch-code-block">{{ JSON.stringify(selected.payload, null, 2) }}</pre>
-          </template>
-        </div>
+        <p v-if="events.length === 0 && !error" class="ch-muted-text p-3">
+          No events.
+        </p>
       </div>
     </div>
   </div>

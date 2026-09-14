@@ -1,4 +1,4 @@
-"""Locate the Vue SPA for `reviewdistill serve`."""
+"""Locate the Vue SPA for `reviewdistill ui`."""
 
 from __future__ import annotations
 

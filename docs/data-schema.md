@@ -105,7 +105,7 @@ Path of the `.tex` file relative to the project root, using the extractor’s pa
 
 What the reviewer wrote, after extract-time normalization: strip the command body, drop empty lines, join remaining lines with a single space.
 
-The AI never writes this field. Source-driven **revision** of a still-present comment updates it in place (same `id`). Coding, clustering, and export read it; they do not invent a replacement.
+The AI never writes this field. Source-driven **revision** of a still-present comment updates it in place (same `id`). Coding and export read it; they do not invent a replacement.
 
 #### `context_text`
 
@@ -175,7 +175,7 @@ Unknown values are rejected on `add`, `commit`, and load (`Unknown comment quali
 
 A comment is **to distill** (`in_working_set`) when it is not `dropped`, and either in the manuscript (`status=active`) or `verified`. Progress shows this count as **to distill**; the JSON key remains `working_set`.
 
-AI suggestions, clustering, taxonomy examples, type-chip counts, recent observations, and rubric export use only comments to distill.
+AI suggestions, taxonomy examples, type-chip counts, recent observations, and export use only comments to distill.
 
 Selector views:
 
@@ -199,9 +199,10 @@ Live taxonomy node (`issue_types.jsonl`). The store is a forest: `parent_id` is 
 | `parent_id` | string | yes | null (root) |
 | `position` | int | no | 0 |
 | `definition` | string | no | — |
+| `detection_guidance` | string | yes | null |
 | `status` | `active` / `inactive` | no | `active` |
 
-An active type’s `parent_id` must be an active type; missing, inactive, or cyclic parents fail load. Inactive rows keep last `parent_id` / `position` for undo. Leftover `category` keys in old files are ignored; they are not rewritten and are not promoted into parent types.
+An active type’s `parent_id` must be an active type; missing, inactive, or cyclic parents fail load. Inactive rows keep last `parent_id` / `position` for undo. Leftover `category` and `notes` keys in old files are ignored; they are not rewritten and `category` is not promoted into parent types. `notes` is not a field. `detection_guidance` is used in retrieval and is not shown in Issue Details.
 
 `codings.proposed_parent_id` is the parent for a proposed **new** type (`null` = root). Unknown or inactive ids are treated as root.
 

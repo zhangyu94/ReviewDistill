@@ -40,13 +40,16 @@ def _log(session, event_type: str, payload: dict) -> None:
     record(session, event_type, payload)
 
 
-def _retire_codings_for_types(session, type_ids: set[str]) -> list[dict]:
+def _retire_codings_for_types(
+    session, type_ids: set[str], comment_ids: set[str] | None = None
+) -> list[dict]:
     deleted = []
     labeled_comments = {
         coding.comment_id
         for type_id in type_ids
         for coding in session.find(Coding, issue_type_id=type_id)
         if coding.status == CODING_ACCEPTED
+        and (comment_ids is None or coding.comment_id in comment_ids)
     }
     for comment_id in labeled_comments:
         for row in list(session.find(Coding, comment_id=comment_id)):
@@ -65,8 +68,8 @@ def add_issue_type(
     name: str,
     definition: str,
     parent_id: str | None = None,
-    notes: str | None = None,
     detection_guidance: str | None = None,
+    log: bool = True,
 ) -> IssueType:
     if parent_id is not None:
         parent = session.get(IssueType, parent_id)
@@ -85,12 +88,12 @@ def add_issue_type(
         parent_id=parent_id,
         position=len(siblings),
         definition=definition,
-        notes=notes,
         detection_guidance=detection_guidance,
         status=ISSUE_ACTIVE,
     )
     session.add(issue)
-    record(session, "add", {"issue_type_id": issue.id, "name": name})
+    if log:
+        record(session, "add", {"issue_type_id": issue.id, "name": name})
     return issue
 
 
@@ -99,7 +102,6 @@ def create_issue_type(
     name: str,
     definition: str,
     parent_id: str | None = None,
-    notes: str | None = None,
     detection_guidance: str | None = None,
 ) -> IssueType:
     init_db()
@@ -109,7 +111,6 @@ def create_issue_type(
             name=name,
             definition=definition,
             parent_id=parent_id,
-            notes=notes,
             detection_guidance=detection_guidance,
         )
         session.commit()
@@ -117,10 +118,94 @@ def create_issue_type(
         return issue
 
 
+def _reassign_own_labels(session, from_id: str, to_id: str) -> dict:
+    reassigned_codings = []
+    for coding in session.find(Coding, issue_type_id=from_id):
+        reassigned_codings.append(
+            {"id": coding.id, "comment_id": coding.comment_id, "from_issue_type_id": from_id}
+        )
+        coding.issue_type_id = to_id
+        session.add(coding)
+    reassigned_examples = []
+    for example in list(session.find(IssueExample, issue_type_id=from_id)):
+        reassigned_examples.append({"id": example.id, "from_issue_type_id": from_id})
+        example.issue_type_id = to_id
+        session.add(example)
+    reassigned_counters = []
+    for counter in session.find(IssueCounterexample, issue_type_id=from_id):
+        reassigned_counters.append({"id": counter.id, "from_issue_type_id": from_id})
+        counter.issue_type_id = to_id
+        session.add(counter)
+    return {
+        "reassigned_codings": reassigned_codings,
+        "reassigned_examples": reassigned_examples,
+        "reassigned_counters": reassigned_counters,
+    }
+
+
+def _has_own_labels(session, issue_type_id: str) -> bool:
+    if session.first(Coding, issue_type_id=issue_type_id) is not None:
+        return True
+    if session.first(IssueExample, issue_type_id=issue_type_id) is not None:
+        return True
+    return session.first(IssueCounterexample, issue_type_id=issue_type_id) is not None
+
+
+def _park_own_labels_on_ungrouped(session, parent_id: str) -> dict:
+    ungrouped = add_issue_type(
+        session,
+        name="ungrouped",
+        definition="",
+        parent_id=parent_id,
+        log=False,
+    )
+    moved = _reassign_own_labels(session, parent_id, ungrouped.id)
+    return {
+        "ungrouped_id": ungrouped.id,
+        "ungrouped_name": ungrouped.name,
+        **moved,
+    }
+
+
+def add_child_issue_type(
+    session,
+    *,
+    name: str,
+    definition: str,
+    parent_id: str | None,
+    detection_guidance: str | None = None,
+) -> IssueType:
+    """Add a type. If parent is a leaf, park its labels on ungrouped (one add event)."""
+    split_leaf = False
+    if parent_id is not None:
+        _require_active(session, parent_id)
+        split_leaf = not active_children(session.find(IssueType), parent_id)
+    issue = add_issue_type(
+        session,
+        name=name,
+        definition=definition,
+        parent_id=parent_id,
+        detection_guidance=detection_guidance,
+        log=not split_leaf,
+    )
+    if split_leaf:
+        parked = _park_own_labels_on_ungrouped(session, parent_id)
+        record(
+            session,
+            "add",
+            {
+                "issue_type_id": issue.id,
+                "name": issue.name,
+                **parked,
+            },
+        )
+    return issue
+
+
 def create_empty_issue_type(*, parent_id: str | None) -> IssueType:
     init_db()
     with get_session() as session:
-        issue = add_issue_type(
+        issue = add_child_issue_type(
             session,
             name="New type",
             definition="",
@@ -294,7 +379,6 @@ def edit_issue_type(
     issue_type_id: str,
     *,
     definition: str | None = None,
-    notes: str | None = None,
     detection_guidance: str | None = None,
 ) -> IssueType:
     with get_session() as session:
@@ -303,13 +387,10 @@ def edit_issue_type(
             raise NotFound(f"Unknown issue type {issue_type_id}")
         before = {
             "definition": issue.definition,
-            "notes": issue.notes,
             "detection_guidance": issue.detection_guidance,
         }
         if definition is not None:
             issue.definition = definition
-        if notes is not None:
-            issue.notes = notes
         if detection_guidance is not None:
             issue.detection_guidance = detection_guidance
         issue.updated_at = utcnow()
@@ -321,7 +402,6 @@ def edit_issue_type(
                 "before": before,
                 "after": {
                     "definition": issue.definition,
-                    "notes": issue.notes,
                     "detection_guidance": issue.detection_guidance,
                 },
             },
@@ -344,6 +424,7 @@ def move_issue_type(issue_type_id: str, *, parent_id: str | None, position: int)
             raise BadInput("Cannot move a type under itself or a descendant")
         before_parent = issue.parent_id
         before_pos = issue.position
+        dest_is_leaf = parent_id is not None and not active_children(types, parent_id)
         place_among_siblings(types, issue, parent_id, position)
         for row in session.find(IssueType):
             session.add(row)
@@ -351,6 +432,9 @@ def move_issue_type(issue_type_id: str, *, parent_id: str | None, position: int)
             session.commit()
             session.refresh(issue)
             return issue
+        parked = {}
+        if dest_is_leaf and _has_own_labels(session, parent_id):
+            parked = _park_own_labels_on_ungrouped(session, parent_id)
         issue.updated_at = utcnow()
         _log(
             session,
@@ -362,6 +446,7 @@ def move_issue_type(issue_type_id: str, *, parent_id: str | None, position: int)
                 "to_parent_id": parent_id,
                 "to_position": issue.position,
                 "name": issue.name,
+                **parked,
             },
         )
         session.add(issue)
@@ -408,6 +493,16 @@ def merge_issue_types(*, source_ids: list[str], target_id: str) -> IssueType:
         reassigned_counters = []
         reparented_children = []
         types = session.find(IssueType)
+        target_is_leaf = not active_children(types, target_id)
+        will_gain_children = any(
+            source_id != target_id and active_children(types, source_id)
+            for source_id in source_ids
+        )
+        parked = {}
+        label_dest = target_id
+        if target_is_leaf and will_gain_children:
+            parked = _park_own_labels_on_ungrouped(session, target_id)
+            label_dest = parked["ungrouped_id"]
         for source_id in source_ids:
             if source_id == target_id:
                 continue
@@ -428,14 +523,16 @@ def merge_issue_types(*, source_ids: list[str], target_id: str) -> IssueType:
                 session.add(child)
             compact_positions(session.find(IssueType), target_id)
             for coding in session.find(Coding, issue_type_id=source_id):
-                reassigned_codings.append({"id": coding.id, "from_issue_type_id": source_id})
-                coding.issue_type_id = target_id
+                reassigned_codings.append(
+                    {"id": coding.id, "comment_id": coding.comment_id, "from_issue_type_id": source_id}
+                )
+                coding.issue_type_id = label_dest
                 session.add(coding)
             for example in list(session.find(IssueExample, issue_type_id=source_id)):
                 if example.source_comment_id:
                     existing = session.first(
                         IssueExample,
-                        issue_type_id=target_id,
+                        issue_type_id=label_dest,
                         source_comment_id=example.source_comment_id,
                     )
                     if existing is not None:
@@ -443,11 +540,11 @@ def merge_issue_types(*, source_ids: list[str], target_id: str) -> IssueType:
                         session.delete(example)
                         continue
                 reassigned_examples.append({"id": example.id, "from_issue_type_id": source_id})
-                example.issue_type_id = target_id
+                example.issue_type_id = label_dest
                 session.add(example)
             for counter in session.find(IssueCounterexample, issue_type_id=source_id):
                 reassigned_counters.append({"id": counter.id, "from_issue_type_id": source_id})
-                counter.issue_type_id = target_id
+                counter.issue_type_id = label_dest
                 session.add(counter)
             source.status = ISSUE_INACTIVE
             source.updated_at = utcnow()
@@ -459,11 +556,12 @@ def merge_issue_types(*, source_ids: list[str], target_id: str) -> IssueType:
             {
                 "source_ids": source_ids,
                 "target_id": target_id,
-                "reassigned_codings": reassigned_codings,
-                "reassigned_examples": reassigned_examples,
+                "reassigned_codings": list(parked.get("reassigned_codings") or []) + reassigned_codings,
+                "reassigned_examples": list(parked.get("reassigned_examples") or []) + reassigned_examples,
                 "deleted_examples": deleted_examples,
-                "reassigned_counters": reassigned_counters,
+                "reassigned_counters": list(parked.get("reassigned_counters") or []) + reassigned_counters,
                 "reparented_children": reparented_children,
+                **{key: parked[key] for key in ("ungrouped_id", "ungrouped_name") if key in parked},
             },
         )
         session.add(target)
@@ -487,7 +585,9 @@ def flatten_issue_type(issue_type_id: str) -> IssueType:
         for source_id in descendant_ids_list:
             source = session.get(IssueType, source_id)
             for coding in session.find(Coding, issue_type_id=source_id):
-                reassigned_codings.append({"id": coding.id, "from_issue_type_id": source_id})
+                reassigned_codings.append(
+                    {"id": coding.id, "comment_id": coding.comment_id, "from_issue_type_id": source_id}
+                )
                 coding.issue_type_id = issue_type_id
                 session.add(coding)
             for example in list(session.find(IssueExample, issue_type_id=source_id)):
@@ -566,59 +666,92 @@ def remove_issue_type(issue_type_id: str) -> None:
         session.commit()
 
 
-def split_issue_type(source_id: str, *, left: dict, right: dict) -> tuple[IssueType, IssueType]:
+def apply_split(*, source_id: str | None, plan) -> list[IssueType]:
+    from reviewdistill.coding.split import SplitPlan
+
+    if not isinstance(plan, SplitPlan):
+        raise BadInput("Split plan is invalid")
+    init_db()
     with get_session() as session:
-        source = _require_active(session, source_id)
-        if active_children(session.find(IssueType), source_id):
-            raise BadInput("Cannot split a type that has children")
-        deleted_codings = _retire_codings_for_types(session, {source_id})
-        source.status = ISSUE_INACTIVE
-        source.updated_at = utcnow()
-        created = []
-        taken_names = [
-            row.name
-            for row in session.find(IssueType, status=ISSUE_ACTIVE)
-            if row.id != source_id
-        ]
-        for spec in (left, right):
-            name = next_unique_name(taken_names, spec["name"])
-            taken_names.append(name)
-            issue = IssueType(
-                id=str(uuid4()),
-                name=name,
-                parent_id=source.parent_id,
-                position=0,
-                definition=spec["definition"],
-                status=ISSUE_ACTIVE,
+        source = None
+        if source_id is not None:
+            source = _require_active(session, source_id)
+            if active_children(session.find(IssueType), source_id):
+                raise BadInput("Cannot split a type that has children")
+        elif any(row.status == ISSUE_ACTIVE for row in session.find(IssueType)):
+            raise BadInput("Cannot split unlabeled comments while a taxonomy exists")
+        comment_ids = [row["comment_id"] for row in plan.assignments]
+        deleted_codings: list[dict] = []
+        replaced: list[dict] = []
+        if source is not None:
+            deleted_codings = _retire_codings_for_types(
+                session, {source_id}, comment_ids=set(comment_ids)
             )
-            session.add(issue)
+        else:
+            for comment_id in comment_ids:
+                for row in list(session.find(Coding, comment_id=comment_id, status=CODING_PROPOSED)):
+                    replaced.append(dump_row(row))
+                    session.delete(row)
+        created = []
+        parent_id = source_id
+        for spec in plan.types:
+            issue = add_issue_type(
+                session,
+                name=spec["name"],
+                definition=spec["definition"],
+                parent_id=parent_id,
+                log=False,
+            )
             created.append(issue)
-        insert_at = source.position
-        created[0].parent_id = source.parent_id
-        created[1].parent_id = source.parent_id
+        parked: dict = {}
+        if source is not None:
+            leftover = [
+                row
+                for row in session.find(Coding, issue_type_id=source_id)
+                if row.status == CODING_ACCEPTED
+            ]
+            if leftover:
+                parked = _park_own_labels_on_ungrouped(session, source_id)
         siblings = [
             row
-            for row in active_children(session.find(IssueType), source.parent_id)
-            if row.id not in {created[0].id, created[1].id}
+            for row in active_children(session.find(IssueType), parent_id)
+            if row.id not in {issue.id for issue in created}
         ]
-        insert_at = max(0, min(insert_at, len(siblings)))
-        siblings.insert(insert_at, created[0])
-        siblings.insert(insert_at + 1, created[1])
+        for index, issue in enumerate(created):
+            siblings.insert(index, issue)
         for index, row in enumerate(siblings):
             row.position = index
             session.add(row)
-        session.add(source)
+        created_codings = []
+        for row in plan.assignments:
+            child = created[row["type_index"]]
+            coding = Coding(
+                id=str(uuid4()),
+                comment_id=row["comment_id"],
+                issue_type_id=child.id,
+                coder_type="ai",
+                status=CODING_PROPOSED,
+            )
+            session.add(coding)
+            created_codings.append(dump_row(coding))
+        created_ids = [issue.id for issue in created]
+        if parked.get("ungrouped_id"):
+            created_ids.append(parked["ungrouped_id"])
         _log(
             session,
             "split",
             {
+                "keep_source": True,
                 "source_id": source_id,
-                "created_ids": [issue.id for issue in created],
+                "source_name": None if source is None else source.name,
+                "created_ids": created_ids,
                 "deleted_codings": deleted_codings,
+                "created": created_codings,
+                "replaced": replaced,
+                **parked,
             },
         )
-        session.add(source)
         session.commit()
         for issue in created:
             session.refresh(issue)
-        return created[0], created[1]
+        return created

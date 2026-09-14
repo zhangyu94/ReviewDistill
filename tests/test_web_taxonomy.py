@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from reviewdistill.db.models import Coding, ProofreadingComment
 from reviewdistill.db.session import get_session
+from reviewdistill.llm.mock import MockLLMProvider
 from reviewdistill.taxonomy.operations import (
     add_example,
     create_issue_type,
@@ -10,6 +11,34 @@ from reviewdistill.taxonomy.operations import (
     rename_issue_type,
 )
 from reviewdistill.web.app import create_app
+
+
+def _add_comment(comment_id: str, text: str, *, issue_id: str | None = None):
+    with get_session() as session:
+        session.add(
+            ProofreadingComment(
+                id=comment_id,
+                project_id="p",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=1,
+                raw_text=text,
+                fingerprint=f"fp-{comment_id}",
+                status="active",
+            )
+        )
+        if issue_id:
+            session.add(
+                Coding(
+                    id=f"k-{comment_id}",
+                    comment_id=comment_id,
+                    issue_type_id=issue_id,
+                    coder_type="human",
+                    status="accepted",
+                )
+            )
+        session.commit()
 
 
 def test_taxonomy_returns_forest(db):
@@ -36,6 +65,7 @@ def test_issue_detail_shows_definition_examples_and_observations(db):
     assert "A claim is stronger" in body["definition"]
     assert any("demonstrate" in row["text"] for row in body["examples"])
     assert body["comments"] == []
+    assert "notes" not in body
 
 
 def test_issue_detail_404s_for_inactive_types(db):
@@ -108,6 +138,10 @@ def test_history_lists_rename_and_merge(db):
     assert "merge" in types
     assert types[0] == "merge"
     assert isinstance(response.json()["events"][0]["payload"], dict)
+    first = response.json()["events"][0]
+    assert first["details"]["explanation"] == (
+        "Merged Unsupported claim (old), Overly strong claim into Overclaiming."
+    )
 
 
 def test_merged_source_observations_appear_on_target_detail(db):
@@ -215,6 +249,24 @@ def test_rename_post_json(db):
     assert client.get(f"/api/taxonomy/{issue.id}").json()["name"] == "Overclaiming (renamed)"
 
 
+def test_edit_post_json_has_no_notes(db):
+    issue = create_issue_type(name="Overclaiming", definition="old")
+    client = TestClient(create_app())
+    response = client.post(
+        f"/api/taxonomy/{issue.id}/edit",
+        json={"definition": "A claim exceeds the evidence."},
+    )
+    assert response.status_code == 200
+    body = client.get(f"/api/taxonomy/{issue.id}").json()
+    assert body["definition"] == "A claim exceeds the evidence."
+    assert "notes" not in body
+    edit = next(
+        event for event in client.get("/api/history").json()["events"] if event["event_type"] == "edit"
+    )
+    assert "notes" not in edit["payload"]["before"]
+    assert "notes" not in edit["payload"]["after"]
+
+
 def test_move_post_nests_under_parent(db):
     parent = create_issue_type(name="Parent", definition="p")
     issue = create_issue_type(
@@ -305,13 +357,7 @@ def test_inactive_issue_mutations_are_404(db):
         == 404
     )
     assert (
-        client.post(
-            f"/api/taxonomy/{issue.id}/split",
-            json={
-                "left": {"name": "Left", "definition": "l"},
-                "right": {"name": "Right", "definition": "r"},
-            },
-        ).status_code
+        client.post(f"/api/taxonomy/{issue.id}/split").status_code
         == 404
     )
     assert (
@@ -334,7 +380,6 @@ def test_export_get_markdown(db):
     client = TestClient(create_app())
     response = client.get("/api/taxonomy/export", params={"format": "md"})
     assert response.status_code == 200
-    assert "Scholarly Review Rubric" in response.text
     assert "Overclaiming" in response.text
 
 
@@ -352,4 +397,52 @@ def test_export_get_selected_ids_only(db):
 def test_export_unknown_format_is_400(db):
     client = TestClient(create_app())
     response = client.get("/api/taxonomy/export", params={"format": "xlsx"})
+    assert response.status_code == 400
+
+
+def test_post_split_leaf_creates_children(db, monkeypatch):
+    source = create_issue_type(name="Overclaiming", definition="too strong")
+    _add_comment("c1", "Too strong.", issue_id=source.id)
+    _add_comment("c2", "Hedge this.", issue_id=source.id)
+    monkeypatch.setenv("REVIEWDISTILL_LLM_PROVIDER", "mock")
+    monkeypatch.setattr(
+        "reviewdistill.llm.base.get_provider",
+        lambda: MockLLMProvider(
+            '{"types":[{"name":"Evidence","definition":"a"},{"name":"Wording","definition":"b"}],'
+            '"assignments":[{"comment_id":"c1","type_index":0},{"comment_id":"c2","type_index":1}]}'
+        ),
+    )
+    client = TestClient(create_app())
+    response = client.post(f"/api/taxonomy/{source.id}/split")
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert "privacy_warning" in response.json()
+    listed = client.get("/api/taxonomy").json()
+    node = next(item for item in listed["forest"] if item["id"] == source.id)
+    assert {child["name"] for child in node["children"]} == {"Evidence", "Wording"}
+
+
+def test_post_split_forest_creates_roots(db, monkeypatch):
+    _add_comment("c1", "Too strong.")
+    _add_comment("c2", "Hedge this.")
+    monkeypatch.setenv("REVIEWDISTILL_LLM_PROVIDER", "mock")
+    monkeypatch.setattr(
+        "reviewdistill.llm.base.get_provider",
+        lambda: MockLLMProvider(
+            '{"types":[{"name":"Evidence","definition":"a"},{"name":"Wording","definition":"b"}],'
+            '"assignments":[{"comment_id":"c1","type_index":0},{"comment_id":"c2","type_index":1}]}'
+        ),
+    )
+    client = TestClient(create_app())
+    response = client.post("/api/taxonomy/split")
+    assert response.status_code == 200
+    assert "privacy_warning" in response.json()
+    listed = client.get("/api/taxonomy").json()
+    assert {node["name"] for node in listed["forest"]} == {"Evidence", "Wording"}
+
+
+def test_post_split_forest_rejects_existing_taxonomy(db):
+    create_issue_type(name="Already", definition="x")
+    client = TestClient(create_app())
+    response = client.post("/api/taxonomy/split")
     assert response.status_code == 400

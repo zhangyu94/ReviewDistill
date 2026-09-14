@@ -5,6 +5,7 @@ import pytest
 from reviewdistill.db.models import Coding, IssueType
 from reviewdistill.db.session import get_session, init_db, reset_engine
 from reviewdistill.errors import CorruptStore
+from reviewdistill.taxonomy.operations import rename_issue_type
 
 
 def test_store_does_not_rewrite_category_rows(rd_home):
@@ -27,6 +28,36 @@ def test_store_does_not_rewrite_category_rows(rd_home):
     saved = path.read_text(encoding="utf-8")
     assert "category" in saved
     assert "parent_id" not in saved
+
+
+def test_store_loads_issue_type_with_leftover_notes_and_drops_them_on_rewrite(rd_home):
+    reset_engine()
+    path = rd_home / "issue_types.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "id": "t1",
+                "name": "Alpha",
+                "definition": "a",
+                "notes": "Watch epistemic verbs.",
+                "status": "active",
+                "parent_id": None,
+                "position": 0,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    init_db()
+    with get_session() as session:
+        loaded = session.get(IssueType, "t1")
+        assert loaded is not None
+        assert loaded.definition == "a"
+        assert "notes" not in loaded.model_dump()
+    rename_issue_type("t1", name="Alpha")
+    saved = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    assert "notes" not in saved
+    assert saved["name"] == "Alpha"
 
 
 def test_store_does_not_rewrite_proposed_issue_category(rd_home):

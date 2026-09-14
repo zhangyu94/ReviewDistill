@@ -1,6 +1,6 @@
 import type { CodingJson } from '../api/client.ts'
 import { describe, expect, it } from 'vitest'
-import { assignMenuValue, assignSuggestion, shouldAssignOnSelect } from './assignType.ts'
+import { assignSuggestion, shouldAssignOnSelect } from './assignType.ts'
 
 const issues = [{ id: 't1', name: 'Overclaiming' }]
 
@@ -54,12 +54,6 @@ describe('assignSuggestion', () => {
 })
 
 describe('assign menu', () => {
-  it('shows the current type, or empty when unlabeled', () => {
-    expect(assignMenuValue('t1')).toBe('t1')
-    expect(assignMenuValue(null)).toBe('')
-    expect(assignMenuValue(undefined)).toBe('')
-  })
-
   it('assigns only when the user picks a different type', () => {
     expect(shouldAssignOnSelect(null, 't1')).toBe(true)
     expect(shouldAssignOnSelect('t1', 't1')).toBe(false)

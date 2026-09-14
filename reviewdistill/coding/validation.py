@@ -26,7 +26,8 @@ from reviewdistill.db.models import (
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.errors import BadInput, Conflict, NotFound
 from reviewdistill.history import dump_row, record
-from reviewdistill.taxonomy.operations import add_issue_type, ensure_example
+from reviewdistill.taxonomy.operations import add_child_issue_type, ensure_example
+from reviewdistill.taxonomy.tree import active_children
 
 VERIFY_MANUSCRIPT_CHANGED = "Verify (nearby manuscript changed)"
 DROP_UNCHANGED = "Drop (nearby manuscript unchanged)"
@@ -163,9 +164,10 @@ def accept_coding(comment_id: str) -> Coding:
                 raise BadInput("Proposed coding has no issue type and no new-issue fields")
             existing = session.first(IssueType, status=ISSUE_ACTIVE, name=coding.proposed_issue_name)
             if existing is not None:
+                issue = existing
                 issue_type_id = existing.id
             else:
-                issue = add_issue_type(
+                issue = add_child_issue_type(
                     session,
                     name=coding.proposed_issue_name,
                     parent_id=_resolved_parent_id(session, coding.proposed_parent_id),
@@ -176,6 +178,8 @@ def accept_coding(comment_id: str) -> Coding:
             issue = session.get(IssueType, issue_type_id)
             if issue is None or issue.status != ISSUE_ACTIVE:
                 raise NotFound(f"Unknown issue type {issue_type_id}")
+        if active_children(session.find(IssueType), issue_type_id):
+            raise BadInput("Can only assign a leaf issue type")
         coding.issue_type_id = issue_type_id
         coding.status = CODING_ACCEPTED
         session.add(coding)
@@ -203,6 +207,8 @@ def change_coding(comment_id: str, *, issue_type_id: str) -> Coding:
         issue = session.get(IssueType, issue_type_id)
         if issue is None or issue.status != ISSUE_ACTIVE:
             raise NotFound(f"Unknown issue type {issue_type_id}")
+        if active_children(session.find(IssueType), issue_type_id):
+            raise BadInput("Can only assign a leaf issue type")
         comment = session.get(ProofreadingComment, comment_id)
         if comment is None:
             raise NotFound(f"Unknown comment {comment_id}")

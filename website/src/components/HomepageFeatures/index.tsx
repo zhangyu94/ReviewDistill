@@ -31,8 +31,8 @@ const FeatureList: FeatureItem[] = [
     title: 'Export skills for agents',
     description: (
       <>
-        The taxonomy grows across papers. Export Markdown, YAML, or JSON and
-        point a coding agent at the rubric.
+        The taxonomy grows across papers. Export Markdown as a review skill,
+        or YAML/JSON as a taxonomy dump, and give the skill to a coding agent.
       </>
     ),
   },

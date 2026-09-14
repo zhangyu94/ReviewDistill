@@ -26,10 +26,6 @@ export function canSaveLlmSettings(args: {
   return args.apiKey.trim().length > 0
 }
 
-export function apiKeyInputType(show: boolean): 'password' | 'text' {
-  return show ? 'text' : 'password'
-}
-
 export function keySetForSelectedProvider(
   provider: string,
   savedProvider: string,
@@ -47,4 +43,8 @@ export function apiKeyForSelectedProvider(
     return savedApiKey
   }
   return ''
+}
+
+export function privacyNoticeText(warning: string | null | undefined): string {
+  return warning ?? ''
 }

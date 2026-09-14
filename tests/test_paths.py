@@ -63,6 +63,7 @@ def test_data_location_uses_resolved_home(tmp_path, monkeypatch):
     assert "home_env" not in loc
     assert loc["home"] == str(dest)
     assert loc["comments"] == str(dest / "comments.jsonl")
+    assert loc["file_url"] == dest.resolve().as_uri()
 
 
 def test_find_project_root_walks_up(tmp_path):
@@ -167,7 +168,7 @@ def test_move_home_refuses_when_store_is_busy(tmp_path, monkeypatch):
             if home_is_busy(src):
                 break
             time.sleep(0.05)
-        with pytest.raises(HomePathError, match="Stop reviewdistill serve"):
+        with pytest.raises(HomePathError, match="Stop reviewdistill ui"):
             move_home(tmp_path / "new-home")
     finally:
         proc.kill()
@@ -297,3 +298,49 @@ def test_move_home_wraps_copy_errors(tmp_path, monkeypatch):
     monkeypatch.setattr("reviewdistill.paths.shutil.copytree", boom)
     with pytest.raises(HomePathError, match="Could not copy"):
         move_home(tmp_path / "new-home")
+
+
+def test_use_home_rejects_blank(tmp_path, monkeypatch):
+    _locator_only(tmp_path, monkeypatch)
+    with pytest.raises(HomePathError, match="Choose a folder"):
+        use_home("  ")
+
+
+def test_open_data_folder_invokes_file_manager(tmp_path, monkeypatch):
+    from reviewdistill.paths import open_data_folder
+
+    _locator_only(tmp_path, monkeypatch)
+    dest = use_home(tmp_path / "rd")
+    opened: list[Path] = []
+    monkeypatch.setattr(
+        "reviewdistill.paths._open_in_file_manager",
+        lambda path: opened.append(path),
+    )
+    assert open_data_folder() == dest.resolve()
+    assert opened == [dest.resolve()]
+
+
+def test_choose_data_folder_returns_picked_path(tmp_path, monkeypatch):
+    from reviewdistill.paths import choose_data_folder
+
+    _locator_only(tmp_path, monkeypatch)
+    use_home(tmp_path / "rd")
+    picked = tmp_path / "picked"
+    picked.mkdir()
+    monkeypatch.setattr(
+        "reviewdistill.paths._choose_in_file_manager",
+        lambda _initial: picked,
+    )
+    assert choose_data_folder() == picked.resolve()
+
+
+def test_choose_data_folder_returns_none_when_cancelled(tmp_path, monkeypatch):
+    from reviewdistill.paths import choose_data_folder
+
+    _locator_only(tmp_path, monkeypatch)
+    use_home(tmp_path / "rd")
+    monkeypatch.setattr(
+        "reviewdistill.paths._choose_in_file_manager",
+        lambda _initial: None,
+    )
+    assert choose_data_folder() is None

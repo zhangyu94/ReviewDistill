@@ -24,10 +24,6 @@ export function assignSuggestion(
   return { title: match.name, rationale: coding.rationale }
 }
 
-export function assignMenuValue(currentTypeId: string | null | undefined): string {
-  return currentTypeId ?? ''
-}
-
 export function shouldAssignOnSelect(
   currentTypeId: string | null | undefined,
   selectedId: string,

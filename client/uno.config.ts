@@ -124,6 +124,7 @@ export default defineConfig({
     ['ch-code-block', 'max-h-[320px] overflow-auto rounded-[var(--ch-radius)] border border-[var(--ch-color-border)] bg-[var(--ch-color-code-bg)] p-2 font-[var(--ch-font-mono)] text-xs leading-4 text-[var(--ch-color-code-fg)]'],
     ['ch-panel', 'rounded-[4px] border border-[var(--ch-color-border)] bg-[var(--ch-color-card)] p-3'],
     ['ch-panel-muted', 'rounded-[4px] border border-[var(--ch-color-border)] bg-[var(--ch-color-background-muted)] p-3'],
+    ['ch-workbench-card', 'flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[var(--ch-radius)] border border-[var(--ch-color-border)] bg-[var(--ch-color-background)]'],
     ['ch-kicker', 'mb-1.5 text-xs font-medium uppercase tracking-[0.06em] text-[var(--ch-color-muted-foreground)]'],
     ['ch-field-label', 'mb-0.5 block text-xs text-[var(--ch-color-muted-foreground)]'],
     ['ch-prose', 'text-sm leading-5'],

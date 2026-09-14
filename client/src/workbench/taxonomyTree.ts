@@ -10,6 +10,16 @@ export function isLeaf(node: TaxonomyNode): boolean {
   return node.children.length === 0
 }
 
+/** Leaves, plus ``currentId`` so a leftover parent label still shows in the menu. */
+export function assignableIssueRows(
+  forest: TaxonomyNode[],
+  currentId?: string | null,
+): { id: string, name: string, depth: number }[] {
+  return flattenForest(forest)
+    .filter(({ node }) => isLeaf(node) || node.id === currentId)
+    .map(({ node, depth }) => ({ id: node.id, name: node.name, depth }))
+}
+
 export function descendantIds(node: TaxonomyNode): string[] {
   return node.children.flatMap((child) => [child.id, ...descendantIds(child)])
 }

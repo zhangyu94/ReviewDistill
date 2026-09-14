@@ -17,10 +17,6 @@ export function toggleCheckedId(forest: TaxonomyNode[], ids: string[], id: strin
   return allTypeIds(forest).filter((row) => selected.has(row))
 }
 
-export function canDownloadExport(ids: string[]): boolean {
-  return ids.length > 0
-}
-
 export function exportQuery(fmt: ExportFormat, ids: string[]): string {
   const params = new URLSearchParams({ format: fmt })
   for (const id of ids) {

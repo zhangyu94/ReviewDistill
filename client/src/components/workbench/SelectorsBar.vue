@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { unlabeledSelectorLabel } from '../../workbench/workbenchMode.ts'
-
 defineProps<{
   unlabeledOn: boolean
   dismissUnlabeledHref: string
@@ -10,13 +8,13 @@ defineProps<{
 </script>
 
 <template>
-  <div class="flex min-h-9 shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--ch-color-border)] bg-[var(--ch-color-background)] px-2 py-1.5 text-xs">
+  <div class="flex min-h-9 shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--ch-color-border)] bg-[var(--ch-color-background-muted)] px-2 py-1.5 text-xs">
     <span class="ch-kicker mb-0 mr-1 shrink-0">Selectors</span>
     <span
       v-if="unlabeledOn"
       class="ch-chip ch-chip-active gap-0.5 pr-1"
     >
-      {{ unlabeledSelectorLabel() }}
+      Unlabeled
       <RouterLink
         class="inline-flex h-4 w-4 items-center justify-center rounded-[2px] text-xs leading-none text-[var(--ch-color-muted-foreground)] no-underline hover:bg-[var(--ch-color-background)] hover:text-[var(--ch-color-foreground)]"
         :to="dismissUnlabeledHref"
@@ -44,7 +42,7 @@ defineProps<{
         :to="toggleUnlabeledHref"
         title="Unlabeled comments, plus comments not in the manuscript that still need Verify or Drop"
       >
-        {{ unlabeledSelectorLabel() }}
+        Unlabeled
       </RouterLink>
     </div>
   </div>

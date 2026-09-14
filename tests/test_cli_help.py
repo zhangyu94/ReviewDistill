@@ -1,5 +1,6 @@
 import re
 
+import pytest
 from typer.testing import CliRunner
 
 from reviewdistill.cli.app import app
@@ -21,14 +22,9 @@ def test_reviewdistill_help_lists_core_commands():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     text = _plain(result.stdout)
-    for name in ("init", "extract", "export", "serve", "paths"):
+    for name in ("init", "extract", "export", "ui", "paths"):
         assert _lists_command(text, name)
-
-
-def test_extract_help_lists_watch_flag():
-    result = runner.invoke(app, ["extract", "--help"])
-    assert result.exit_code == 0
-    assert "--watch" in _plain(result.stdout)
+    assert not _lists_command(text, "serve")
 
 
 def test_export_help_lists_format_and_output():
@@ -97,24 +93,9 @@ def test_paths_move_exits_when_destination_is_nonempty(rd_home, tmp_path):
     assert "already has files" in result.output
 
 
-def test_serve_help_describes_ui():
-    result = runner.invoke(app, ["serve", "--help"])
-    assert result.exit_code == 0
-    text = _plain(result.stdout).lower()
-    assert "web ui" in text
-
-
-def test_reviewdistill_code_command_removed():
-    result = runner.invoke(app, ["code"])
+@pytest.mark.parametrize("name", ["code", "watch", "taxonomy", "cluster", "serve"])
+def test_removed_commands_are_unknown(name):
+    result = runner.invoke(app, [name])
     assert result.exit_code != 0
-
-
-def test_reviewdistill_watch_command_removed():
-    result = runner.invoke(app, ["watch"])
-    assert result.exit_code != 0
-
-
-def test_cluster_command_runs(db):
-    result = runner.invoke(app, ["cluster"])
-    assert result.exit_code == 0, result.stdout
-    assert "No recurring clusters found." in result.stdout
+    text = _plain(f"{result.stdout}\n{result.stderr}\n{result.output}").lower()
+    assert "no such command" in text

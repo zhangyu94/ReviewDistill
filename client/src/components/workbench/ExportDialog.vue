@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import type { ExportFormat } from '../../api/client.ts'
 import { computed, ref } from 'vue'
-import { exportFilename, fetchExport } from '../../api/client.ts'
+import { fetchExport } from '../../api/client.ts'
 import {
   allTypeIds,
-  canDownloadExport,
   toggleCheckedId,
 } from '../../workbench/exportSelection.ts'
 import { flattenForest } from '../../workbench/taxonomyTree.ts'
@@ -18,7 +17,18 @@ const busy = ref(false)
 const checked = ref<string[]>([])
 const list = computed(() => store.taxonomy)
 const rows = computed(() => flattenForest(list.value?.forest ?? []))
-const canDownload = computed(() => canDownloadExport(checked.value))
+const canDownload = computed(() => checked.value.length > 0)
+
+function exportFilename(fmt: ExportFormat): string {
+  if (fmt === 'yaml') { return 'review-taxonomy.yaml' }
+  if (fmt === 'json') { return 'review-taxonomy.json' }
+  return 'SKILL.md'
+}
+
+function exportFormatTitle(fmt: ExportFormat, label: string): string {
+  if (fmt === 'md') { return 'Export as a review skill' }
+  return `Export the taxonomy as ${label}`
+}
 
 const formats: { id: ExportFormat, label: string }[] = [
   { id: 'md', label: 'Markdown' },
@@ -67,7 +77,7 @@ defineExpose({ show })
 </script>
 
 <template>
-  <button class="ch-chip ch-chip-idle gap-1" type="button" title="Download the rubric" @click="show">
+  <button class="ch-chip ch-chip-idle gap-1" type="button" title="Download a review skill" @click="show">
     <span class="i-fa6-solid:download h-3.5 w-3.5 shrink-0" aria-hidden="true" />
     Export
   </button>
@@ -104,7 +114,7 @@ defineExpose({ show })
           class="ch-chip"
           :class="fmt === row.id ? 'ch-chip-active' : 'ch-chip-idle'"
           type="button"
-          :title="`Export the rubric as ${row.label}`"
+          :title="exportFormatTitle(row.id, row.label)"
           @click="fmt = row.id"
         >
           {{ row.label }}

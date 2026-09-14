@@ -246,7 +246,6 @@ def issue_payload(issue_id: str) -> dict:
             "parent_id": issue.parent_id,
             "path": type_path(session.find(IssueType), issue.id),
             "definition": issue.definition,
-            "notes": issue.notes,
             "status": issue.status,
             "examples": examples,
             "counterexamples": counterexamples,

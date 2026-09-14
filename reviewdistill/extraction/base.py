@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
 
 @dataclass(frozen=True)
@@ -11,8 +10,3 @@ class ExtractedComment:
     file_path: str
     line_number: int
     raw_text: str
-
-
-class CommentExtractor(Protocol):
-    def extract(self, source: str, file_path: str) -> list[ExtractedComment]:
-        ...

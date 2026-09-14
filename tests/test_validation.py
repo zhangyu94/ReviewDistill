@@ -231,6 +231,55 @@ def test_existing_proposed_parent_id_is_kept(db, tmp_path):
         assert issue.parent_id == parent.id
 
 
+def test_accept_new_type_under_leaf_moves_existing_labels_onto_ungrouped(db, tmp_path):
+    parent = create_issue_type(name="Parent", definition="")
+    with get_session() as session:
+        session.add(
+            ProofreadingComment(
+                id="c-kept",
+                project_id="p",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=1,
+                raw_text="Already labeled.",
+                fingerprint="fp-kept",
+                status="active",
+            )
+        )
+        session.add(
+            Coding(
+                id="k-kept",
+                comment_id="c-kept",
+                issue_type_id=parent.id,
+                coder_type="human",
+                status="accepted",
+            )
+        )
+        session.commit()
+    comment_id = _seed_proposed(
+        tmp_path,
+        {
+            "recommendation": "new",
+            "issue_code": "METHJUST",
+            "issue_name": "Missing methodological justification",
+            "parent_id": parent.id,
+            "definition": "A design choice is unexplained.",
+            "confidence": 0.78,
+            "rationale": "Unexplained design decision.",
+        },
+    )
+    result = accept_coding(comment_id)
+    with get_session() as session:
+        issue = session.get(IssueType, result.issue_type_id)
+        assert issue.parent_id == parent.id
+        kids = [row for row in session.find(IssueType, status="active") if row.parent_id == parent.id]
+        ungrouped = next(row for row in kids if row.name == "ungrouped")
+        kept = session.first(Coding, comment_id="c-kept", status="accepted")
+        assert kept.issue_type_id == ungrouped.id
+        assert issue.id != ungrouped.id
+
+
 def test_accept_new_issue_commits_once(db, tmp_path, monkeypatch):
     comment_id = _seed_proposed(
         tmp_path,
@@ -427,6 +476,24 @@ def test_change_rejects_the_current_type(db, tmp_path):
     assert after == before
     accepted = [row for row in after if row[1] == "accepted"]
     assert len(accepted) == 1
+
+
+def test_change_rejects_a_type_that_has_children(db, tmp_path):
+    parent = create_issue_type(name="Parent", definition="")
+    create_issue_type(name="Child", definition="", parent_id=parent.id)
+    leaf = create_issue_type(name="Leaf", definition="")
+    comment_id = _seed_proposed(
+        tmp_path,
+        {
+            "recommendation": "existing",
+            "issue_type_id": leaf.id,
+            "confidence": 0.9,
+            "rationale": "too strong",
+        },
+    )
+    accept_coding(comment_id)
+    with pytest.raises(ValueError, match="leaf"):
+        change_coding(comment_id, issue_type_id=parent.id)
 
 
 def test_labeled_absent_unreviewed_stays_in_unlabeled_inbox(db, tmp_path):

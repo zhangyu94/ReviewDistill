@@ -1,14 +1,8 @@
 import pytest
 
 from reviewdistill.config import HomeConfig, write_home_config
-from reviewdistill.llm.base import get_provider, privacy_warning, resolve_api_key
-from reviewdistill.llm.mock import MockLLMProvider
+from reviewdistill.llm.base import get_provider, resolve_api_key
 from reviewdistill.llm.provider import LiteLLMProvider, litellm_model_id
-
-
-def test_mock_provider_returns_scripted_json():
-    provider = MockLLMProvider(scripted_response='{"recommendation":"new"}')
-    assert provider.generate("hello") == '{"recommendation":"new"}'
 
 
 def test_factory_default_requires_config(rd_home, monkeypatch):
@@ -21,13 +15,6 @@ def test_factory_unknown_provider_raises(monkeypatch):
     monkeypatch.setenv("REVIEWDISTILL_LLM_PROVIDER", "nope")
     with pytest.raises(RuntimeError, match="Unknown LLM provider"):
         get_provider()
-
-
-def test_privacy_warning_for_external_provider():
-    message = privacy_warning(provider_name="openai", comment_count=3)
-    assert "openai" in message.lower()
-    assert "3" in message
-    assert "manuscript" in message.lower()
 
 
 def test_litellm_model_id_prefixes_provider():

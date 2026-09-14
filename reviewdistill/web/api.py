@@ -6,6 +6,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from reviewdistill.coding.coder import code_uncoded_comments
+from reviewdistill.coding.split import run_header_split, run_leaf_split
 from reviewdistill.coding.validation import (
     accept_coding,
     change_coding,
@@ -25,7 +26,15 @@ from reviewdistill.config import (
 )
 from reviewdistill.errors import BadInput, Conflict, CorruptStore, NotFound, ReviewDistillError
 from reviewdistill.history import list_history, redo, undo
-from reviewdistill.paths import data_location, home_dir, home_env_path
+from reviewdistill.paths import (
+    HomePathError,
+    choose_data_folder,
+    data_location,
+    home_dir,
+    home_env_path,
+    open_data_folder,
+    use_home,
+)
 from reviewdistill.taxonomy.export import export_rubric
 from reviewdistill.taxonomy.operations import (
     add_counterexample,
@@ -37,7 +46,6 @@ from reviewdistill.taxonomy.operations import (
     move_issue_type,
     remove_issue_type,
     rename_issue_type,
-    split_issue_type,
 )
 from reviewdistill.views import inbox_payload, issue_payload, taxonomy_payload
 
@@ -130,7 +138,6 @@ class RenameBody(BaseModel):
 
 class EditBody(BaseModel):
     definition: str
-    notes: str = ""
 
 
 class MoveBody(BaseModel):
@@ -151,14 +158,17 @@ class MergeBody(BaseModel):
     target_id: str
 
 
-class SplitSide(BaseModel):
-    name: str
-    definition: str
-
-
-class SplitBody(BaseModel):
-    left: SplitSide
-    right: SplitSide
+def _llm_mutate(fn):
+    try:
+        result = fn()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=400, detail=_LLM_FAILED) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise _domain_http(exc, mutate=True) from exc
+    warning = getattr(result, "privacy_warning", None)
+    return {"ok": True, "privacy_warning": warning}
 
 
 @router.get("/taxonomy")
@@ -183,6 +193,12 @@ def post_merge(body: MergeBody):
     return _mutate(lambda: merge_issue_types(source_ids=body.source_ids, target_id=body.target_id))
 
 
+@router.post("/taxonomy/split")
+def post_split_forest():
+    """Header bootstrap. Registered next to merge so ``split`` is not parsed as an id."""
+    return _llm_mutate(run_header_split)
+
+
 @router.get("/taxonomy/export")
 def get_export(format: str = "md", id: list[str] | None = Query(None)):
     """Rubric for active types. ``id`` (repeatable) keeps only those types; omit for all. Does not change labels in the UI."""
@@ -202,6 +218,46 @@ def get_export(format: str = "md", id: list[str] | None = Query(None)):
 def get_paths():
     """Home folder and comments JSONL. Copy the folder to back up."""
     return data_location()
+
+
+class PathsBody(BaseModel):
+    home: str
+
+
+def _paths_http(exc: HomePathError) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/paths")
+def post_paths(body: PathsBody):
+    """Point ReviewDistill at this folder from now on. Does not copy files."""
+    try:
+        use_home(body.home)
+    except HomePathError as exc:
+        raise _paths_http(exc) from exc
+    return data_location()
+
+
+@router.post("/paths/open")
+def post_paths_open():
+    """Open the data folder in the computer’s file manager."""
+    try:
+        open_data_folder()
+    except HomePathError as exc:
+        raise _paths_http(exc) from exc
+    return {"ok": True}
+
+
+@router.post("/paths/choose")
+def post_paths_choose():
+    """Open a folder picker. Does not change the data folder until Save."""
+    try:
+        chosen = choose_data_folder()
+    except HomePathError as exc:
+        raise _paths_http(exc) from exc
+    if chosen is None:
+        return {"home": None}
+    return {"home": str(chosen)}
 
 
 @router.get("/llm-settings")
@@ -267,7 +323,6 @@ def post_edit(issue_id: str, body: EditBody):
         lambda: edit_issue_type(
             issue_id,
             definition=body.definition,
-            notes=body.notes or None,
         )
     )
 
@@ -298,14 +353,8 @@ def post_counterexample(issue_id: str, body: CounterexampleBody):
 
 
 @router.post("/taxonomy/{issue_id}/split")
-def post_split(issue_id: str, body: SplitBody):
-    return _mutate(
-        lambda: split_issue_type(
-            issue_id,
-            left=body.left.model_dump(),
-            right=body.right.model_dump(),
-        )
-    )
+def post_split(issue_id: str):
+    return _llm_mutate(lambda: run_leaf_split(issue_id))
 
 
 @router.get("/history")

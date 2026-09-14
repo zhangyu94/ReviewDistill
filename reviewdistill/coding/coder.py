@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 import httpx
+
 from reviewdistill.coding.retrieval import retrieve_candidates
 from reviewdistill.db.models import (
     CODING_PROPOSED,
@@ -18,6 +19,7 @@ from reviewdistill.db.models import (
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.history import dump_row, record
 from reviewdistill.llm.base import LLMProvider, get_provider, privacy_warning
+from reviewdistill.taxonomy.tree import active_children
 
 
 @dataclass
@@ -218,7 +220,11 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
             for comment, proposal, issue_type_id in pending:
                 if issue_type_id:
                     issue = session.get(IssueType, issue_type_id)
-                    if issue is None or issue.status != ISSUE_ACTIVE:
+                    if (
+                        issue is None
+                        or issue.status != ISSUE_ACTIVE
+                        or active_children(session.find(IssueType), issue.id)
+                    ):
                         issue_type_id = None
                 if not issue_type_id and not proposal_has_new_type(proposal):
                     skipped += 1

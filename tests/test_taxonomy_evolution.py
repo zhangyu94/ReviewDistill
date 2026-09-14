@@ -4,9 +4,12 @@ import pytest
 
 from reviewdistill.db.models import Coding, IssueCounterexample, IssueExample, IssueType, ProofreadingComment, TaxonomyEvent
 from reviewdistill.db.session import get_session
+from reviewdistill.history import list_history
+from reviewdistill.coding.split import SplitPlan
 from reviewdistill.taxonomy.operations import (
     add_counterexample,
     add_example,
+    apply_split,
     create_issue_type,
     deactivate_issue_type,
     edit_issue_type,
@@ -15,7 +18,6 @@ from reviewdistill.taxonomy.operations import (
     merge_issue_types,
     move_issue_type,
     rename_issue_type,
-    split_issue_type,
 )
 
 
@@ -28,13 +30,20 @@ def test_rename_and_edit_keep_id(db):
     edited = edit_issue_type(
         issue.id,
         definition="A claim is stronger than the evidence supports.",
-        notes="Watch epistemic verbs.",
         detection_guidance="demonstrate, prove, establish",
     )
     assert renamed.id == issue.id
     assert edited.name == "Overclaiming"
     assert edited.definition.startswith("A claim is stronger")
-    assert edited.notes is not None
+    assert "notes" not in edited.model_dump()
+    payload = next(
+        event["payload"]
+        for event in list_history()["events"]
+        if event["event_type"] == "edit"
+    )
+    assert "notes" not in payload["before"]
+    assert "notes" not in payload["after"]
+    assert "detection_guidance" in payload["after"]
 
 
 def test_move_inner_nests_under_target(db):
@@ -209,122 +218,6 @@ def test_merge_moves_codings_examples_and_counterexamples_to_target(db):
         assert set(payload["source_ids"]) == {a.id, b.id}
 
 
-def test_split_creates_siblings_under_same_parent(db):
-    parent = create_issue_type(name="Parent", definition="")
-    source = create_issue_type(name="Source", definition="", parent_id=parent.id)
-    left, right = split_issue_type(
-        source.id,
-        left={"name": "Left", "definition": "l"},
-        right={"name": "Right", "definition": "r"},
-    )
-    assert left.parent_id == parent.id
-    assert right.parent_id == parent.id
-    assert {left.position, right.position} == {0, 1}
-
-
-def test_split_inserts_pair_before_later_sibling(db):
-    create_issue_type(name="Alpha", definition="")
-    writing = create_issue_type(name="Writing", definition="")
-    create_issue_type(name="Style", definition="")
-    left, right = split_issue_type(
-        writing.id,
-        left={"name": "Writing (A)", "definition": "a"},
-        right={"name": "Writing (B)", "definition": "b"},
-    )
-    with get_session() as session:
-        roots = sorted(
-            [row for row in session.find(IssueType) if row.status == "active" and row.parent_id is None],
-            key=lambda row: row.position,
-        )
-        assert [row.name for row in roots] == ["Alpha", "Writing (A)", "Writing (B)", "Style"]
-        assert left.position == 1
-        assert right.position == 2
-
-
-def test_split_deactivates_source_and_creates_two_active_types(db):
-    source = create_issue_type(
-        name="Insufficient explanation",
-        definition="too broad",
-    )
-    left, right = split_issue_type(
-        source.id,
-        left={
-            "name": "Missing motivation",
-            "definition": "Why this problem matters is missing.",
-        },
-        right={
-            "name": "Missing methodological justification",
-            "definition": "A design choice is unexplained.",
-        },
-    )
-    active = {i.name for i in list_active_issue_types()}
-    assert active == {"Missing motivation", "Missing methodological justification"}
-    with get_session() as session:
-        assert session.get(IssueType, source.id).status == "inactive"
-        assert left.id != source.id
-        assert right.id != source.id
-
-
-def test_split_returns_accepted_comments_to_unlabeled(db):
-    from reviewdistill.coding.validation import inbox_items
-
-    source = create_issue_type(
-        name="Insufficient explanation",
-        definition="too broad",
-    )
-    with get_session() as session:
-        session.add(
-            ProofreadingComment(
-                id="c-split",
-                project_id="p",
-                source_type="latex_command",
-                source_command="myremark",
-                file_path="main.tex",
-                line_number=1,
-                raw_text="Why this method?",
-                fingerprint="fp-split",
-                status="active",
-            )
-        )
-        session.add(
-            Coding(
-                id="coding-split",
-                comment_id="c-split",
-                issue_type_id=source.id,
-                coder_type="human",
-                status="accepted",
-            )
-        )
-        session.add(
-            Coding(
-                id="coding-split-old",
-                comment_id="c-split",
-                issue_type_id=source.id,
-                coder_type="ai",
-                status="modified",
-            )
-        )
-        session.commit()
-
-    split_issue_type(
-        source.id,
-        left={
-            "name": "Missing motivation",
-            "definition": "Why this problem matters is missing.",
-        },
-        right={
-            "name": "Missing methodological justification",
-            "definition": "A design choice is unexplained.",
-        },
-    )
-    items = inbox_items()
-    assert [item.comment.id for item in items] == ["c-split"]
-    assert items[0].coding is None
-    with get_session() as session:
-        leftover = session.find(Coding, comment_id="c-split")
-        assert leftover == []
-
-
 def test_create_issue_type_suffixes_duplicate_active_name(db):
     create_issue_type(name="Overclaiming", definition="a")
     second = create_issue_type(name="Overclaiming", definition="b")
@@ -332,30 +225,51 @@ def test_create_issue_type_suffixes_duplicate_active_name(db):
     assert {i.name for i in list_active_issue_types()} == {"Overclaiming", "Overclaiming (2)"}
 
 
-def test_split_uniquifies_duplicate_names(db):
+def test_apply_split_uniquifies_duplicate_child_names(db):
     source = create_issue_type(
         name="Insufficient explanation",
         definition="too broad",
     )
-    split_issue_type(
-        source.id,
-        left={"name": "Dup", "definition": "a"},
-        right={"name": "Dup", "definition": "b"},
-    )
-    assert {i.name for i in list_active_issue_types()} == {"Dup", "Dup (2)"}
-
-
-def test_split_reuses_source_name(db):
-    source = create_issue_type(
-        name="Insufficient explanation",
-        definition="too broad",
-    )
-    split_issue_type(
-        source.id,
-        left={"name": "Insufficient explanation", "definition": "a"},
-        right={"name": "Missing methodological justification", "definition": "b"},
+    apply_split(
+        source_id=source.id,
+        plan=SplitPlan(
+            types=[
+                {"name": "Dup", "definition": "a"},
+                {"name": "Dup", "definition": "b"},
+            ],
+            assignments=[
+                {"comment_id": "c1", "type_index": 0},
+                {"comment_id": "c2", "type_index": 1},
+            ],
+        ),
     )
     assert {i.name for i in list_active_issue_types()} == {
         "Insufficient explanation",
+        "Dup",
+        "Dup (2)",
+    }
+
+
+def test_apply_split_suffixes_child_named_like_source(db):
+    source = create_issue_type(
+        name="Insufficient explanation",
+        definition="too broad",
+    )
+    apply_split(
+        source_id=source.id,
+        plan=SplitPlan(
+            types=[
+                {"name": "Insufficient explanation", "definition": "a"},
+                {"name": "Missing methodological justification", "definition": "b"},
+            ],
+            assignments=[
+                {"comment_id": "c1", "type_index": 0},
+                {"comment_id": "c2", "type_index": 1},
+            ],
+        ),
+    )
+    assert {i.name for i in list_active_issue_types()} == {
+        "Insufficient explanation",
+        "Insufficient explanation (2)",
         "Missing methodological justification",
     }

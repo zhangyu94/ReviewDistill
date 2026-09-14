@@ -9,7 +9,7 @@ import {
   typeChipOffFromQuery,
   typeChipVisible,
   workbenchHref,
-} from './commentSelectors.ts'
+} from './commentSelectors'
 
 function item(partial: Partial<InboxItemJson> & { id: string }): InboxItemJson {
   const { id, ...rest } = partial

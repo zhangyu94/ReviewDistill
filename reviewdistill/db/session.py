@@ -137,7 +137,7 @@ class StoreSession:
                     raise CorruptStore(f"Invalid JSON in {name}") from exc
                 row = model.model_validate(data)
                 _aware_datetimes(row)
-                # Leftover keys such as category / proposed_issue_category are ignored.
+                # Leftover keys such as category / notes / proposed_issue_category are ignored.
                 # Missing parent_id is a root; do not rewrite those old fields on load.
                 if model is ProofreadingComment:
                     comment_quality(row)

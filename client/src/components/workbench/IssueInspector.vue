@@ -1,275 +1,196 @@
 <script setup lang="ts">
 import type { TaxonomyDetail } from '../../api/client.ts'
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { editIssue, renameIssue } from '../../api/client.ts'
 import {
-  editIssue,
-  renameIssue,
-  splitIssue,
-} from '../../api/client.ts'
+  canSaveIssueEdit,
+  canShowIssueEdit,
+  issueDetailsErrorText,
+  issueEditSaves,
+  nextIssueSaveError,
+  shouldReloadAfterIssueSaves,
+  shouldSyncIssueEditFromProps,
+} from '../../workbench/issueDetailsEdit.ts'
 
 const props = defineProps<{
   issue: TaxonomyDetail | null
   selectedId: string
   missing: boolean
-  hasChildren?: boolean
+  error: string
 }>()
 
 const emit = defineEmits<{
   updated: []
-  removed: []
-  failed: [message: string]
 }>()
 
-const editingType = ref(false)
-const editingDefinition = ref(false)
+const editing = ref(false)
+const saving = ref(false)
+const saveError = ref('')
 const editName = ref('')
 const editDefinition = ref('')
-const editNotes = ref('')
-const left = ref({ name: '', definition: '' })
-const right = ref({ name: '', definition: '' })
 
-function pathLabel(issue: TaxonomyDetail) {
-  return issue.path.map((part) => part.name).join(' / ')
-}
+const showEdit = computed(() => canShowIssueEdit({
+  selectedId: props.selectedId,
+  missing: props.missing,
+  issue: props.issue,
+}))
+
+const canSave = computed(() => canSaveIssueEdit(editName.value, editDefinition.value))
+
+const errorText = computed(() => issueDetailsErrorText(saveError.value, props.error))
 
 function syncFromIssue(issue: TaxonomyDetail) {
   editName.value = issue.name
   editDefinition.value = issue.definition
-  editNotes.value = issue.notes ?? ''
-  left.value = {
-    name: `${issue.name} (A)`,
-    definition: issue.definition,
-  }
-  right.value = {
-    name: `${issue.name} (B)`,
-    definition: issue.definition,
-  }
 }
 
 watch(
   () => props.issue,
   (issue) => {
-    editingType.value = false
-    editingDefinition.value = false
+    const keepDraft = !shouldSyncIssueEditFromProps(saving.value) && editing.value
+    saving.value = false
+    saveError.value = nextIssueSaveError({ keepDraft, current: saveError.value })
+    if (keepDraft) { return }
+    editing.value = false
     if (!issue) { return }
     syncFromIssue(issue)
   },
   { immediate: true },
 )
 
-async function wrap(fn: () => Promise<unknown>, after?: () => void) {
+function startEdit() {
+  if (!props.issue) { return }
+  saveError.value = ''
+  syncFromIssue(props.issue)
+  editing.value = true
+}
+
+function cancelEdit() {
+  saveError.value = ''
+  if (props.issue) { syncFromIssue(props.issue) }
+  editing.value = false
+}
+
+async function save() {
+  const issue = props.issue
+  if (!issue || !canSave.value) { return }
+  const calls = issueEditSaves({
+    currentName: issue.name,
+    currentDefinition: issue.definition,
+    nextName: editName.value,
+    nextDefinition: editDefinition.value,
+  })
+  if (calls.length === 0) {
+    editing.value = false
+    return
+  }
+  let completed = 0
+  saving.value = true
+  saveError.value = ''
   try {
-    await fn()
-    after?.()
+    for (const call of calls) {
+      if (call.kind === 'rename') {
+        await renameIssue(issue.id, call.name)
+      }
+      else {
+        await editIssue(issue.id, { definition: call.definition })
+      }
+      completed += 1
+    }
+    emit('updated')
+    editing.value = false
   }
   catch (err) {
-    emit('failed', err instanceof Error ? err.message : String(err))
+    saveError.value = err instanceof Error ? err.message : String(err)
+    if (shouldReloadAfterIssueSaves(completed)) {
+      emit('updated')
+    }
+    else {
+      saving.value = false
+    }
   }
-}
-
-function startTypeEdit() {
-  if (!props.issue) { return }
-  syncFromIssue(props.issue)
-  editingType.value = true
-}
-
-function cancelTypeEdit() {
-  if (props.issue) { syncFromIssue(props.issue) }
-  editingType.value = false
-}
-
-function startDefinitionEdit() {
-  if (!props.issue) { return }
-  syncFromIssue(props.issue)
-  editingDefinition.value = true
-}
-
-function cancelDefinitionEdit() {
-  if (props.issue) { syncFromIssue(props.issue) }
-  editingDefinition.value = false
-}
-
-async function saveType() {
-  const issue = props.issue
-  if (!issue) { return }
-  await wrap(async () => {
-    await renameIssue(issue.id, editName.value)
-    emit('updated')
-  }, () => {
-    editingType.value = false
-  })
-}
-
-async function saveDefinition() {
-  const issue = props.issue
-  if (!issue) { return }
-  await wrap(async () => {
-    await editIssue(issue.id, {
-      definition: editDefinition.value,
-      notes: editNotes.value,
-    })
-    emit('updated')
-  }, () => {
-    editingDefinition.value = false
-  })
 }
 </script>
 
 <template>
-  <div>
-    <p v-if="!selectedId" class="ch-muted-text">
-      Select a group.
-    </p>
-    <p v-else-if="missing">
-      This issue type was not found.
-    </p>
-    <template v-else-if="issue">
-      <div class="flex w-full flex-col gap-3">
-        <section class="ch-panel">
-          <div class="mb-1.5 flex items-center justify-between gap-2">
-            <h2 class="ch-kicker mb-0">
-              Issue type
-            </h2>
-            <button
-              v-if="!editingType"
-              class="ch-btn ch-btn-outline"
-              type="button"
-              title="Edit this issue type’s name"
-              @click="startTypeEdit"
+  <div class="flex min-h-0 min-w-0 shrink-0 flex-col">
+    <div class="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-[var(--ch-color-border)] px-2">
+      <span class="text-xs font-medium">Issue Details</span>
+      <template v-if="showEdit">
+        <button
+          v-if="!editing"
+          class="ch-btn ch-btn-outline"
+          type="button"
+          title="Edit name and definition"
+          @click="startEdit"
+        >
+          Edit
+        </button>
+        <div v-else class="flex gap-1.5">
+          <button
+            class="ch-btn ch-btn-outline"
+            type="button"
+            title="Discard name and definition changes"
+            @click="cancelEdit"
+          >
+            Cancel
+          </button>
+          <button
+            class="ch-btn ch-btn-default"
+            type="button"
+            title="Save name and definition"
+            :disabled="!canSave"
+            @click="save"
+          >
+            Save
+          </button>
+        </div>
+      </template>
+    </div>
+    <div class="min-h-0 max-h-40 overflow-auto p-3 text-xs leading-5">
+      <p v-if="errorText" class="ch-error-text mb-3">
+        {{ errorText }}
+      </p>
+      <p v-if="!selectedId" class="ch-muted-text">
+        Select a group.
+      </p>
+      <p v-else-if="missing">
+        This issue type was not found.
+      </p>
+      <template v-else-if="issue">
+        <div class="flex w-full flex-col gap-2">
+          <section>
+            <label v-if="editing" class="ch-field-label" for="issue-details-name">Name</label>
+            <p
+              v-if="!editing"
+              class="font-semibold leading-5 text-[var(--ch-color-foreground)]"
             >
-              Edit
-            </button>
-            <div v-else class="flex gap-1.5">
-              <button
-                class="ch-btn ch-btn-outline"
-                type="button"
-                title="Discard name changes"
-                @click="cancelTypeEdit"
-              >
-                Cancel
-              </button>
-              <button
-                class="ch-btn ch-btn-default"
-                type="button"
-                title="Save name"
-                :disabled="!editName.trim()"
-                @click="saveType"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-          <dl class="grid grid-cols-[7.5rem_1fr] gap-x-2 gap-y-1 leading-4">
-            <dt class="ch-muted-text">
-              Name
-            </dt>
-            <dd v-if="!editingType" class="font-semibold text-[var(--ch-color-foreground)]">
               {{ issue.name }}
-            </dd>
-            <dd v-else>
-              <input v-model="editName" class="ch-input">
-            </dd>
-            <dt class="ch-muted-text">
-              Path
-            </dt>
-            <dd>
-              {{ pathLabel(issue) }}
-            </dd>
-          </dl>
-        </section>
-
-        <section class="ch-panel">
-          <div class="mb-1.5 flex items-center justify-between gap-2">
-            <h2 class="ch-kicker mb-0">
-              Definition
-            </h2>
-            <button
-              v-if="!editingDefinition"
-              class="ch-btn ch-btn-outline"
-              type="button"
-              title="Edit this issue type’s definition and notes"
-              @click="startDefinitionEdit"
+            </p>
+            <input
+              v-else
+              id="issue-details-name"
+              v-model="editName"
+              class="ch-input"
             >
-              Edit
-            </button>
-            <div v-else class="flex gap-1.5">
-              <button
-                class="ch-btn ch-btn-outline"
-                type="button"
-                title="Discard definition and notes changes"
-                @click="cancelDefinitionEdit"
-              >
-                Cancel
-              </button>
-              <button
-                class="ch-btn ch-btn-default"
-                type="button"
-                title="Save definition and notes"
-                :disabled="!editDefinition.trim()"
-                @click="saveDefinition"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-          <template v-if="!editingDefinition">
-            <p class="ch-prose whitespace-pre-wrap text-[var(--ch-color-body)]">
+          </section>
+          <section>
+            <label v-if="editing" class="ch-field-label" for="issue-details-definition">Definition</label>
+            <p
+              v-if="!editing"
+              class="ch-prose whitespace-pre-wrap text-[var(--ch-color-body)]"
+            >
               {{ issue.definition }}
             </p>
-            <template v-if="issue.notes">
-              <p class="ch-muted-text mt-2">
-                Notes
-              </p>
-              <p class="ch-prose mt-0.5 whitespace-pre-wrap">
-                {{ issue.notes }}
-              </p>
-            </template>
-          </template>
-          <template v-else>
-            <label class="ch-field-label">Definition</label>
-            <textarea v-model="editDefinition" class="ch-input mb-2 h-20 py-1.5" />
-            <label class="ch-field-label">Notes (optional)</label>
-            <textarea v-model="editNotes" class="ch-input h-12 py-1.5" placeholder="Internal notes" />
-          </template>
-        </section>
-
-        <details v-if="!hasChildren" class="ch-panel">
-          <summary class="cursor-pointer font-medium">
-            Split into two types
-          </summary>
-          <p class="ch-muted-text mt-2 mb-2">
-            Replace this type with two more specific ones. This type is deactivated; labeled comments return to Unlabeled so you can assign types again.
-          </p>
-          <div class="grid gap-3 sm:grid-cols-2">
-            <div>
-              <h3 class="mb-1.5 font-medium">
-                First type
-              </h3>
-              <label class="ch-field-label">Name</label>
-              <input v-model="left.name" class="ch-input mb-1.5">
-              <label class="ch-field-label">Definition</label>
-              <textarea v-model="left.definition" class="ch-input h-16 py-1.5" />
-            </div>
-            <div>
-              <h3 class="mb-1.5 font-medium">
-                Second type
-              </h3>
-              <label class="ch-field-label">Name</label>
-              <input v-model="right.name" class="ch-input mb-1.5">
-              <label class="ch-field-label">Definition</label>
-              <textarea v-model="right.definition" class="ch-input h-16 py-1.5" />
-            </div>
-          </div>
-          <button
-            class="ch-btn ch-btn-outline mt-3"
-            type="button"
-            title="Deactivate this type and create the two types described above"
-            @click="wrap(async () => { await splitIssue(issue!.id, left, right); emit('removed') })"
-          >
-            Split
-          </button>
-        </details>
-      </div>
-    </template>
+            <textarea
+              v-else
+              id="issue-details-definition"
+              v-model="editDefinition"
+              class="ch-input h-20 py-1.5"
+            />
+          </section>
+        </div>
+      </template>
+    </div>
   </div>
 </template>
