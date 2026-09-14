@@ -7,7 +7,7 @@ from sqlmodel import Field, SQLModel
 from reviewdistill.errors import CorruptStore
 
 # Presence: ``active`` = in the manuscript, ``pending_disappeared`` = not.
-# Quality is a separate field. Working set = not dropped, and (present or verified).
+# Quality is a separate field. To distill (working_set) = not dropped, and (present or verified).
 
 QUALITY_UNREVIEWED = "unreviewed"
 QUALITY_VERIFIED = "verified"
@@ -26,6 +26,12 @@ ISSUE_INACTIVE = "inactive"
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def comment_quality(comment: ProofreadingComment) -> str:
@@ -79,7 +85,6 @@ class Coding(SQLModel):
     confidence: float | None = None
     rationale: str | None = None
     status: str
-    proposed_issue_code: str | None = None
     proposed_issue_name: str | None = None
     proposed_parent_id: str | None = None  # new-type parent; unknown/inactive → root
     proposed_issue_definition: str | None = None
@@ -89,14 +94,16 @@ class Coding(SQLModel):
 
 def is_labeled(session, comment_id: str) -> bool:
     return any(
-        row.status == CODING_ACCEPTED and row.issue_type_id
+        row.status == CODING_ACCEPTED
+        and row.issue_type_id
+        and (issue := session.get(IssueType, row.issue_type_id)) is not None
+        and issue.status == ISSUE_ACTIVE
         for row in session.find(Coding, comment_id=comment_id)
     )
 
 
 class IssueType(SQLModel):
     id: str
-    code: str
     name: str
     parent_id: str | None = None  # null = root; must be active when this row is active
     position: int = 0  # sibling order; compacted to 0..n-1

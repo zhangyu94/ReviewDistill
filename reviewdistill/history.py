@@ -27,10 +27,12 @@ from reviewdistill.db.models import (
     IssueType,
     ProofreadingComment,
     TaxonomyEvent,
+    as_utc,
     utcnow,
 )
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.errors import BadInput
+from reviewdistill.taxonomy.tree import next_unique_name
 
 INVERTIBLE = frozenset(
     {
@@ -76,15 +78,17 @@ def dump_row(row) -> dict:
 
 
 def _parse_dt(value):
-    if isinstance(value, datetime):
-        return value
     if isinstance(value, str):
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if isinstance(value, datetime):
+        return as_utc(value)
     return value
 
 
 def coding_from_dump(data: dict) -> Coding:
     data = dict(data)
+    data.pop("proposed_issue_code", None)
+    data.pop("code", None)
     data["created_at"] = _parse_dt(data.get("created_at")) or utcnow()
     return Coding(**data)
 
@@ -103,6 +107,7 @@ def counter_from_dump(data: dict) -> IssueCounterexample:
 
 def issue_from_dump(data: dict) -> IssueType:
     data = dict(data)
+    data.pop("code", None)
     data["created_at"] = _parse_dt(data.get("created_at")) or utcnow()
     data["updated_at"] = _parse_dt(data.get("updated_at")) or utcnow()
     return IssueType(**data)
@@ -123,7 +128,7 @@ def record(session, event_type: str, payload: dict) -> None:
 
 def event_summary(event_type: str, payload: dict) -> str:
     if event_type == "add":
-        return f"Add {payload.get('name') or payload.get('code')}"
+        return f"Add {payload.get('name')}"
     if event_type == "rename":
         before = (payload.get("before") or {}).get("name")
         after = (payload.get("after") or {}).get("name")
@@ -131,13 +136,13 @@ def event_summary(event_type: str, payload: dict) -> str:
     if event_type == "edit":
         return "Edit definition"
     if event_type == "move":
-        return f"Move {payload.get('code')}"
+        return f"Move {payload.get('name')}"
     if event_type == "flatten":
-        return f"Flatten {payload.get('code')}"
+        return f"Flatten {payload.get('name')}"
     if event_type == "remove":
-        return f"Remove {payload.get('code')}"
+        return f"Remove {payload.get('name')}"
     if event_type == "deactivate":
-        return f"Deactivate {payload.get('code')}"
+        return f"Deactivate {payload.get('name')}"
     if event_type == "merge":
         return "Merge issue types"
     if event_type == "split":
@@ -239,22 +244,25 @@ def _payload(event: TaxonomyEvent) -> dict:
     return json.loads(event.payload_json)
 
 
-def _invert_rename(session, payload: dict) -> None:
-    issue = session.get(IssueType, payload["issue_type_id"])
-    before = payload["before"]
-    issue.name = before["name"]
-    issue.code = before["code"]
+def _set_unique_name(session, issue: IssueType, name: str) -> None:
+    taken = [
+        row.name
+        for row in session.find(IssueType, status=ISSUE_ACTIVE)
+        if row.id != issue.id
+    ]
+    issue.name = next_unique_name(taken, name)
     issue.updated_at = utcnow()
     session.add(issue)
+
+
+def _invert_rename(session, payload: dict) -> None:
+    issue = session.get(IssueType, payload["issue_type_id"])
+    _set_unique_name(session, issue, payload["before"]["name"])
 
 
 def _apply_rename(session, payload: dict) -> None:
     issue = session.get(IssueType, payload["issue_type_id"])
-    after = payload["after"]
-    issue.name = after["name"]
-    issue.code = after["code"]
-    issue.updated_at = utcnow()
-    session.add(issue)
+    _set_unique_name(session, issue, payload["after"]["name"])
 
 
 def _invert_edit(session, payload: dict) -> None:

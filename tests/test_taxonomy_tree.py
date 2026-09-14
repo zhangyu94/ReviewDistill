@@ -3,16 +3,14 @@ from reviewdistill.taxonomy.tree import (
     compact_positions,
     descendant_ids,
     is_under,
-    next_new_code,
     subtree_count,
     types_to_forest,
 )
 
 
-def _t(id, *, parent=None, position=0, name="n", code=None):
+def _t(id, *, parent=None, position=0, name="n"):
     return IssueType(
         id=id,
-        code=code or id,
         name=name,
         parent_id=parent,
         position=position,
@@ -61,6 +59,11 @@ def test_forest_and_subtree_count():
     assert subtree_count(own, descendant_ids(types, "root") | {"root"}) == 5
 
 
-def test_next_new_code_skips_taken():
-    assert next_new_code(["NEW", "NEW_2"]) == "NEW_3"
-    assert next_new_code([]) == "NEW"
+def test_next_unique_name_matches_image_taxonomy_labeler():
+    from reviewdistill.taxonomy.tree import next_unique_name
+
+    assert next_unique_name(["a"], "b") == "b"
+    assert next_unique_name(["foo"], "foo") == "foo (2)"
+    assert next_unique_name(["foo", "foo (2)", "foo (4)"], "foo") == "foo (3)"
+    assert next_unique_name(["a+b"], "a+b") == "a+b (2)"
+    assert next_unique_name(["New type", "New type"], "New type") == "New type (2)"

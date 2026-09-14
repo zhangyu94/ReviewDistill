@@ -34,13 +34,11 @@ def _count_store_loads(monkeypatch):
 
 def test_retrieval_ranks_overlapping_issue_highest(db):
     overclaim = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="A claim is stated more strongly than the evidence supports.",
     )
     add_example(overclaim.id, text="demonstrate is too strong; prefer suggest")
     create_issue_type(
-        code="AMBIG",
         name="Ambiguous terminology",
         definition="A term is used without a precise definition.",
     )
@@ -54,7 +52,6 @@ def test_retrieval_ranks_overlapping_issue_highest(db):
 
 def test_retrieval_ignores_inactive_issues(db):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="demonstrate too strong",
     )
@@ -68,7 +65,6 @@ def test_retrieval_ignores_examples_from_dropped_comments(db):
     from reviewdistill.db.session import get_session
 
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="A claim exceeds the evidence.",
     )
@@ -97,7 +93,6 @@ def test_retrieval_ignores_examples_from_dropped_comments(db):
 def test_retrieve_candidates_loads_store_once(db, monkeypatch):
     for index in range(3):
         create_issue_type(
-            code=f"ISSUE{index}",
             name=f"Issue {index} demonstrate",
             definition="A claim is stated more strongly than the evidence supports.",
         )

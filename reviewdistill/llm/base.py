@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 from typing import Protocol
 
-from reviewdistill.config import HomeConfig, PROVIDER_ENV_KEYS, load_llm_config, load_llm_config_from_registered_projects
+from reviewdistill.config import PROVIDER_ENV_KEYS, HomeConfig, api_key_from_dotenv, load_llm_config
+from reviewdistill.paths import home_env_path
 
 
 class LLMProvider(Protocol):
@@ -16,17 +17,9 @@ class LLMProvider(Protocol):
 _ENV_KEYS = PROVIDER_ENV_KEYS
 
 
-def _configured(config: HomeConfig) -> bool:
-    return bool(config.llm_provider)
-
-
 def effective_llm_config() -> HomeConfig:
-    config = load_llm_config()
-    if not _configured(config):
-        registered = load_llm_config_from_registered_projects()
-        if registered is not None:
-            config = registered
-    return config
+    """Home files only. Process-env provider/model overrides live in ``get_provider``."""
+    return load_llm_config()
 
 
 def resolve_api_key(provider_name: str) -> str | None:
@@ -35,7 +28,7 @@ def resolve_api_key(provider_name: str) -> str | None:
         value = os.environ.get(env_name)
         if value:
             return value
-    return effective_llm_config().llm_api_key
+    return api_key_from_dotenv(home_env_path(), provider_name)
 
 
 def require_api_key(provider_name: str) -> str:
@@ -45,8 +38,7 @@ def require_api_key(provider_name: str) -> str:
     env_name = _ENV_KEYS.get(provider_name, "the provider environment variable")
     raise RuntimeError(
         f"No api key configured for {provider_name}. "
-        f"Set {env_name} in the process environment or the paper's "
-        ".reviewdistill/.env."
+        f"Set {env_name} in the process environment or the ReviewDistill folder's .env."
     )
 
 
@@ -59,14 +51,14 @@ def privacy_warning(*, provider_name: str, comment_count: int) -> str:
 
 
 def get_provider() -> LLMProvider:
+    """``REVIEWDISTILL_LLM_PROVIDER`` / ``_MODEL`` override home YAML. No paper scan."""
     env_name = os.environ.get("REVIEWDISTILL_LLM_PROVIDER")
     config = effective_llm_config()
     name = (env_name or config.llm_provider or "").lower()
     if not name:
         raise RuntimeError(
-            "No LLM provider configured. Set llm.provider in "
-            "~/.reviewdistill/config.yaml or the paper's .reviewdistill/config.yaml, "
-            "and put the API key in the paper's .reviewdistill/.env."
+            "No LLM provider configured. Set llm.provider in the ReviewDistill "
+            "folder's config.yaml (Settings → Assistant), and put the API key in that folder's .env."
         )
     model = os.environ.get("REVIEWDISTILL_LLM_MODEL") or config.llm_model
     if name == "mock":

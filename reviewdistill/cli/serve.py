@@ -9,5 +9,5 @@ def build_uvicorn_args(host: str, port: int) -> dict:
 
 
 def run_serve(host: str = "127.0.0.1", port: int = 8765) -> None:
-    typer.echo(f"ReviewDistill workbench at http://{host}:{port}")
+    typer.echo(f"ReviewDistill UI at http://{host}:{port}")
     uvicorn.run(**build_uvicorn_args(host, port))

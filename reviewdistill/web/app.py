@@ -10,7 +10,7 @@ from reviewdistill.web.static_assets import resolve_serve_static_dir
 
 _CLIENT_MISSING = (
     'Client UI not built. Run pip install -e ".[dev]" '
-    "(Node ≥ 22 and pnpm) or scripts/build-client-assets.sh"
+    "(Node ≥ 22 and pnpm) or python client_build.py"
 )
 
 

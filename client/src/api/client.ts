@@ -1,6 +1,5 @@
 export interface IssueOption {
   id: string
-  code: string
   name: string
   parent_id: string | null
 }
@@ -43,6 +42,16 @@ export interface InboxItemJson {
   labeled: boolean
   issue: IssueOption | null
   coding: CodingJson | null
+  in_working_set: boolean
+}
+
+export interface CommentProgress {
+  working_set: number
+  unlabeled: number
+  labeled: number
+  unreviewed: number
+  verified: number
+  dropped: number
 }
 
 export interface InboxResponse {
@@ -51,6 +60,8 @@ export interface InboxResponse {
   llm_provider: string | null
   issues: IssueOption[]
   items: InboxItemJson[]
+  working_items: InboxItemJson[]
+  progress: CommentProgress
 }
 
 export class ApiError extends Error {
@@ -110,7 +121,6 @@ export function changeInbox(commentId: string, issueTypeId: string): Promise<{ o
 
 export interface TaxonomyNode {
   id: string
-  code: string
   name: string
   count: number
   children: TaxonomyNode[]
@@ -122,7 +132,6 @@ export interface TaxonomyListResponse {
 
 export interface TaxonomyDetail {
   id: string
-  code: string
   name: string
   parent_id: string | null
   path: { id: string, name: string }[]
@@ -148,8 +157,8 @@ export function fetchIssue(id: string): Promise<TaxonomyDetail> {
   return api(`/api/taxonomy/${id}`)
 }
 
-export function renameIssue(id: string, name: string, code: string): Promise<{ ok: true }> {
-  return api(`/api/taxonomy/${id}/rename`, { method: 'POST', body: JSON.stringify({ name, code }) })
+export function renameIssue(id: string, name: string): Promise<{ ok: true }> {
+  return api(`/api/taxonomy/${id}/rename`, { method: 'POST', body: JSON.stringify({ name }) })
 }
 
 export function editIssue(
@@ -178,10 +187,6 @@ export function removeIssue(id: string): Promise<{ ok: true }> {
   return api(`/api/taxonomy/${id}/remove`, { method: 'POST' })
 }
 
-export function deactivateIssue(id: string): Promise<{ ok: true }> {
-  return api(`/api/taxonomy/${id}/deactivate`, { method: 'POST' })
-}
-
 export function addCounterexample(id: string, text: string): Promise<{ ok: true }> {
   return api(`/api/taxonomy/${id}/counterexample`, { method: 'POST', body: JSON.stringify({ text }) })
 }
@@ -195,8 +200,8 @@ export function mergeIssues(sourceIds: string[], targetId: string): Promise<{ ok
 
 export function splitIssue(
   id: string,
-  left: { code: string, name: string, definition: string },
-  right: { code: string, name: string, definition: string },
+  left: { name: string, definition: string },
+  right: { name: string, definition: string },
 ): Promise<{ ok: true }> {
   return api(`/api/taxonomy/${id}/split`, { method: 'POST', body: JSON.stringify({ left, right }) })
 }
@@ -236,40 +241,30 @@ export function exportFilename(fmt: ExportFormat): string {
   return 'review-rubric.md'
 }
 
-export async function fetchExport(fmt: ExportFormat): Promise<string> {
-  const response = await fetch(`/api/taxonomy/export?format=${fmt}`)
+export async function fetchExport(fmt: ExportFormat, ids: string[]): Promise<string> {
+  const params = new URLSearchParams({ format: fmt })
+  for (const id of ids) {
+    params.append('id', id)
+  }
+  const response = await fetch(`/api/taxonomy/export?${params.toString()}`)
   if (!response.ok) {
     await throwHttpError(response)
   }
   return await response.text()
 }
 
-export interface LlmSettingsProject {
-  id: string
-  name: string
-  root_path: string
-}
-
-export interface LlmSettingsSelected {
-  project_id: string
+export interface LlmSettingsResponse {
   provider: string | null
   model: string | null
   key_set: boolean
+  api_key: string | null
 }
 
-export interface LlmSettingsResponse {
-  projects: LlmSettingsProject[]
-  default_project_id: string | null
-  selected: LlmSettingsSelected | null
-}
-
-export function fetchLlmSettings(projectId?: string): Promise<LlmSettingsResponse> {
-  const q = projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''
-  return api(`/api/llm-settings${q}`)
+export function fetchLlmSettings(): Promise<LlmSettingsResponse> {
+  return api('/api/llm-settings')
 }
 
 export function saveLlmSettings(body: {
-  project_id: string
   provider: string
   model: string
   api_key: string

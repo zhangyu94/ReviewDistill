@@ -6,7 +6,7 @@ Identity (when a source comment is new, a revision, a move, or gone) is defined 
 
 Implementation: one JSONL file per collection in the ReviewDistill home folder (default `~/.reviewdistill`): `projects.jsonl`, `comments.jsonl`, `codings.jsonl`, `issue_types.jsonl`, `issue_examples.jsonl`, `issue_counterexamples.jsonl`, `taxonomy_events.jsonl`, `git_commits.jsonl`. One JSON object per line, sorted by `id`. `reviewdistill paths use` / `move` choose that folder. `comments.project_id` is the `projects.id` of the paper.
 
-The JSON object under `comment` in `GET /api/inbox` (workbench Unlabeled) is the comment row (`created_at` as ISO-8601). Response extras (`project_name`, `permalink`, `guess`, `in_manuscript`, `coding`) are not columns on `comments`; `project_name` is `projects.name`. `in_manuscript` is `status == "active"`.
+The JSON object under `comment` in `GET /api/inbox` is the comment row (`created_at` as ISO-8601). `items` is the Unlabeled queue; `working_items` is every comment to distill (labeled included) so the UI can AND selectors without extra fetches. Each item has `in_working_set`. `progress.working_set` is the **to distill** headline. `progress` has no `absent` key; presence is `in_manuscript` on the item. Response extras (`project_name`, `permalink`, `guess`, `in_manuscript`, `labeled`, `issue`, `coding`, `in_working_set`) are not columns on `comments`; `project_name` is `projects.name`. `in_manuscript` is `status == "active"`.
 
 ---
 
@@ -152,7 +152,7 @@ Time the row was first inserted. Not updated on revision, move, presence change,
 
 ### Presence
 
-`status` is extract-managed presence, not a workbench queue.
+`status` is extract-managed presence, not a UI queue.
 
 | Status | Still in the manuscript source? | How it is set |
 | --- | --- | --- |
@@ -166,21 +166,21 @@ Extract never Verify/Drops. Exception: a wording revision clears `verified` to `
 | Quality | Meaning | How it is set |
 | --- | --- | --- |
 | `unreviewed` | Default after extract; revision of wording also clears `verified` back to this | Extract (new / revision) |
-| `verified` | Observation is quality-assured. Does not confirm the issue type | Workbench **Verify** |
-| `dropped` | Do not distill (too local or bad extract). History is kept | Workbench **Drop** |
+| `verified` | Observation is quality-assured. Does not confirm the issue type | **Verify** |
+| `dropped` | Do not distill (too local or bad extract). History is kept | **Drop** |
 
 Unknown values are rejected on `add`, `commit`, and load (`Unknown comment quality`). Corrupt `comments.jsonl` fails fast; rows are not skipped.
 
-### Working set
+### Comments to distill
 
-A comment is in the **working set** when it is not `dropped`, and either in the manuscript (`status=active`) or `verified`.
+A comment is **to distill** (`in_working_set`) when it is not `dropped`, and either in the manuscript (`status=active`) or `verified`. Progress shows this count as **to distill**; the JSON key remains `working_set`.
 
-AI suggestions, clustering, taxonomy examples, type-chip counts, recent observations, and rubric export use only the working set.
+AI suggestions, clustering, taxonomy examples, type-chip counts, recent observations, and rubric export use only comments to distill.
 
-Workbench views:
+Selector views:
 
-- **Unlabeled** — working-set comments with no issue type, plus absent + `unreviewed` (so you can Verify or Drop). No Reject: not accepting a suggestion leaves the comment unlabeled.
-- **Type chip** — that type’s labeled comments in the working set.
+- **Unlabeled** — comments to distill with no **active** issue type, plus absent + `unreviewed` (so you can Verify or Drop). No Reject: not accepting a suggestion leaves the comment unlabeled. An accepted label on an inactive type does not count.
+- **Type chip** — that type’s labeled comments to distill.
 
 ### What extract updates in place
 
@@ -195,7 +195,6 @@ Live taxonomy node (`issue_types.jsonl`). The store is a forest: `parent_id` is 
 | Column | Type | Null | Default |
 | --- | --- | --- | --- |
 | `id` | string | no | — |
-| `code` | string | no | — |
 | `name` | string | no | — |
 | `parent_id` | string | yes | null (root) |
 | `position` | int | no | 0 |

@@ -69,7 +69,7 @@ const config: Config = {
           items: [
             {label: 'Install', to: '/docs/install'},
             {label: 'Workflow', to: '/docs/workflow'},
-            {label: 'Workbench', to: '/docs/workbench'},
+            {label: 'UI', to: '/docs/ui'},
           ],
         },
         {

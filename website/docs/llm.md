@@ -2,23 +2,23 @@
 
 There is no default model. Until `llm.provider` is set, the Unlabeled inspector shows **No AI suggestion** and **Label with AI** stays disabled. Mock proposals from older runs are ignored.
 
-Workbench **Settings** (header, next to Export) **Assistant** panel writes `llm.provider` / `llm.model` to the chosen paper’s `.reviewdistill/config.yaml` and the API key to that paper’s `.reviewdistill/.env` (gitignored). **Configure LLM** in the Unlabeled empty state opens the same dialog.
+Header **Settings** (next to History and Export) **Assistant** panel writes `llm.provider` / `llm.model` to the ReviewDistill home `config.yaml` and the API key to that folder’s `.env` (gitignored). **Configure LLM** in the Unlabeled empty state opens the same dialog. There is no paper picker.
 
 ## Config you can commit
 
 ```yaml
-# paper/.reviewdistill/config.yaml
+# ReviewDistill home config.yaml  (Settings → Data / `reviewdistill paths`)
 llm:
   provider: deepseek    # openai | anthropic | deepseek  (mock is tests-only)
   model: deepseek-chat
 ```
 
-Do not put the key in YAML.
+Do not put the key in YAML. Paper `.reviewdistill/config.yaml` is comments-only (`project` and latex commands). Leftover paper `llm:` / `.env` are ignored.
 
 ## Key file (gitignored)
 
 ```
-# paper/.reviewdistill/.env  (copy from .env.example)
+# ReviewDistill home .env
 DEEPSEEK_API_KEY=sk-...
 ```
 
@@ -28,14 +28,14 @@ DEEPSEEK_API_KEY=sk-...
 | `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` |
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
 
-A process environment variable of the same name wins if both are set. Settings **Save** with a blank key field keeps the existing `.env` value.
+A process environment variable of the same name wins if both are set. Settings loads the saved key into the API key field (password until **Show**). **Save** with a blank key field keeps the existing `.env` value.
 
 Calls go through [LiteLLM](https://github.com/BerriAI/litellm).
 
 ## Label with AI
 
-The button sends every unlabeled working-set comment in one request. A paper’s `llm` block and `.env` are used even if you start `reviewdistill serve` from another directory, as long as **exactly one** registered paper has an LLM config. If two papers both have keys, set `llm` in `~/.reviewdistill/config.yaml` (or serve from the paper directory) so the workbench does not pick a key at random.
+The button sends every unlabeled comment to distill in one request. A thin progress bar at the top of the window runs until that request and the UI refresh finish. Label with AI is store-wide: the assistant is the home folder’s `llm` block and `.env`, not a paper.
 
-External providers receive the comment, nearby manuscript context, and candidate issue summaries — not the rest of your disk. After **Label with AI**, the workbench shows that warning.
+External providers receive the comment, nearby manuscript context, and candidate issue summaries — not the rest of your disk. After **Label with AI**, the UI shows that warning.
 
-Key lookup order: process environment, then the paper’s `.reviewdistill/.env`.
+Lookup: process environment `REVIEWDISTILL_LLM_PROVIDER` / `REVIEWDISTILL_LLM_MODEL` if set, else home `config.yaml`. Key: process environment for that provider, then the home folder’s `.env`. Settings shows the home files, not those process-env overrides.

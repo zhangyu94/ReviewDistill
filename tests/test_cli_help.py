@@ -37,6 +37,7 @@ def test_export_help_lists_format_and_output():
     text = _plain(result.stdout)
     assert "--format" in text
     assert "--output" in text
+    assert "--id" in text
 
 
 def test_paths_prints_home_and_database(rd_home):
@@ -96,11 +97,11 @@ def test_paths_move_exits_when_destination_is_nonempty(rd_home, tmp_path):
     assert "already has files" in result.output
 
 
-def test_serve_help_describes_workbench():
+def test_serve_help_describes_ui():
     result = runner.invoke(app, ["serve", "--help"])
     assert result.exit_code == 0
     text = _plain(result.stdout).lower()
-    assert "workbench" in text
+    assert "web ui" in text
 
 
 def test_reviewdistill_code_command_removed():

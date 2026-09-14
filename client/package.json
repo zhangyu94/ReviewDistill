@@ -21,10 +21,13 @@
     "pinia": "^4.0.3",
     "reka-ui": "^2.10.4",
     "vue": "^3.5.42",
-    "vue-router": "^5.3.1"
+    "vue-router": "^5.3.1",
+    "with-progress-bar": "^0.1.2"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^9.5.1",
+    "@iconify-json/fa6-regular": "^1.2.4",
+    "@iconify-json/fa6-solid": "^1.2.4",
     "@vitejs/plugin-vue": "^6.0.8",
     "eslint": "^10.10.0",
     "happy-dom": "^20.14.3",

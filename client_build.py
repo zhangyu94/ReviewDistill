@@ -1,8 +1,8 @@
 """Build the Vue client into ``reviewdistill/web/static`` during packaging.
 
-``pip install`` from a PyPI wheel does not run this; the wheel already contains
-the files. A git clone / editable install / ``python -m build`` does, and needs
-Node ≥ 22 and pnpm. Set ``SKIP_CLIENT_BUILD=1`` for a Python-only install.
+A git clone, editable install, or ``python -m build`` needs Node ≥ 22 and pnpm.
+Set ``SKIP_CLIENT_BUILD=1`` for a Python-only install.
+Rebuild without reinstalling with ``python client_build.py``.
 """
 
 from __future__ import annotations

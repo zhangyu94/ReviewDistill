@@ -21,11 +21,10 @@ from reviewdistill.taxonomy.operations import (
 
 def test_rename_and_edit_keep_id(db):
     issue = create_issue_type(
-        code="STRONG",
         name="Overly strong claim",
         definition="old",
     )
-    renamed = rename_issue_type(issue.id, name="Overclaiming", code="OVERCLAIM")
+    renamed = rename_issue_type(issue.id, name="Overclaiming")
     edited = edit_issue_type(
         issue.id,
         definition="A claim is stronger than the evidence supports.",
@@ -34,14 +33,13 @@ def test_rename_and_edit_keep_id(db):
     )
     assert renamed.id == issue.id
     assert edited.name == "Overclaiming"
-    assert edited.code == "OVERCLAIM"
     assert edited.definition.startswith("A claim is stronger")
     assert edited.notes is not None
 
 
 def test_move_inner_nests_under_target(db):
-    parent = create_issue_type(code="P", name="Parent", definition="p")
-    child = create_issue_type(code="C", name="Child", definition="c")
+    parent = create_issue_type(name="Parent", definition="p")
+    child = create_issue_type(name="Child", definition="c")
     moved = move_issue_type(child.id, parent_id=parent.id, position=0)
     assert moved.parent_id == parent.id
     assert moved.position == 0
@@ -50,15 +48,14 @@ def test_move_inner_nests_under_target(db):
 def test_move_refuses_under_descendant(db):
     from reviewdistill.errors import BadInput
 
-    root = create_issue_type(code="R", name="Root", definition="r")
-    child = create_issue_type(code="A", name="A", definition="a", parent_id=root.id)
+    root = create_issue_type(name="Root", definition="r")
+    child = create_issue_type(name="A", definition="a", parent_id=root.id)
     with pytest.raises(BadInput):
         move_issue_type(root.id, parent_id=child.id, position=0)
 
 
 def test_deactivate_hides_from_active_list(db):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -73,12 +70,10 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
     from reviewdistill.history import redo, undo
 
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
     other = create_issue_type(
-        code="WEAK",
         name="Weak evidence",
         definition="evidence is thin",
     )
@@ -173,10 +168,10 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
 
 
 def test_merge_moves_codings_examples_and_counterexamples_to_target(db):
-    a = create_issue_type(code="U", name="Unsupported claim", definition="a")
-    b = create_issue_type(code="S", name="Overly strong claim", definition="b")
+    a = create_issue_type(name="Unsupported claim", definition="a")
+    b = create_issue_type(name="Overly strong claim", definition="b")
     target = create_issue_type(
-        code="OVERCLAIM", name="Overclaiming", definition="c"
+        name="Overclaiming", definition="c"
     )
     add_example(a.id, text="from A", source_comment_id="c1")
     add_example(a.id, text="unique from A", source_comment_id="c2")
@@ -215,12 +210,12 @@ def test_merge_moves_codings_examples_and_counterexamples_to_target(db):
 
 
 def test_split_creates_siblings_under_same_parent(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
-    source = create_issue_type(code="S", name="Source", definition="", parent_id=parent.id)
+    parent = create_issue_type(name="Parent", definition="")
+    source = create_issue_type(name="Source", definition="", parent_id=parent.id)
     left, right = split_issue_type(
         source.id,
-        left={"code": "L", "name": "Left", "definition": "l"},
-        right={"code": "R", "name": "Right", "definition": "r"},
+        left={"name": "Left", "definition": "l"},
+        right={"name": "Right", "definition": "r"},
     )
     assert left.parent_id == parent.id
     assert right.parent_id == parent.id
@@ -228,13 +223,13 @@ def test_split_creates_siblings_under_same_parent(db):
 
 
 def test_split_inserts_pair_before_later_sibling(db):
-    create_issue_type(code="A", name="Alpha", definition="")
-    writing = create_issue_type(code="W", name="Writing", definition="")
-    create_issue_type(code="S", name="Style", definition="")
+    create_issue_type(name="Alpha", definition="")
+    writing = create_issue_type(name="Writing", definition="")
+    create_issue_type(name="Style", definition="")
     left, right = split_issue_type(
         writing.id,
-        left={"code": "WA", "name": "Writing (A)", "definition": "a"},
-        right={"code": "WB", "name": "Writing (B)", "definition": "b"},
+        left={"name": "Writing (A)", "definition": "a"},
+        right={"name": "Writing (B)", "definition": "b"},
     )
     with get_session() as session:
         roots = sorted(
@@ -248,25 +243,22 @@ def test_split_inserts_pair_before_later_sibling(db):
 
 def test_split_deactivates_source_and_creates_two_active_types(db):
     source = create_issue_type(
-        code="INSUFF",
         name="Insufficient explanation",
         definition="too broad",
     )
     left, right = split_issue_type(
         source.id,
         left={
-            "code": "MOTIVE",
             "name": "Missing motivation",
             "definition": "Why this problem matters is missing.",
         },
         right={
-            "code": "METHJUST",
             "name": "Missing methodological justification",
             "definition": "A design choice is unexplained.",
         },
     )
-    active = {i.code for i in list_active_issue_types()}
-    assert active == {"MOTIVE", "METHJUST"}
+    active = {i.name for i in list_active_issue_types()}
+    assert active == {"Missing motivation", "Missing methodological justification"}
     with get_session() as session:
         assert session.get(IssueType, source.id).status == "inactive"
         assert left.id != source.id
@@ -277,7 +269,6 @@ def test_split_returns_accepted_comments_to_unlabeled(db):
     from reviewdistill.coding.validation import inbox_items
 
     source = create_issue_type(
-        code="INSUFF",
         name="Insufficient explanation",
         definition="too broad",
     )
@@ -318,12 +309,10 @@ def test_split_returns_accepted_comments_to_unlabeled(db):
     split_issue_type(
         source.id,
         left={
-            "code": "MOTIVE",
             "name": "Missing motivation",
             "definition": "Why this problem matters is missing.",
         },
         right={
-            "code": "METHJUST",
             "name": "Missing methodological justification",
             "definition": "A design choice is unexplained.",
         },
@@ -336,72 +325,37 @@ def test_split_returns_accepted_comments_to_unlabeled(db):
         assert leftover == []
 
 
-def test_create_issue_type_rejects_duplicate_active_code(db):
-    create_issue_type(code="OVERCLAIM", name="Overclaiming", definition="a")
-    try:
-        create_issue_type(code="OVERCLAIM", name="Overclaiming 2", definition="b")
-    except ValueError as exc:
-        assert "OVERCLAIM" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
-    assert [i.name for i in list_active_issue_types()] == ["Overclaiming"]
+def test_create_issue_type_suffixes_duplicate_active_name(db):
+    create_issue_type(name="Overclaiming", definition="a")
+    second = create_issue_type(name="Overclaiming", definition="b")
+    assert second.name == "Overclaiming (2)"
+    assert {i.name for i in list_active_issue_types()} == {"Overclaiming", "Overclaiming (2)"}
 
 
-def _split_sides(left_code: str, right_code: str) -> tuple[dict, dict]:
-    return (
-        {
-            "code": left_code,
-            "name": "Missing motivation",
-            "definition": "Why this problem matters is missing.",
-        },
-        {
-            "code": right_code,
-            "name": "Missing methodological justification",
-            "definition": "A design choice is unexplained.",
-        },
-    )
-
-
-def test_split_rejects_duplicate_left_and_right_codes(db):
+def test_split_uniquifies_duplicate_names(db):
     source = create_issue_type(
-        code="INSUFF",
         name="Insufficient explanation",
         definition="too broad",
     )
-    left, right = _split_sides("DUP", "DUP")
-    try:
-        split_issue_type(source.id, left=left, right=right)
-    except ValueError as exc:
-        assert "DUP" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
-    assert [i.code for i in list_active_issue_types()] == ["INSUFF"]
+    split_issue_type(
+        source.id,
+        left={"name": "Dup", "definition": "a"},
+        right={"name": "Dup", "definition": "b"},
+    )
+    assert {i.name for i in list_active_issue_types()} == {"Dup", "Dup (2)"}
 
 
-def test_split_rejects_code_taken_by_another_active_type(db):
+def test_split_reuses_source_name(db):
     source = create_issue_type(
-        code="INSUFF",
         name="Insufficient explanation",
         definition="too broad",
     )
-    create_issue_type(code="OVERCLAIM", name="Overclaiming", definition="a")
-    left, right = _split_sides("OVERCLAIM", "METHJUST")
-    try:
-        split_issue_type(source.id, left=left, right=right)
-    except ValueError as exc:
-        assert "OVERCLAIM" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
-    active = {i.code for i in list_active_issue_types()}
-    assert active == {"INSUFF", "OVERCLAIM"}
-
-
-def test_split_may_reuse_source_code(db):
-    source = create_issue_type(
-        code="INSUFF",
-        name="Insufficient explanation",
-        definition="too broad",
+    split_issue_type(
+        source.id,
+        left={"name": "Insufficient explanation", "definition": "a"},
+        right={"name": "Missing methodological justification", "definition": "b"},
     )
-    left, right = _split_sides("INSUFF", "METHJUST")
-    split_issue_type(source.id, left=left, right=right)
-    assert {i.code for i in list_active_issue_types()} == {"INSUFF", "METHJUST"}
+    assert {i.name for i in list_active_issue_types()} == {
+        "Insufficient explanation",
+        "Missing methodological justification",
+    }

@@ -44,6 +44,13 @@ def test_parse_existing_and_new_recommendations():
     assert new.issue_name.startswith("Missing")
 
 
+def test_parse_model_output_reads_name_alias_as_issue_name():
+    proposal = parse_model_output(
+        json.dumps({"recommendation": "new", "name": "Unclear paragraph thesis", "rationale": "why"})
+    )
+    assert proposal.issue_name == "Unclear paragraph thesis"
+
+
 def test_parse_model_output_reads_first_json_object():
     proposal = parse_model_output(
         '{"recommendation":"new","issue_name":"X"} leftover {not json}'
@@ -58,7 +65,6 @@ def test_build_prompt_separates_observation_from_interpretation():
         (),
         {
             "id": "iss-1",
-            "code": "OVERCLAIM",
             "name": "Overclaiming",
             "parent_id": None,
             "definition": "too strong",
@@ -72,6 +78,8 @@ def test_build_prompt_separates_observation_from_interpretation():
     )
     assert "Reviewer observation:" in prompt
     assert "do not modify the taxonomy" in prompt.lower()
+    assert "issue_name" in prompt
+    assert "required" in prompt
     assert "Overclaiming" in prompt
     assert "demonstrate" in prompt
 
@@ -83,7 +91,6 @@ def test_code_uncoded_comments_writes_proposed_coding(db, tmp_path):
     (repo / "main.tex").write_text('\\myremark{I think "demonstrate" is too strong here.}\n')
     extract_project(repo)
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="A claim is stronger than the evidence supports.",
     )
@@ -109,6 +116,84 @@ def test_code_uncoded_comments_writes_proposed_coding(db, tmp_path):
         assert coding.status == "proposed"
         assert coding.issue_type_id == issue.id
         assert coding.confidence == 0.91
+
+
+def test_code_skips_new_recommendation_without_issue_name(db, tmp_path):
+    from reviewdistill.coding.coder import uncoded_comments
+
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Smooth this paragraph.}\n")
+    extract_project(repo)
+    provider = MockLLMProvider(
+        scripted_response=json.dumps(
+            {
+                "recommendation": "new",
+                "rationale": "No existing type fits.",
+                "confidence": 0.9,
+            }
+        )
+    )
+    summary = code_uncoded_comments(provider=provider)
+    assert summary.coded == 0
+    assert summary.skipped == 1
+    with get_session() as session:
+        assert session.find(Coding) == []
+    assert len(uncoded_comments(provider_name="openai")) == 1
+
+
+def test_uncoded_includes_incomplete_new_proposal(db, tmp_path):
+    from reviewdistill.coding.coder import uncoded_comments
+
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Smooth this paragraph.}\n")
+    extract_project(repo)
+    with get_session() as session:
+        comment = session.first(ProofreadingComment)
+        session.add(
+            Coding(
+                id="incomplete",
+                comment_id=comment.id,
+                issue_type_id=None,
+                coder_type="ai",
+                status="proposed",
+                rationale="No existing type fits.",
+            )
+        )
+        session.commit()
+    assert [row.id for row in uncoded_comments(provider_name="openai")] == [comment.id]
+
+
+def test_uncoded_includes_accepted_label_on_inactive_type(db, tmp_path):
+    from reviewdistill.coding.coder import uncoded_comments
+    from reviewdistill.db.models import ISSUE_INACTIVE, IssueType
+
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Smooth this paragraph.}\n")
+    extract_project(repo)
+    issue = create_issue_type(name="Mock issue", definition="x")
+    with get_session() as session:
+        comment = session.first(ProofreadingComment)
+        session.add(
+            Coding(
+                id="accepted-inactive",
+                comment_id=comment.id,
+                issue_type_id=issue.id,
+                coder_type="ai",
+                status="accepted",
+            )
+        )
+        row = session.get(IssueType, issue.id)
+        row.status = ISSUE_INACTIVE
+        session.add(row)
+        session.commit()
+        comment_id = comment.id
+    assert [row.id for row in uncoded_comments(provider_name="openai")] == [comment_id]
 
 
 def test_code_skips_already_resolved_comments(db, tmp_path):
@@ -179,7 +264,6 @@ def test_unknown_issue_type_id_does_not_fall_back_to_top_candidate(db, tmp_path)
     (repo / "main.tex").write_text('\\myremark{I think "demonstrate" is too strong here.}\n')
     extract_project(repo)
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="A claim is stronger than the evidence supports.",
     )
@@ -235,7 +319,6 @@ def test_code_uncoded_comments_ranks_all_comments_without_reloading_store(db, tm
     (repo / "main.tex").write_text("\\myremark{First comment.}\n\\myremark{Second comment.}\n")
     extract_project(repo)
     create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="A claim is stronger than the evidence supports.",
     )

@@ -6,7 +6,7 @@ Visible commands:
 | --- | --- |
 | `reviewdistill init` | Create `.reviewdistill/` in the current paper repo |
 | `reviewdistill extract` | Pull comments from `.tex` (`--watch` keeps going) |
-| `reviewdistill serve` | Workbench + API on `:8765` |
+| `reviewdistill serve` | UI + API on `:8765` |
 | `reviewdistill export` | Write the rubric (`--format`, `--output`) |
 | `reviewdistill paths` | Print the data folder and comments JSONL path |
 | `reviewdistill paths use DIR` | Use `DIR` for comments and issue types from now on |

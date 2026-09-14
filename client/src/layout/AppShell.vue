@@ -1,13 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
 import ExportDialog from '../components/workbench/ExportDialog.vue'
+import HistoryDialog from '../components/workbench/HistoryDialog.vue'
 import SettingsDialog from '../components/workbench/SettingsDialog.vue'
 
-const route = useRoute()
-const historyActive = computed(() => route.name === 'history')
-const workbenchActive = computed(() => !historyActive.value)
-const workbenchTo = computed(() => (historyActive.value ? '/' : route.path))
 const logoSrc = `${import.meta.env.BASE_URL}logo.svg`
 </script>
 
@@ -22,22 +17,7 @@ const logoSrc = `${import.meta.env.BASE_URL}logo.svg`
         <img :src="logoSrc" alt="" width="16" height="16" class="block">
         ReviewDistill
       </RouterLink>
-      <RouterLink
-        class="ch-chip"
-        :class="workbenchActive ? 'ch-chip-active' : 'ch-chip-idle'"
-        :to="workbenchTo"
-        title="Coding workbench: taxonomy, issue details, and comments"
-      >
-        Workbench
-      </RouterLink>
-      <RouterLink
-        class="ch-chip"
-        :class="historyActive ? 'ch-chip-active' : 'ch-chip-idle'"
-        to="/history"
-        title="Chronological log of taxonomy and coding changes"
-      >
-        History
-      </RouterLink>
+      <HistoryDialog />
       <SettingsDialog />
       <ExportDialog />
     </header>

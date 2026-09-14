@@ -14,8 +14,8 @@ paths_app = typer.Typer(help="Show or change the data folder.")
 app.add_typer(paths_app, name="paths")
 
 
-def _write_export(fmt: str, output: Path | None) -> None:
-    text = export_rubric(fmt=fmt)
+def _write_export(fmt: str, output: Path | None, issue_ids: list[str] | None) -> None:
+    text = export_rubric(fmt=fmt, issue_ids=issue_ids)
     path = output or Path("review-rubric.md" if fmt == "md" else f"review-rubric.{fmt}")
     path.write_text(text)
     typer.echo(f"Wrote {path}")
@@ -50,9 +50,14 @@ def extract(
 def export_cmd(
     format: str = typer.Option("md", "--format", help="md | yaml | json"),
     output: Path | None = typer.Option(None, "--output", "-o"),
+    id: list[str] | None = typer.Option(
+        None,
+        "--id",
+        help="Issue type id to include (repeatable). Default: all active types. Does not change labels in the UI.",
+    ),
 ) -> None:
     """Export reusable review knowledge."""
-    _write_export(format, output)
+    _write_export(format, output, id or None)
 
 
 @app.command(hidden=True)
@@ -117,7 +122,7 @@ def serve_cmd(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8765, "--port"),
 ) -> None:
-    """Start the local workbench web UI."""
+    """Start the local web UI."""
     from reviewdistill.cli.serve import run_serve
 
     run_serve(host=host, port=port)

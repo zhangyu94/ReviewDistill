@@ -1,5 +1,6 @@
 import type { InboxItemJson, IssueOption, TaxonomyCommentJson } from '../api/client.ts'
 import type { DropAction } from './dropAction.ts'
+import { workbenchHref } from './commentSelectors.ts'
 
 export type EntryMode = 'unlabeled' | 'observations'
 export type InspectorKind = 'comment' | 'issue'
@@ -14,22 +15,8 @@ export function inspectorKind(routeName: string | symbol | undefined | null): In
   return 'comment'
 }
 
-export type SelectorId = 'unlabeled' | 'type'
-
-export function activeSelector(
-  routeName: string | symbol | undefined | null,
-  selectedIssueId: string,
-): SelectorId {
-  if (routeName === 'issue' && selectedIssueId) { return 'type' }
-  return 'unlabeled'
-}
-
-export function groupIdFromRoute(paramsId: string, queryType: string): string {
-  return paramsId || queryType
-}
-
-export function unlabeledHref(typeId: string): string {
-  return typeId ? `/?type=${encodeURIComponent(typeId)}` : '/'
+export function groupIdFromRoute(paramsId: string, _queryType?: string): string {
+  return paramsId
 }
 
 export function thisTypeHref(typeId: string): string {
@@ -40,12 +27,12 @@ export function taxonClickHref(typeId: string): string {
   return thisTypeHref(typeId)
 }
 
-export function dismissTypeHref(_selector: SelectorId): string {
-  return '/'
+export function typeSelectorLabel(name: string, count: number): string {
+  return `${name} (${count})`
 }
 
-export function typeSelectorLabel(code: string, count: number): string {
-  return `${code} (${count})`
+export function unlabeledSelectorLabel(): string {
+  return 'Unlabeled'
 }
 
 export type CommentsLayout = 'list' | 'one'
@@ -61,11 +48,12 @@ export function inboxItemFromObservation(row: TaxonomyCommentJson, issue: IssueO
     labeled: true,
     issue: accepted ?? issue,
     coding: null,
+    in_working_set: comment.status === 'active',
   }
 }
 
-export function showAssignType(view: 'unlabeled' | 'observation', labeled: boolean): boolean {
-  return view === 'unlabeled' && !labeled
+export function showAssignType(labeled: boolean): boolean {
+  return !labeled
 }
 
 export function clearIssueBeforeLoad(currentId: string, requestedId: string): boolean {
@@ -95,50 +83,29 @@ export function issueIdAfterLeave(href: string | null, viewing: string): string 
 }
 
 export function afterMergeNavigation(
-  selector: SelectorId,
+  chips: { unlabeled: boolean, detailsId: string },
   targetId: string,
   commentId = '',
   viewing = '',
   sourceId = '',
 ): { href: string, issueId: string, replace: boolean } {
-  const replace = selector !== 'type' || viewing === sourceId || viewing === targetId
-  if (selector === 'type') {
-    return { href: `/taxonomy/${targetId}`, issueId: targetId, replace }
-  }
-  const href = unlabeledHref(targetId)
-  if (!commentId) { return { href, issueId: targetId, replace: true } }
-  return { href: `${href}&id=${encodeURIComponent(commentId)}`, issueId: targetId, replace: true }
-}
-
-export function chipTypeId(
-  groupId: string,
-  lastTypeId: string,
-  typeExists: (id: string) => boolean,
-): string {
-  if (groupId) { return groupId }
-  if (lastTypeId && typeExists(lastTypeId)) { return lastTypeId }
-  return ''
+  const replace = !chips.detailsId || viewing === sourceId || viewing === targetId
+  const href = workbenchHref(targetId, {
+    unlabeled: chips.unlabeled,
+    typeChipOff: false,
+    commentId: commentId || undefined,
+  })
+  return { href, issueId: targetId, replace }
 }
 
 export function labeledTypeIdForComment(items: InboxItemJson[], commentId: string): string | null {
   return items.find((item) => item.comment.id === commentId)?.issue?.id ?? null
 }
 
-export function changeIssueOptions(issues: IssueOption[], currentTypeId: string | null): IssueOption[] {
-  if (!currentTypeId) { return issues }
-  return issues.filter((issue) => issue.id !== currentTypeId)
+export function changeIssueOptions(issues: IssueOption[]): IssueOption[] {
+  return issues
 }
 
-export function nextChangeId(
-  issues: IssueOption[],
-  currentTypeId: string | null,
-  selectedId: string,
-): string {
-  const options = changeIssueOptions(issues, currentTypeId)
-  if (options.some((issue) => issue.id === selectedId)) { return selectedId }
-  return options[0]?.id ?? ''
-}
-
-export function allowChangeDrop(mode: EntryMode, actionType: DropAction['type']): boolean {
-  return actionType !== 'change' || mode === 'unlabeled'
+export function allowChangeDrop(labeled: boolean, actionType: DropAction['type']): boolean {
+  return actionType !== 'change' || !labeled
 }

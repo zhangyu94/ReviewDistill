@@ -13,19 +13,18 @@ from reviewdistill.web.app import create_app
 
 
 def test_taxonomy_returns_forest(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
-    create_issue_type(code="C", name="Child", definition="", parent_id=parent.id)
+    parent = create_issue_type(name="Parent", definition="")
+    create_issue_type(name="Child", definition="", parent_id=parent.id)
     client = TestClient(create_app())
     response = client.get("/api/taxonomy")
     assert response.status_code == 200
     forest = response.json()["forest"]
-    assert forest[0]["code"] == "P"
-    assert forest[0]["children"][0]["code"] == "C"
+    assert forest[0]["name"] == "Parent"
+    assert forest[0]["children"][0]["name"] == "Child"
 
 
 def test_issue_detail_shows_definition_examples_and_observations(db):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="A claim is stronger than the evidence supports.",
     )
@@ -41,7 +40,6 @@ def test_issue_detail_shows_definition_examples_and_observations(db):
 
 def test_issue_detail_404s_for_inactive_types(db):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -54,7 +52,6 @@ def test_issue_detail_404s_for_inactive_types(db):
 
 def test_issue_comments_include_manuscript_context(db):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -97,9 +94,9 @@ def test_issue_comments_include_manuscript_context(db):
 
 
 def test_history_lists_rename_and_merge(db):
-    a = create_issue_type(code="U", name="Unsupported claim", definition="a")
-    b = create_issue_type(code="S", name="Overly strong claim", definition="b")
-    target = create_issue_type(code="O", name="Overclaiming", definition="c")
+    a = create_issue_type(name="Unsupported claim", definition="a")
+    b = create_issue_type(name="Overly strong claim", definition="b")
+    target = create_issue_type(name="Overclaiming", definition="c")
     rename_issue_type(a.id, name="Unsupported claim (old)")
     merge_issue_types(source_ids=[a.id, b.id], target_id=target.id)
     client = TestClient(create_app())
@@ -114,8 +111,8 @@ def test_history_lists_rename_and_merge(db):
 
 
 def test_merged_source_observations_appear_on_target_detail(db):
-    source = create_issue_type(code="A", name="Type A", definition="a")
-    target = create_issue_type(code="B", name="Type B", definition="b")
+    source = create_issue_type(name="Type A", definition="a")
+    target = create_issue_type(name="Type B", definition="b")
     with get_session() as session:
         session.add(
             ProofreadingComment(
@@ -148,7 +145,6 @@ def test_merged_source_observations_appear_on_target_detail(db):
 
 def test_taxonomy_omits_dropped_observations_and_counts(db):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -209,20 +205,19 @@ def test_taxonomy_omits_dropped_observations_and_counts(db):
 
 
 def test_rename_post_json(db):
-    issue = create_issue_type(code="OVERCLAIM", name="Overclaiming", definition="x")
+    issue = create_issue_type(name="Overclaiming", definition="x")
     client = TestClient(create_app())
     response = client.post(
         f"/api/taxonomy/{issue.id}/rename",
-        json={"name": "Overclaiming (renamed)", "code": "OVERCLAIM"},
+        json={"name": "Overclaiming (renamed)"},
     )
     assert response.status_code == 200
     assert client.get(f"/api/taxonomy/{issue.id}").json()["name"] == "Overclaiming (renamed)"
 
 
 def test_move_post_nests_under_parent(db):
-    parent = create_issue_type(code="P", name="Parent", definition="p")
+    parent = create_issue_type(name="Parent", definition="p")
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -252,8 +247,8 @@ def test_create_flatten_remove_http(db):
 
 
 def test_issue_comments_and_count_are_subtree(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
-    child = create_issue_type(code="C", name="Child", definition="", parent_id=parent.id)
+    parent = create_issue_type(name="Parent", definition="")
+    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
     with get_session() as session:
         session.add(
             ProofreadingComment(
@@ -287,7 +282,6 @@ def test_issue_comments_and_count_are_subtree(db):
     assert [comment["id"] for comment in detail["comments"]] == ["c-child"]
     assert detail["comments"][0]["issue"] == {
         "id": child.id,
-        "code": "C",
         "name": "Child",
         "parent_id": parent.id,
     }
@@ -300,8 +294,8 @@ def test_move_unknown_issue_is_404(db):
 
 
 def test_inactive_issue_mutations_are_404(db):
-    issue = create_issue_type(code="L", name="Leaf", definition="")
-    other = create_issue_type(code="T", name="Target", definition="")
+    issue = create_issue_type(name="Leaf", definition="")
+    other = create_issue_type(name="Target", definition="")
     deactivate_issue_type(issue.id)
     client = TestClient(create_app())
     assert client.post(f"/api/taxonomy/{issue.id}/flatten").status_code == 404
@@ -314,8 +308,8 @@ def test_inactive_issue_mutations_are_404(db):
         client.post(
             f"/api/taxonomy/{issue.id}/split",
             json={
-                "left": {"code": "L", "name": "Left", "definition": "l"},
-                "right": {"code": "R", "name": "Right", "definition": "r"},
+                "left": {"name": "Left", "definition": "l"},
+                "right": {"name": "Right", "definition": "r"},
             },
         ).status_code
         == 404
@@ -325,7 +319,7 @@ def test_inactive_issue_mutations_are_404(db):
         == 404
     )
     deactivate_issue_type(other.id)
-    live = create_issue_type(code="S", name="Source", definition="")
+    live = create_issue_type(name="Source", definition="")
     assert (
         client.post("/api/taxonomy/merge", json={"source_ids": [live.id], "target_id": other.id}).status_code
         == 404
@@ -334,7 +328,6 @@ def test_inactive_issue_mutations_are_404(db):
 
 def test_export_get_markdown(db):
     create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -343,6 +336,17 @@ def test_export_get_markdown(db):
     assert response.status_code == 200
     assert "Scholarly Review Rubric" in response.text
     assert "Overclaiming" in response.text
+
+
+def test_export_get_selected_ids_only(db):
+    parent = create_issue_type(name="Parent", definition="p")
+    child = create_issue_type(name="Child", definition="c", parent_id=parent.id)
+    client = TestClient(create_app())
+    response = client.get("/api/taxonomy/export", params=[("format", "md"), ("id", child.id)])
+    assert response.status_code == 200
+    assert "Child" in response.text
+    assert "Parent" in response.text
+    assert "## Parent" not in response.text
 
 
 def test_export_unknown_format_is_400(db):

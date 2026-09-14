@@ -8,7 +8,7 @@ Install from this GitHub repository. You get a `reviewdistill` command to run in
 - **Node ≥ 22**
 - [pnpm](https://pnpm.io/)
 
-Node and pnpm are used once during install so `reviewdistill serve` can open the workbench in the browser.
+Node and pnpm are used once during install so `reviewdistill serve` can open the UI in the browser.
 
 ## Install
 
@@ -37,7 +37,7 @@ Print the resolved paths:
 reviewdistill paths
 ```
 
-Workbench **Settings → Data** shows the same folder. Copy the **whole folder** to back up. Do not edit JSONL while `serve` or `extract` is running.
+Header **Settings → Data** shows the same folder. Backup and moving are in that folder’s `README.md`. Do not edit JSONL while `serve` or `extract` is running.
 
 To store it in a new folder:
 
@@ -53,10 +53,10 @@ reviewdistill paths use ~/Documents/reviewdistill
 
 Quit `reviewdistill serve` and `extract --watch` before `move`. Restart them afterwards. Do not put the live folder in Dropbox, iCloud, or Google Drive.
 
-## If you change the workbench UI
+## If you change the UI
 
 Rebuild, then restart `reviewdistill serve`:
 
-`pip install -e ".[dev]"` or `scripts/build-client-assets.sh`
+`pip install -e ".[dev]"` or `python client_build.py`
 
 Python tests: `python -m pytest`. Client tests: `pnpm --dir client test`. Client lint: `pnpm --dir client lint`.

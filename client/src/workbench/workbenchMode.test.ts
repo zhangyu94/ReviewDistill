@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeSelector, afterMergeNavigation, allowChangeDrop, changeIssueOptions, chipTypeId, clearIssueBeforeLoad, dismissTypeHref, entryMode, groupIdFromRoute, inboxItemFromObservation, inspectorKind, issueIdAfterLeave, issueLoadErrorView, labeledTypeIdForComment, nextChangeId, shouldApplyIssueLoad, showAssignType, taxonClickHref, thisTypeHref, typeRouteAfterDeactivate, typeRouteAfterRemove, typeSelectorLabel, unlabeledHref } from './workbenchMode.ts'
+import { afterMergeNavigation, allowChangeDrop, changeIssueOptions, clearIssueBeforeLoad, entryMode, groupIdFromRoute, inboxItemFromObservation, inspectorKind, issueIdAfterLeave, issueLoadErrorView, labeledTypeIdForComment, shouldApplyIssueLoad, showAssignType, taxonClickHref, thisTypeHref, typeRouteAfterDeactivate, typeRouteAfterRemove, typeSelectorLabel, unlabeledSelectorLabel } from './workbenchMode.ts'
 
 describe('workbenchMode', () => {
   it('uses the unlabeled queue on the inbox route', () => {
@@ -15,29 +15,16 @@ describe('workbenchMode', () => {
     expect(inspectorKind('issue')).toBe('issue')
   })
 
-  it('allows comment-to-type drops only while unlabeled', () => {
-    expect(allowChangeDrop('unlabeled', 'change')).toBe(true)
-    expect(allowChangeDrop('observations', 'change')).toBe(false)
-    expect(allowChangeDrop('unlabeled', 'merge')).toBe(true)
-    expect(allowChangeDrop('observations', 'merge')).toBe(true)
+  it('allows comment-to-type drops only for unlabeled comments', () => {
+    expect(allowChangeDrop(false, 'change')).toBe(true)
+    expect(allowChangeDrop(true, 'change')).toBe(false)
+    expect(allowChangeDrop(false, 'merge')).toBe(true)
+    expect(allowChangeDrop(true, 'merge')).toBe(true)
   })
 
-  it('selects Unlabeled on the inbox route', () => {
-    expect(activeSelector('inbox', '')).toBe('unlabeled')
-  })
-
-  it('selects the type chip on an issue route', () => {
-    expect(activeSelector('issue', 't1')).toBe('type')
-  })
-
-  it('prefers the path id over ?type=', () => {
+  it('uses the path id for Issue Details', () => {
     expect(groupIdFromRoute('from-path', 'from-query')).toBe('from-path')
-    expect(groupIdFromRoute('', 'from-query')).toBe('from-query')
-  })
-
-  it('keeps the selected group on the unlabeled href', () => {
-    expect(unlabeledHref('t1')).toBe('/?type=t1')
-    expect(unlabeledHref('')).toBe('/')
+    expect(groupIdFromRoute('', 'from-query')).toBe('')
   })
 
   it('opens a type from the groups panel on /taxonomy/:id', () => {
@@ -46,26 +33,22 @@ describe('workbenchMode', () => {
     expect(thisTypeHref('')).toBe('')
   })
 
-  it('returns Unlabeled when dismissing a type chip', () => {
-    expect(dismissTypeHref('unlabeled')).toBe('/')
-    expect(dismissTypeHref('type')).toBe('/')
+  it('labels the type chip with name and count', () => {
+    expect(typeSelectorLabel('Overclaiming', 3)).toBe('Overclaiming (3)')
   })
 
-  it('labels the type chip with code and count', () => {
-    expect(typeSelectorLabel('OVERCLAIM', 3)).toBe('OVERCLAIM (3)')
+  it('labels the Unlabeled chip without a count', () => {
+    expect(unlabeledSelectorLabel()).toBe('Unlabeled')
   })
 
   it('offers Accept only for unlabeled comments', () => {
-    expect(showAssignType('unlabeled', false)).toBe(true)
-    expect(showAssignType('unlabeled', true)).toBe(false)
-    expect(showAssignType('observation', false)).toBe(false)
-    expect(showAssignType('observation', true)).toBe(false)
+    expect(showAssignType(false)).toBe(true)
+    expect(showAssignType(true)).toBe(false)
   })
 
   it('marks synthetic type-chip items as labeled with the current type', () => {
     const issue = {
       id: 't1',
-      code: 'OVERCLAIM',
       name: 'Overclaiming',
       parent_id: null,
     }
@@ -132,15 +115,15 @@ describe('workbenchMode', () => {
       created_at: '2024-01-01T00:00:00Z',
       project_name: 'paper',
       permalink: null,
-    }, { id: 't1', code: 'OVERCLAIM', name: 'Overclaiming', parent_id: null })
+    }, { id: 't1', name: 'Overclaiming', parent_id: null })
     expect(labeledTypeIdForComment([item], 'c1')).toBe('t1')
     expect(labeledTypeIdForComment([item], 'missing')).toBeNull()
     expect(labeledTypeIdForComment([{ ...item, issue: null }], 'c1')).toBeNull()
   })
 
   it('prefers the comment accepted type over the selected node', () => {
-    const parent = { id: 'p', code: 'P', name: 'Parent', parent_id: null }
-    const child = { id: 'c', code: 'C', name: 'Child', parent_id: 'p' }
+    const parent = { id: 'p', name: 'Parent', parent_id: null }
+    const child = { id: 'c', name: 'Child', parent_id: 'p' }
     const item = inboxItemFromObservation({
       id: 'c1',
       project_id: 'p1',
@@ -165,26 +148,12 @@ describe('workbenchMode', () => {
     expect(item.issue).toEqual(child)
   })
 
-  it('omits the current type from Change options', () => {
+  it('keeps the current type in the assign menu', () => {
     const issues = [
-      { id: 'a', code: 'A', name: 'A', parent_id: null },
-      { id: 'b', code: 'B', name: 'B', parent_id: null },
+      { id: 'a', name: 'A', parent_id: null },
+      { id: 'b', name: 'B', parent_id: null },
     ]
-    expect(changeIssueOptions(issues, 'a').map((row) => row.id)).toEqual(['b'])
-    expect(changeIssueOptions(issues, null).map((row) => row.id)).toEqual(['a', 'b'])
-  })
-
-  it('defaults Change to another type when the current one is selected', () => {
-    const issues = [
-      { id: 'a', code: 'A', name: 'A', parent_id: null },
-      { id: 'b', code: 'B', name: 'B', parent_id: null },
-    ]
-    expect(nextChangeId(issues, 'a', 'a')).toBe('b')
-    expect(nextChangeId(issues, 'a', 'b')).toBe('b')
-    expect(nextChangeId(issues, null, 'a')).toBe('a')
-    expect(nextChangeId(issues, 'a', '')).toBe('b')
-    expect(nextChangeId(issues, 'a', 'missing')).toBe('b')
-    expect(nextChangeId([issues[0]], 'a', 'a')).toBe('')
+    expect(changeIssueOptions(issues).map((row) => row.id)).toEqual(['a', 'b'])
   })
 
   it('leaves the type route only when the viewed type was deactivated', () => {
@@ -199,30 +168,24 @@ describe('workbenchMode', () => {
     expect(typeRouteAfterRemove('', ['root'])).toBeNull()
   })
 
-  it('drops the remembered type chip when that type is gone from the forest', () => {
-    expect(chipTypeId('', 'gone', () => false)).toBe('')
-    expect(chipTypeId('', 't1', (id) => id === 't1')).toBe('t1')
-    expect(chipTypeId('t1', 't2', () => false)).toBe('t1')
-  })
-
   it('clears the issue id when a type action navigates home', () => {
     expect(issueIdAfterLeave('/', 't1')).toBe('')
     expect(issueIdAfterLeave(null, 't1')).toBe('t1')
   })
 
   it('loads the merge target instead of the viewed source', () => {
-    expect(afterMergeNavigation('type', 'target', '', 'source', 'source')).toEqual({
+    expect(afterMergeNavigation({ unlabeled: false, detailsId: 'source' }, 'target', '', 'source', 'source')).toEqual({
       href: '/taxonomy/target',
       issueId: 'target',
       replace: true,
     })
-    expect(afterMergeNavigation('type', 'target', '', 'other', 'source')).toEqual({
+    expect(afterMergeNavigation({ unlabeled: false, detailsId: 'other' }, 'target', '', 'other', 'source')).toEqual({
       href: '/taxonomy/target',
       issueId: 'target',
       replace: false,
     })
-    expect(afterMergeNavigation('unlabeled', 'target', 'c1')).toEqual({
-      href: '/?type=target&id=c1',
+    expect(afterMergeNavigation({ unlabeled: true, detailsId: '' }, 'target', 'c1')).toEqual({
+      href: '/taxonomy/target?unlabeled=1&id=c1',
       issueId: 'target',
       replace: true,
     })

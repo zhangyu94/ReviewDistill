@@ -13,7 +13,6 @@ def test_taxonomy_cli_removed():
 
 def test_export_cli_writes_markdown(db, tmp_path):
     create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -24,3 +23,14 @@ def test_export_cli_writes_markdown(db, tmp_path):
     assert text.startswith("# Scholarly Review Rubric")
     assert "Overclaiming" in text
     assert f"Wrote {out}" in result.stdout
+
+
+def test_export_cli_selected_id_omits_other_types(db, tmp_path):
+    parent = create_issue_type(name="Parent", definition="p")
+    child = create_issue_type(name="Child", definition="c", parent_id=parent.id)
+    out = tmp_path / "review-rubric.md"
+    result = runner.invoke(app, ["export", "--format", "md", "--id", child.id, "-o", str(out)])
+    assert result.exit_code == 0, result.stdout
+    text = out.read_text()
+    assert "## Child" in text
+    assert "## Parent" not in text

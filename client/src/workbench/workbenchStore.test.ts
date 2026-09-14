@@ -37,12 +37,57 @@ describe('workbenchStore', () => {
       llm_provider: null,
       issues: [],
       items: [],
+      working_items: [],
+      progress: {
+        working_set: 0,
+        unlabeled: 0,
+        labeled: 0,
+        unreviewed: 0,
+        verified: 0,
+        dropped: 0,
+      },
     })
     vi.mocked(fetchTaxonomy).mockResolvedValue({ forest: [] })
     const store = useWorkbenchStore()
     await store.invalidate({ inbox: true, taxonomy: true })
     expect(store.inbox?.unlabeled_count).toBe(1)
     expect(store.taxonomy).toEqual({ forest: [] })
+  })
+
+  it('refreshAfterHistory reloads issue details for the open type', async () => {
+    vi.mocked(fetchInbox).mockResolvedValue({
+      unlabeled_count: 0,
+      pending_code_count: 0,
+      llm_provider: null,
+      issues: [],
+      items: [],
+      working_items: [],
+      progress: {
+        working_set: 0,
+        unlabeled: 0,
+        labeled: 0,
+        unreviewed: 0,
+        verified: 0,
+        dropped: 0,
+      },
+    })
+    vi.mocked(fetchTaxonomy).mockResolvedValue({ forest: [] })
+    vi.mocked(fetchIssue).mockResolvedValue({
+      id: 't1',
+      name: 'Overclaiming',
+      parent_id: null,
+      path: [{ id: 't1', name: 'Overclaiming' }],
+      definition: 'after undo',
+      notes: null,
+      status: 'active',
+      examples: [],
+      counterexamples: [],
+      comments: [],
+    })
+    const store = useWorkbenchStore()
+    await store.refreshAfterHistory('t1')
+    expect(fetchIssue).toHaveBeenCalledWith('t1')
+    expect(store.issue?.definition).toBe('after undo')
   })
 
   it('treats a 500 issue load as an error, not missing', async () => {
@@ -77,7 +122,6 @@ describe('workbenchStore', () => {
   it('ignores a stale issue response when a newer load is in flight', async () => {
     const issue = (id: string) => ({
       id,
-      code: id,
       name: id,
       parent_id: null,
       path: [{ id, name: id }],
@@ -105,7 +149,6 @@ describe('workbenchStore', () => {
   it('ignores a stale 404 when a newer issue load succeeded', async () => {
     const issue = (id: string) => ({
       id,
-      code: id,
       name: id,
       parent_id: null,
       path: [{ id, name: id }],

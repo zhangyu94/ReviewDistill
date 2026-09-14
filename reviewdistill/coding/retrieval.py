@@ -27,7 +27,7 @@ def retrieve_candidates(comment: ProofreadingComment, limit: int = 5) -> list[Ra
         for issue in list_active_issue_types():
             example_text = " ".join(example.text for example in list_examples(issue.id))
             doc_tokens = _tokens(
-                f"{issue.name} {issue.code} {issue.definition} {issue.detection_guidance or ''} {example_text}"
+                f"{issue.name} {issue.definition} {issue.detection_guidance or ''} {example_text}"
             )
             score = _overlap(query_tokens, doc_tokens)
             if score > 0:

@@ -22,15 +22,7 @@ const itemBind = computed(() => {
       style="width: 14px; height: 14px"
     >
       <SelectItemIndicator>
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 448 512"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path d="M438.6 105.4c12.5 12.5 12.5 32.8 0 45.3l-256 256c-12.5 12.5-32.8 12.5-45.3 0l-128-128c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0L160 338.7 393.4 105.4c12.5-12.5 32.8-12.5 45.3 0z" />
-        </svg>
+        <span class="i-fa6-solid:check h-2.5 w-2.5" aria-hidden="true" />
       </SelectItemIndicator>
     </span>
     <SelectItemText>

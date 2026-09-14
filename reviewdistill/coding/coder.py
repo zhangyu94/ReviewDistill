@@ -7,13 +7,13 @@ from uuid import uuid4
 import httpx
 from reviewdistill.coding.retrieval import retrieve_candidates
 from reviewdistill.db.models import (
-    CODING_ACCEPTED,
     CODING_PROPOSED,
     ISSUE_ACTIVE,
     Coding,
     IssueType,
     ProofreadingComment,
     in_working_set,
+    is_labeled,
 )
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.history import dump_row, record
@@ -24,7 +24,6 @@ from reviewdistill.llm.base import LLMProvider, get_provider, privacy_warning
 class ModelProposal:
     recommendation: str
     issue_type_id: str | None = None
-    issue_code: str | None = None
     issue_name: str | None = None
     parent_id: str | None = None
     definition: str | None = None
@@ -50,17 +49,34 @@ def parse_model_output(text: str) -> ModelProposal:
         raise ValueError("Model output did not contain JSON") from exc
     if not isinstance(data, dict):
         raise ValueError("Model output did not contain JSON")
+    issue_name = _first_text(data.get("issue_name"), data.get("name"), data.get("title"))
+    nested = data.get("new_issue") or data.get("issue")
+    if isinstance(nested, dict) and not issue_name:
+        issue_name = _first_text(nested.get("issue_name"), nested.get("name"), nested.get("title"))
+    definition = _first_text(data.get("definition"), data.get("issue_definition"))
+    if isinstance(nested, dict) and not definition:
+        definition = _first_text(nested.get("definition"))
     return ModelProposal(
         recommendation=data.get("recommendation", "new"),
         issue_type_id=data.get("issue_type_id"),
-        issue_code=data.get("issue_code"),
-        issue_name=data.get("issue_name"),
+        issue_name=issue_name,
         parent_id=data.get("parent_id"),
-        definition=data.get("definition"),
+        definition=definition,
         confidence=data.get("confidence"),
         rationale=data.get("rationale"),
         suggested_evidence=data.get("suggested_evidence"),
     )
+
+
+def _first_text(*values) -> str | None:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def proposal_has_new_type(proposal: ModelProposal) -> bool:
+    return bool((proposal.issue_name or "").strip())
 
 
 def build_prompt(*, raw_text: str, context_text: str, section: str | None, candidates) -> str:
@@ -83,7 +99,7 @@ def build_prompt(*, raw_text: str, context_text: str, section: str | None, candi
         lines.append("(none yet)")
     for issue in candidates:
         lines.append(
-            f"- id={issue.id} code={issue.code} name={issue.name} parent_id={issue.parent_id}"
+            f"- id={issue.id} name={issue.name} parent_id={issue.parent_id}"
         )
         lines.append(f"  definition: {issue.definition}")
     lines.extend(
@@ -93,8 +109,9 @@ def build_prompt(*, raw_text: str, context_text: str, section: str | None, candi
             "Determine whether this observation is best explained by an existing issue type.",
             "If so, recommend the best match using recommendation=existing and issue_type_id.",
             "If no existing issue type adequately captures the observation, propose a candidate new issue type.",
+            "If recommendation is new, issue_name and definition are required. Do not omit them.",
             "Return JSON with keys:",
-            "recommendation, issue_type_id, issue_code, issue_name, parent_id, definition,",
+            "recommendation, issue_type_id, issue_name, parent_id, definition,",
             "confidence, rationale, suggested_evidence",
         ]
     )
@@ -147,12 +164,14 @@ def uncoded_comments(*, provider_name: str | None | object = _UNSET) -> list[Pro
             for comment in session.find(ProofreadingComment, order_by="created_at")
             if in_working_set(comment)
         ]
-        resolved_ids: set[str] = set()
+        resolved_ids: set[str] = {
+            comment.id for comment in comments if is_labeled(session, comment.id)
+        }
         for coding in session.find(Coding):
-            if coding.status == CODING_ACCEPTED and coding.issue_type_id:
-                resolved_ids.add(coding.comment_id)
-            elif coding.status == CODING_PROPOSED and not hide_placeholder_coding(
-                coding, provider_name=resolved
+            if (
+                coding.status == CODING_PROPOSED
+                and not hide_placeholder_coding(coding, provider_name=resolved)
+                and (coding.issue_type_id or (coding.proposed_issue_name or "").strip())
             ):
                 resolved_ids.add(coding.comment_id)
         return [comment for comment in comments if comment.id not in resolved_ids]
@@ -189,6 +208,9 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
             skipped += 1
             continue
         issue_type_id = proposal.issue_type_id if proposal.recommendation == "existing" else None
+        if not issue_type_id and not proposal_has_new_type(proposal):
+            skipped += 1
+            continue
         pending.append((comment, proposal, issue_type_id))
         coded += 1
     if pending:
@@ -198,6 +220,10 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
                     issue = session.get(IssueType, issue_type_id)
                     if issue is None or issue.status != ISSUE_ACTIVE:
                         issue_type_id = None
+                if not issue_type_id and not proposal_has_new_type(proposal):
+                    skipped += 1
+                    coded -= 1
+                    continue
                 for row in list(session.find(Coding, comment_id=comment.id, status=CODING_PROPOSED)):
                     if hide_placeholder_coding(row, provider_name=provider.name):
                         session.delete(row)
@@ -212,7 +238,6 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
                     confidence=proposal.confidence,
                     rationale=proposal.rationale,
                     status=CODING_PROPOSED,
-                    proposed_issue_code=proposal.issue_code,
                     proposed_issue_name=proposal.issue_name,
                     proposed_parent_id=_proposal_parent_id(session, proposal.parent_id),
                     proposed_issue_definition=proposal.definition,

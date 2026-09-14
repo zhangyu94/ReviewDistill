@@ -7,6 +7,7 @@ import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import datetime
 from pathlib import Path
 from typing import Self, TypeVar
 
@@ -20,10 +21,11 @@ from reviewdistill.db.models import (
     Project,
     ProofreadingComment,
     TaxonomyEvent,
+    as_utc,
     comment_quality,
 )
 from reviewdistill.errors import CorruptStore
-from reviewdistill.paths import LOCK_NAME, STAGING_DIRNAME, home_dir
+from reviewdistill.paths import LOCK_NAME, STAGING_DIRNAME, ensure_home_readme, home_dir
 
 T = TypeVar("T")
 
@@ -134,6 +136,7 @@ class StoreSession:
                 except json.JSONDecodeError as exc:
                     raise CorruptStore(f"Invalid JSON in {name}") from exc
                 row = model.model_validate(data)
+                _aware_datetimes(row)
                 # Leftover keys such as category / proposed_issue_category are ignored.
                 # Missing parent_id is a root; do not rewrite those old fields on load.
                 if model is ProofreadingComment:
@@ -164,6 +167,13 @@ class StoreSession:
             shutil.rmtree(staging, ignore_errors=True)
         finally:
             _cleanup_tmp(self._home)
+
+
+def _aware_datetimes(row) -> None:
+    for name in type(row).model_fields:
+        value = getattr(row, name, None)
+        if isinstance(value, datetime):
+            setattr(row, name, as_utc(value))
 
 
 def _validate_issue_parents(table: dict) -> None:
@@ -242,6 +252,7 @@ def init_db() -> None:
     home = home_dir()
     home.mkdir(parents=True, exist_ok=True)
     _ensure_lock_gitignore(home)
+    ensure_home_readme(home)
 
 
 def reset_engine() -> None:

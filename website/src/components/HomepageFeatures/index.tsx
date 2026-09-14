@@ -19,11 +19,11 @@ const FeatureList: FeatureItem[] = [
     ),
   },
   {
-    title: 'Code in the workbench',
+    title: 'Group comments',
     description: (
       <>
-        Groups, entries, and an inspector. Optional LLM suggestions; you accept,
-        change, or reject. History undoes a bad code.
+        Issue taxonomy, comments, and an inspector. Optional LLM suggestions; you accept
+        or pick a type. History undoes a bad label.
       </>
     ),
   },
@@ -31,8 +31,8 @@ const FeatureList: FeatureItem[] = [
     title: 'Export skills for agents',
     description: (
       <>
-        The taxonomy is local SQLite that grows across papers. Export Markdown,
-        YAML, or JSON and point a coding agent at the rubric.
+        The taxonomy grows across papers. Export Markdown, YAML, or JSON and
+        point a coding agent at the rubric.
       </>
     ),
   },

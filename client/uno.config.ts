@@ -1,4 +1,4 @@
-import { defineConfig, presetWind4 } from 'unocss'
+import { defineConfig, presetIcons, presetWind4 } from 'unocss'
 
 const themePreflight = String.raw`
 :root {
@@ -56,6 +56,32 @@ button:disabled { cursor: not-allowed; }
 a { color: var(--ch-color-link); }
 a:hover { color: var(--ch-color-link-deep); }
 code, kbd, pre { font-family: var(--ch-font-mono); }
+
+#nprogress {
+  pointer-events: none;
+}
+#nprogress .bar {
+  background: var(--ch-color-foreground);
+  position: fixed;
+  z-index: 1031;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+}
+#nprogress .peg {
+  display: block;
+  position: absolute;
+  right: 0;
+  width: 100px;
+  height: 100%;
+  box-shadow: 0 0 10px var(--ch-color-foreground), 0 0 5px var(--ch-color-foreground);
+  opacity: 1;
+  transform: rotate(3deg) translate(0, -4px);
+}
+#nprogress .spinner {
+  display: none;
+}
 `
 
 const ringFocus
@@ -102,5 +128,15 @@ export default defineConfig({
     ['ch-field-label', 'mb-0.5 block text-xs text-[var(--ch-color-muted-foreground)]'],
     ['ch-prose', 'text-sm leading-5'],
   ],
-  presets: [presetWind4()],
+  presets: [
+    presetWind4(),
+    presetIcons({
+      scale: 1.2,
+      warn: true,
+      extraProperties: {
+        'display': 'inline-block',
+        'vertical-align': 'middle',
+      },
+    }),
+  ],
 })

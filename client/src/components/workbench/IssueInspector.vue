@@ -10,7 +10,6 @@ import {
 const props = defineProps<{
   issue: TaxonomyDetail | null
   selectedId: string
-  selectedCount: number
   missing: boolean
   hasChildren?: boolean
 }>()
@@ -24,11 +23,10 @@ const emit = defineEmits<{
 const editingType = ref(false)
 const editingDefinition = ref(false)
 const editName = ref('')
-const editCode = ref('')
 const editDefinition = ref('')
 const editNotes = ref('')
-const left = ref({ code: '', name: '', definition: '' })
-const right = ref({ code: '', name: '', definition: '' })
+const left = ref({ name: '', definition: '' })
+const right = ref({ name: '', definition: '' })
 
 function pathLabel(issue: TaxonomyDetail) {
   return issue.path.map((part) => part.name).join(' / ')
@@ -36,16 +34,13 @@ function pathLabel(issue: TaxonomyDetail) {
 
 function syncFromIssue(issue: TaxonomyDetail) {
   editName.value = issue.name
-  editCode.value = issue.code
   editDefinition.value = issue.definition
   editNotes.value = issue.notes ?? ''
   left.value = {
-    code: `${issue.code}A`,
     name: `${issue.name} (A)`,
     definition: issue.definition,
   }
   right.value = {
-    code: `${issue.code}B`,
     name: `${issue.name} (B)`,
     definition: issue.definition,
   }
@@ -98,7 +93,7 @@ async function saveType() {
   const issue = props.issue
   if (!issue) { return }
   await wrap(async () => {
-    await renameIssue(issue.id, editName.value, editCode.value)
+    await renameIssue(issue.id, editName.value)
     emit('updated')
   }, () => {
     editingType.value = false
@@ -139,7 +134,7 @@ async function saveDefinition() {
               v-if="!editingType"
               class="ch-btn ch-btn-outline"
               type="button"
-              title="Edit this issue type’s name and code"
+              title="Edit this issue type’s name"
               @click="startTypeEdit"
             >
               Edit
@@ -148,7 +143,7 @@ async function saveDefinition() {
               <button
                 class="ch-btn ch-btn-outline"
                 type="button"
-                title="Discard name and code changes"
+                title="Discard name changes"
                 @click="cancelTypeEdit"
               >
                 Cancel
@@ -156,8 +151,8 @@ async function saveDefinition() {
               <button
                 class="ch-btn ch-btn-default"
                 type="button"
-                title="Save name and code"
-                :disabled="!editName.trim() || !editCode.trim()"
+                title="Save name"
+                :disabled="!editName.trim()"
                 @click="saveType"
               >
                 Save
@@ -175,24 +170,11 @@ async function saveDefinition() {
               <input v-model="editName" class="ch-input">
             </dd>
             <dt class="ch-muted-text">
-              Code
-            </dt>
-            <dd v-if="!editingType" class="break-all font-[var(--ch-font-mono)]">
-              {{ issue.code }}
-            </dd>
-            <dd v-else>
-              <input v-model="editCode" class="ch-input font-[var(--ch-font-mono)]">
-            </dd>
-            <dt class="ch-muted-text">
               Path
             </dt>
             <dd>
               {{ pathLabel(issue) }}
             </dd>
-            <dt class="ch-muted-text">
-              Labeled comments
-            </dt>
-            <dd>{{ selectedCount }}</dd>
           </dl>
         </section>
 
@@ -242,9 +224,6 @@ async function saveDefinition() {
                 {{ issue.notes }}
               </p>
             </template>
-            <p class="ch-muted-text mt-2">
-              Labeled comments in the Comments panel are the examples for this type.
-            </p>
           </template>
           <template v-else>
             <label class="ch-field-label">Definition</label>
@@ -266,8 +245,6 @@ async function saveDefinition() {
               <h3 class="mb-1.5 font-medium">
                 First type
               </h3>
-              <label class="ch-field-label">Code</label>
-              <input v-model="left.code" class="ch-input mb-1.5 font-[var(--ch-font-mono)]">
               <label class="ch-field-label">Name</label>
               <input v-model="left.name" class="ch-input mb-1.5">
               <label class="ch-field-label">Definition</label>
@@ -277,8 +254,6 @@ async function saveDefinition() {
               <h3 class="mb-1.5 font-medium">
                 Second type
               </h3>
-              <label class="ch-field-label">Code</label>
-              <input v-model="right.code" class="ch-input mb-1.5 font-[var(--ch-font-mono)]">
               <label class="ch-field-label">Name</label>
               <input v-model="right.name" class="ch-input mb-1.5">
               <label class="ch-field-label">Definition</label>

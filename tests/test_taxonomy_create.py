@@ -7,13 +7,10 @@ from reviewdistill.taxonomy.operations import add_example, create_issue_type, li
 
 def test_create_issue_type_logs_add_event(db):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="A claim is stated more strongly than the evidence supports.",
     )
-    assert issue.code == "OVERCLAIM"
-    types = list_active_issue_types()
-    assert [t.name for t in types] == ["Overclaiming"]
+    assert [t.name for t in list_active_issue_types()] == ["Overclaiming"]
 
     with get_session() as session:
         events = session.find(TaxonomyEvent)
@@ -25,7 +22,6 @@ def test_create_issue_type_logs_add_event(db):
 
 def test_add_example_from_comment_text(db):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="A claim is too strong.",
     )
@@ -39,7 +35,6 @@ def test_add_example_from_comment_text(db):
 
 def test_add_example_is_idempotent_per_comment(db):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="A claim is too strong.",
     )

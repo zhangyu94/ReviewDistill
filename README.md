@@ -39,14 +39,14 @@ That puts the `reviewdistill` command on your `PATH`. In a paper repository:
 1. `reviewdistill init --name paper-01 --command myremark`
 2. Proofread with `\myremark{...}` (or the commands you passed to `init`). Define `\newcommand{\myremark}[1]{#1}` in the preamble if needed.
 3. `reviewdistill extract` (add `--watch` to keep extracting).
-4. `reviewdistill serve` → http://127.0.0.1:8765 — **Label with AI**, then Accept / Change a type. **Verify** or **Drop** stamps quality.
+4. `reviewdistill serve` → http://127.0.0.1:8765 — **Label with AI**, then Accept a suggestion or pick a type in the menu. **Verify** or **Drop** stamps quality.
 5. Repeat on the next paper; the taxonomy is reused.
 6. `reviewdistill export --format md -o review-rubric.md`
 7. Point a coding agent at that file.
 
-The full guide: [Install](./website/docs/install.md), [Workflow](./website/docs/workflow.md), [Workbench](./website/docs/workbench.md), [LLM settings](./website/docs/llm.md), [Export](./website/docs/export.md).
+The full guide: [Install](./website/docs/install.md), [Workflow](./website/docs/workflow.md), [UI](./website/docs/ui.md), [LLM settings](./website/docs/llm.md), [Export](./website/docs/export.md).
 
-To see the data folder: `reviewdistill paths`, or workbench **Settings → Data**. To store it somewhere else: `reviewdistill paths move ~/Documents/reviewdistill`.
+To see the data folder: `reviewdistill paths`, or header **Settings → Data**. To store it somewhere else: `reviewdistill paths move ~/Documents/reviewdistill`.
 
 Run the documentation site locally: `pnpm --dir website start`. GitHub Pages will serve it at `https://zhangyu94.github.io/ReviewDistill/` when you enable Pages.
 
@@ -65,7 +65,7 @@ Researchers and authors who proofread their own (or others’) manuscripts in La
 | `pnpm --dir client up` | Bump client npm deps (taze) |
 | `pnpm --dir client dev` | Vite on :5173, proxies `/api` |
 | `pnpm --dir website start` | Documentation site |
-| `scripts/build-client-assets.sh` | Rebuild packaged UI without reinstalling |
+| `python client_build.py` | Rebuild packaged UI without reinstalling |
 
 Client source: [`client/`](./client/). Docs site: [`website/`](./website/). Product spec and schema: [`docs/spec.md`](./docs/spec.md), [`docs/data-schema.md`](./docs/data-schema.md), [`docs/comment-identity.md`](./docs/comment-identity.md).
 

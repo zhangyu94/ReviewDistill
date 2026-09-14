@@ -8,6 +8,8 @@ import {
   dropTooltip,
   verifyTooltip,
 } from '../../inboxTooltips.ts'
+import { assignMenuValue, assignSuggestion, shouldAssignOnSelect } from '../../workbench/assignType.ts'
+import { leftTheManuscriptLabel, leftTheManuscriptTitle } from '../../workbench/manuscriptPresence.ts'
 import { flattenForest } from '../../workbench/taxonomyTree.ts'
 import { changeIssueOptions, showAssignType } from '../../workbench/workbenchMode.ts'
 import {
@@ -26,38 +28,39 @@ const props = defineProps<{
   notice: string
   locationRows: LocationRow[]
   contextParts: { prose: string, extras: string }
-  suggestionTitle: string | null
-  changeId: string
   forest?: TaxonomyNode[]
 }>()
 
 const emit = defineEmits<{
-  'update:changeId': [value: string]
-  'accept': []
-  'change': []
-  'verify': []
-  'drop': []
-  'configureLlm': []
+  accept: []
+  assign: [id: string]
+  verify: []
+  drop: []
+  configureLlm: []
 }>()
 
-function onChangeId(value: unknown) {
-  if (typeof value === 'string') { emit('update:changeId', value) }
+function onAssignId(value: unknown) {
+  if (typeof value !== 'string') { return }
+  if (!shouldAssignOnSelect(props.selected?.issue?.id, value)) { return }
+  emit('assign', value)
 }
 
 const changeIssues = computed(() => {
   const forest = props.forest
   if (forest && forest.length) {
-    const current = props.selected?.issue?.id ?? null
     return flattenForest(forest)
-      .filter(({ node }) => node.id !== current)
-      .map(({ node, depth }) => ({ id: node.id, code: node.code, name: node.name, depth }))
+      .map(({ node, depth }) => ({ id: node.id, name: node.name, depth }))
   }
-  return changeIssueOptions(props.data?.issues ?? [], props.selected?.issue?.id ?? null).map((issue) => ({
+  return changeIssueOptions(props.data?.issues ?? []).map((issue) => ({
     ...issue,
     depth: 0,
   }))
 })
 const changeEmpty = computed(() => changeIssues.value.length === 0)
+const menuValue = computed(() => assignMenuValue(props.selected?.issue?.id))
+const suggestion = computed(() =>
+  assignSuggestion(props.selected?.coding, props.data?.issues ?? []),
+)
 const whyOpen = ref(false)
 watch(() => props.selected?.comment.id, () => {
   whyOpen.value = false
@@ -75,9 +78,16 @@ watch(() => props.selected?.comment.id, () => {
     <template v-if="selected">
       <div class="flex max-w-3xl flex-col gap-3">
         <section class="ch-panel">
-          <h2 class="ch-kicker">
-            Comment
-          </h2>
+          <div class="mb-1.5 flex flex-wrap items-center gap-1.5">
+            <h2 class="ch-kicker mb-0">
+              Comment
+            </h2>
+            <span
+              v-if="!selected.in_manuscript"
+              class="ch-chip ch-chip-idle"
+              :title="leftTheManuscriptTitle()"
+            >{{ leftTheManuscriptLabel() }}</span>
+          </div>
           <p class="ch-prose whitespace-pre-wrap">
             {{ selected.comment.raw_text }}
           </p>
@@ -167,13 +177,12 @@ watch(() => props.selected?.comment.id, () => {
           <h2 class="ch-kicker">
             Quality
           </h2>
-          <p v-if="!selected.in_manuscript" class="mb-3">
-            Not in the manuscript.
-            <span v-if="selected.guess">{{ selected.guess }}</span>
+          <p v-if="selected.guess" class="mb-3">
+            {{ selected.guess }}
           </p>
           <div class="flex flex-wrap items-center gap-1.5">
             <button
-              class="ch-btn ch-btn-default"
+              class="ch-btn ch-btn-outline"
               type="button"
               :disabled="selected.comment.quality === 'verified'"
               :title="verifyTooltip()"
@@ -193,86 +202,65 @@ watch(() => props.selected?.comment.id, () => {
           </div>
         </section>
 
-        <template v-if="showAssignType(view, selected.labeled)">
+        <template v-if="showAssignType(selected.labeled)">
           <section class="ch-panel">
             <h2 class="ch-kicker">
               Assign type
             </h2>
-            <template v-if="selected.coding">
-              <p class="mb-1">
-                <span class="rounded-[var(--ch-radius)] bg-[var(--ch-color-secondary)] px-1.5 py-0.5 text-xs font-medium uppercase tracking-[0.06em]">
-                  {{ selected.coding.kind === 'existing' ? 'Existing issue' : 'New issue type' }}
-                </span>
-              </p>
-              <p class="font-semibold">
-                {{ suggestionTitle }}
-              </p>
-              <template v-if="selected.coding.rationale">
+            <div class="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <template v-if="suggestion">
+                <p class="mb-0 font-semibold">
+                  {{ suggestion.title }}
+                </p>
                 <button
-                  class="mt-1 text-[var(--ch-color-muted-foreground)] underline"
+                  v-if="suggestion.rationale"
+                  class="text-[var(--ch-color-muted-foreground)] underline"
                   type="button"
                   :aria-expanded="whyOpen"
                   @click="whyOpen = !whyOpen"
                 >
                   Why?
                 </button>
-                <p v-if="whyOpen" class="ch-prose mt-1 text-[var(--ch-color-body)]">
-                  {{ selected.coding.rationale }}
-                </p>
-              </template>
-            </template>
-            <p v-else-if="!data?.llm_provider" class="ch-muted-text">
-              No AI suggestion.
-              <button
-                class="ch-btn ch-btn-outline ml-1"
-                type="button"
-                title="Open Settings to choose a provider and API key"
-                @click="emit('configureLlm')"
-              >
-                Configure LLM
-              </button>
-            </p>
-            <p v-else class="ch-muted-text">
-              No AI suggestion. Use <strong>Label with AI</strong> to propose types for unlabeled comments.
-            </p>
-            <div class="mt-3 border-t border-[var(--ch-color-border)] pt-3">
-              <p class="ch-muted-text mb-1.5">
-                Apply this suggestion, or leave the comment unlabeled
-              </p>
-              <div class="flex flex-wrap items-center gap-1.5">
-                <span class="inline-flex" :title="acceptTooltip(!!selected.coding)">
+                <span class="ml-auto inline-flex" :title="acceptTooltip(true)">
                   <button
                     class="ch-btn ch-btn-default"
                     type="button"
-                    :disabled="!selected.coding"
                     @click="emit('accept')"
                   >Accept</button>
                 </span>
-              </div>
-              <p class="ch-muted-text mb-1.5 mt-3">
-                Or assign an existing issue type
-              </p>
-              <div class="flex flex-wrap items-center gap-1.5">
-                <Select :model-value="changeId" @update:model-value="onChangeId">
-                  <SelectTrigger class="w-auto min-w-40" title="Issue type to assign">
-                    <SelectValue placeholder="Issue type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem v-for="issue in changeIssues" :key="issue.id" :value="issue.id">
-                      <span :style="{ paddingLeft: `${issue.depth * 12}px` }">{{ issue.name }}</span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <span class="inline-flex" :title="changeTooltip(!changeEmpty)">
-                  <button
-                    class="ch-btn ch-btn-outline"
-                    type="button"
-                    :disabled="changeEmpty"
-                    @click="emit('change')"
-                  >Change</button>
-                </span>
-              </div>
+              </template>
+              <template v-else>
+                <p class="ch-muted-text mb-0">
+                  No AI suggestion.
+                </p>
+                <button
+                  v-if="!data?.llm_provider"
+                  class="ch-btn ch-btn-outline"
+                  type="button"
+                  title="Open Settings to choose a provider and API key"
+                  @click="emit('configureLlm')"
+                >
+                  Configure LLM
+                </button>
+              </template>
             </div>
+            <p v-if="whyOpen && suggestion?.rationale" class="ch-prose mb-3 text-[var(--ch-color-body)]">
+              {{ suggestion.rationale }}
+            </p>
+            <Select
+              :model-value="menuValue || undefined"
+              :disabled="changeEmpty"
+              @update:model-value="onAssignId"
+            >
+              <SelectTrigger class="w-auto min-w-40" :title="changeTooltip(!changeEmpty)">
+                <SelectValue placeholder="Choose a type…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="issue in changeIssues" :key="issue.id" :value="issue.id">
+                  <span :style="{ paddingLeft: `${issue.depth * 12}px` }">{{ issue.name }}</span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </section>
         </template>
         <template v-else>
@@ -280,32 +268,20 @@ watch(() => props.selected?.comment.id, () => {
             <h2 class="ch-kicker">
               Type
             </h2>
-            <p v-if="selected.issue" class="mb-1.5 font-semibold">
-              {{ selected.issue.code }} · {{ selected.issue.name }}
-            </p>
-            <p class="ch-muted-text mb-1.5">
-              Assign a different issue type
-            </p>
-            <div class="flex flex-wrap items-center gap-1.5">
-              <Select :model-value="changeId" @update:model-value="onChangeId">
-                <SelectTrigger class="w-auto min-w-40" title="Issue type to assign">
-                  <SelectValue placeholder="Issue type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="issue in changeIssues" :key="issue.id" :value="issue.id">
-                    <span :style="{ paddingLeft: `${issue.depth * 12}px` }">{{ issue.name }}</span>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <span class="inline-flex" :title="changeTooltip(!changeEmpty)">
-                <button
-                  class="ch-btn ch-btn-outline"
-                  type="button"
-                  :disabled="changeEmpty"
-                  @click="emit('change')"
-                >Change</button>
-              </span>
-            </div>
+            <Select
+              :model-value="menuValue || undefined"
+              :disabled="changeEmpty"
+              @update:model-value="onAssignId"
+            >
+              <SelectTrigger class="w-auto min-w-40" :title="changeTooltip(!changeEmpty)">
+                <SelectValue placeholder="Choose a type…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="issue in changeIssues" :key="issue.id" :value="issue.id">
+                  <span :style="{ paddingLeft: `${issue.depth * 12}px` }">{{ issue.name }}</span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </section>
         </template>
       </div>

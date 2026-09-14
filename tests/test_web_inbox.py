@@ -21,7 +21,6 @@ def _seed(tmp_path):
     (repo / "main.tex").write_text("\\myremark{This seems too strong given the experiment.}\n")
     extract_project(repo)
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -63,6 +62,15 @@ def test_inbox_lists_proposed_comments(db, tmp_path):
     assert response.status_code == 200
     body = response.json()
     assert body["unlabeled_count"] == 1
+    progress = body["progress"]
+    assert progress["working_set"] == 1
+    assert progress["unlabeled"] == 1
+    assert progress["labeled"] == 0
+    assert progress["unreviewed"] == 1
+    assert progress["verified"] == 0
+    assert progress["dropped"] == 0
+    assert "absent" not in progress
+    assert progress["unlabeled"] + progress["labeled"] == progress["working_set"]
     assert body["items"][0]["comment"]["id"] == comment.id
     assert body["items"][0]["comment"]["raw_text"] == comment.raw_text
     assert body["items"][0]["comment"]["file_path"] == comment.file_path
@@ -79,8 +87,27 @@ def test_inbox_lists_proposed_comments(db, tmp_path):
     assert body["items"][0]["coding"]["confidence"] == 0.91
     assert body["items"][0]["labeled"] is False
     assert body["items"][0]["issue"] is None
+    assert "working_items" in body
+    assert body["items"][0]["in_working_set"] is True
+    working_ids = {row["comment"]["id"] for row in body["working_items"]}
+    assert comment.id in working_ids
     assert any(row["name"] == "Overclaiming" for row in body["issues"])
     assert "view" not in body
+
+
+def test_inbox_working_items_include_labeled_working_set(db, tmp_path):
+    issue = _seed(tmp_path)
+    comment_id = inbox_items()[0].comment.id
+    accept_coding(comment_id)
+    client = TestClient(create_app())
+    body = client.get("/api/inbox").json()
+    assert body["unlabeled_count"] == 0
+    assert body["items"] == []
+    assert {row["comment"]["id"] for row in body["working_items"]} == {comment_id}
+    row = body["working_items"][0]
+    assert row["labeled"] is True
+    assert row["in_working_set"] is True
+    assert row["issue"]["id"] == issue.id
 
 
 def test_accept_post_leaves_inbox(db, tmp_path):
@@ -94,6 +121,31 @@ def test_accept_post_leaves_inbox(db, tmp_path):
     assert body["unlabeled_count"] == 0
 
 
+def test_inbox_treats_label_on_inactive_type_as_unlabeled(db, tmp_path):
+    from reviewdistill.db.models import ISSUE_INACTIVE, IssueType
+
+    issue = _seed(tmp_path)
+    comment_id = inbox_items()[0].comment.id
+    accept_coding(comment_id)
+    client = TestClient(create_app())
+    assert client.get("/api/inbox").json()["unlabeled_count"] == 0
+    with get_session() as session:
+        row = session.get(IssueType, issue.id)
+        row.status = ISSUE_INACTIVE
+        session.add(row)
+        session.commit()
+    body = client.get("/api/inbox").json()
+    assert body["unlabeled_count"] == 1
+    assert body["pending_code_count"] == 1
+    assert body["items"][0]["comment"]["id"] == comment_id
+    assert body["items"][0]["labeled"] is False
+    assert body["items"][0]["issue"] is None
+    progress = body["progress"]
+    assert progress["working_set"] == 1
+    assert progress["unlabeled"] == 1
+    assert progress["labeled"] == 0
+
+
 def test_inbox_json_marks_labeled_absent_unreviewed(db, tmp_path):
     issue = _seed(tmp_path)
     comment_id = inbox_items()[0].comment.id
@@ -103,6 +155,11 @@ def test_inbox_json_marks_labeled_absent_unreviewed(db, tmp_path):
     client = TestClient(create_app())
     body = client.get("/api/inbox").json()
     assert body["unlabeled_count"] == 1
+    progress = body["progress"]
+    assert progress["unlabeled"] == 0
+    assert body["unlabeled_count"] != progress["unlabeled"]
+    assert "absent" not in progress
+    assert progress["working_set"] == 0
     item = body["items"][0]
     assert item["comment"]["id"] == comment_id
     assert item["comment"]["status"] == "pending_disappeared"
@@ -110,7 +167,7 @@ def test_inbox_json_marks_labeled_absent_unreviewed(db, tmp_path):
     assert item["in_manuscript"] is False
     assert item["labeled"] is True
     assert item["issue"]["id"] == issue.id
-    assert item["issue"]["code"] == "OVERCLAIM"
+    assert item["issue"]["name"] == "Overclaiming"
     assert item["issue"]["name"] == "Overclaiming"
 
 
@@ -148,7 +205,6 @@ def test_inbox_rejects_unknown_quality(db, tmp_path, rd_home):
     with get_session() as session:
         comment_id = session.first(ProofreadingComment).id
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )

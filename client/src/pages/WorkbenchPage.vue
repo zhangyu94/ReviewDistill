@@ -6,6 +6,7 @@ import type { InvalidateParts } from '../workbench/workbenchStore.ts'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import withProgressBar from 'with-progress-bar'
 import {
   changeInbox,
   createIssue,
@@ -20,29 +21,30 @@ import CommentInspector from '../components/workbench/CommentInspector.vue'
 import EntriesPanel from '../components/workbench/EntriesPanel.vue'
 import GroupsPanel from '../components/workbench/GroupsPanel.vue'
 import IssueInspector from '../components/workbench/IssueInspector.vue'
+import ProgressBar from '../components/workbench/ProgressBar.vue'
 import SelectorsBar from '../components/workbench/SelectorsBar.vue'
 import { inboxLocationRows, safeHttpHref } from '../inboxLocation.ts'
 import { selectedIdAfterAction } from '../select.ts'
+import {
+  applyCommentSelectors,
+  commentsEmptyCopy,
+  mergeCommentPool,
+  parseUnlabeledQuery,
+  staleCommentQuery,
+  typeChipVisible,
+  workbenchHref,
+} from '../workbench/commentSelectors.ts'
 import { splitContextText } from '../workbench/contextParts.ts'
 import { dropAction } from '../workbench/dropAction.ts'
 import { descendantIds, findNode, moveBody } from '../workbench/taxonomyTree.ts'
 import {
-  activeSelector,
   afterMergeNavigation,
   allowChangeDrop,
-  chipTypeId,
-  dismissTypeHref,
-  entryMode,
   groupIdFromRoute,
-  inboxItemFromObservation,
   issueIdAfterLeave,
   labeledTypeIdForComment,
-  nextChangeId,
-  taxonClickHref,
-  thisTypeHref,
   typeRouteAfterRemove,
   typeSelectorLabel,
-  unlabeledHref,
 } from '../workbench/workbenchMode.ts'
 import { useWorkbenchStore } from '../workbench/workbenchStore.ts'
 
@@ -52,10 +54,12 @@ function queryStr(value: unknown): string {
 
 const route = useRoute()
 const router = useRouter()
-const mode = computed(() => entryMode(route.name))
 const paramsIssueId = computed(() => (typeof route.params.id === 'string' ? route.params.id : ''))
-const groupId = computed(() => groupIdFromRoute(paramsIssueId.value, queryStr(route.query.type)))
-const selector = computed(() => activeSelector(route.name, paramsIssueId.value))
+const detailsId = computed(() => groupIdFromRoute(paramsIssueId.value))
+const groupId = detailsId
+const unlabeledOn = computed(() => parseUnlabeledQuery(route.query.unlabeled))
+const typeOn = computed(() => typeChipVisible(detailsId.value, route.query.typechip))
+const commentIdQuery = computed(() => queryStr(route.query.id))
 
 const store = useWorkbenchStore()
 const { inbox, taxonomy, issue, missing, error, loading } = storeToRefs(store)
@@ -74,89 +78,69 @@ async function invalidate(parts: InvalidateParts, issueId = groupId.value) {
 }
 const notice = ref('')
 const labeling = ref(false)
-const changeId = ref('')
-
-const lastTypeId = ref('')
-watch(groupId, (id) => {
-  if (id) { lastTypeId.value = id }
-})
-
-const chipTypeIdValue = computed(() =>
-  chipTypeId(groupId.value, lastTypeId.value, (id) => Boolean(findNode(taxonomy.value?.forest ?? [], id))),
-)
-
-const queueItems = computed(() => inbox.value?.items ?? [])
-
-const selectedCommentId = computed(() => {
-  const q = route.query.id
-  const id = typeof q === 'string' ? q : undefined
-  if (id && queueItems.value.some((item) => item.comment.id === id)) { return id }
-  return queueItems.value[0]?.comment.id
-})
-
-const selectedComment = computed(() =>
-  queueItems.value.find((item) => item.comment.id === selectedCommentId.value),
-)
-
-const selectedObservationId = ref<string | undefined>()
-watch(() => mode.value, () => {
-  selectedObservationId.value = undefined
-})
 
 const commentsLayout = ref<CommentsLayout>('one')
 
-function typeRow(id: string): { code: string, name: string, count: number } | undefined {
+function typeRow(id: string) {
   if (!id) { return undefined }
   return findNode(taxonomy.value?.forest ?? [], id) ?? undefined
 }
 
 const selectedCount = computed(() => typeRow(groupId.value)?.count ?? 0)
-const chipTypeName = computed(() => typeRow(chipTypeIdValue.value)?.name ?? issue.value?.name ?? '')
-const chipTypeCode = computed(() => typeRow(chipTypeIdValue.value)?.code ?? issue.value?.code ?? '')
-const chipTypeCount = computed(() => typeRow(chipTypeIdValue.value)?.count ?? selectedCount.value)
-const typeChipLabel = computed(() =>
-  chipTypeCode.value ? typeSelectorLabel(chipTypeCode.value, chipTypeCount.value) : '',
-)
+const typeChipLabel = computed(() => {
+  const name = typeRow(detailsId.value)?.name ?? issue.value?.name ?? ''
+  if (!name) { return '' }
+  return typeSelectorLabel(name, typeRow(detailsId.value)?.count ?? selectedCount.value)
+})
+const typeChipTitle = computed(() => typeRow(detailsId.value)?.name ?? issue.value?.name ?? '')
 
-const listSelectedId = computed(() => {
-  if (mode.value !== 'observations') { return selectedCommentId.value }
-  return selectedObservationId.value
-    ?? (commentsLayout.value === 'one' ? issue.value?.comments[0]?.id : undefined)
+const pool = computed(() =>
+  mergeCommentPool(inbox.value?.working_items ?? [], inbox.value?.items ?? []),
+)
+const inboxIds = computed(() => new Set((inbox.value?.items ?? []).map((row) => row.comment.id)))
+const typeSubtreeIds = computed(() => {
+  if (!typeOn.value) { return [] as string[] }
+  const node = findNode(taxonomy.value?.forest ?? [], detailsId.value)
+  if (!node) { return detailsId.value ? [detailsId.value] : [] }
+  return [node.id, ...descendantIds(node)]
+})
+const matchedItems = computed(() => applyCommentSelectors(pool.value, inboxIds.value, {
+  unlabeled: unlabeledOn.value,
+  typeSubtreeIds: typeSubtreeIds.value,
+}))
+
+const selectedCommentId = computed(() => {
+  const id = commentIdQuery.value || undefined
+  if (id && matchedItems.value.some((item) => item.comment.id === id)) { return id }
+  return matchedItems.value[0]?.comment.id
 })
 
-const selectedObservation = computed(() => {
-  const rows = issue.value?.comments ?? []
-  const id = listSelectedId.value
-  const row = rows.find((item) => item.id === id) ?? rows[0]
-  if (!row || !issue.value) { return undefined }
-  return inboxItemFromObservation(row, {
-    id: issue.value.id,
-    code: issue.value.code,
-    name: issue.value.name,
-    parent_id: issue.value.parent_id,
-  })
-})
-
-const inspectorItem = computed(() =>
-  mode.value === 'observations' ? selectedObservation.value : selectedComment.value,
+const selectedComment = computed(() =>
+  matchedItems.value.find((item) => item.comment.id === selectedCommentId.value),
 )
+
+const listSelectedId = computed(() => selectedCommentId.value)
+
+const inspectorItem = computed(() => selectedComment.value)
 
 const inspectorView = computed(() => {
-  if (mode.value === 'observations') { return 'observation' as const }
+  if (inspectorItem.value?.labeled) { return 'observation' as const }
   return 'unlabeled' as const
 })
 
-const commentTotal = computed(() =>
-  mode.value === 'observations' ? (issue.value?.comments.length ?? 0) : queueItems.value.length,
-)
+const commentTotal = computed(() => matchedItems.value.length)
 
-const commentSelectedCount = computed(() => (listSelectedId.value ? 1 : 0))
+const emptyCopy = computed(() => commentsEmptyCopy({
+  unlabeled: unlabeledOn.value,
+  typeOn: typeOn.value,
+}))
 
-function typeQuery(commentId?: string): Record<string, string> {
-  const query: Record<string, string> = {}
-  if (groupId.value) { query.type = groupId.value }
-  if (commentId) { query.id = commentId }
-  return query
+function commentHref(commentId?: string): string {
+  return workbenchHref(detailsId.value, {
+    unlabeled: unlabeledOn.value,
+    typeChipOff: !typeOn.value,
+    commentId,
+  })
 }
 
 function gitHref(item: InboxItemJson): string | null {
@@ -180,56 +164,37 @@ const locationRows = computed(() => {
 
 const contextParts = computed(() => splitContextText(inspectorItem.value?.comment.context_text ?? ''))
 
-const suggestionTitle = computed(() => {
-  const codingRow = inspectorItem.value?.coding
-  if (!codingRow) { return null }
-  if (codingRow.kind === 'new') { return codingRow.proposed_issue_name || 'New issue type' }
-  const match = inbox.value?.issues.find((row) => row.id === codingRow.issue_type_id)
-  return match?.name ?? 'Existing issue type'
-})
-
 const canLabelWithAi = computed(() =>
   Boolean(inbox.value?.llm_provider && inbox.value.pending_code_count),
 )
 
 function labelWithAiTitle(): string {
-  if (!inbox.value?.llm_provider) { return 'Configure llm.provider and .reviewdistill/.env first' }
+  if (!inbox.value?.llm_provider) { return 'Configure the assistant in Settings first' }
   if (!inbox.value.pending_code_count) { return 'No unlabeled comments need suggestions' }
   return 'Ask the LLM to propose issue types for every unlabeled comment'
 }
 
-watch(
-  [inbox, inspectorItem],
-  () => {
-    changeId.value = nextChangeId(
-      inbox.value?.issues ?? [],
-      inspectorItem.value?.issue?.id ?? null,
-      changeId.value,
-    )
-  },
-)
-
 function selectComment(id: string) {
-  void router.replace({ query: typeQuery(id) })
-}
-
-function onDismissType() {
-  lastTypeId.value = ''
-  void router.push(dismissTypeHref(selector.value))
+  void router.replace(commentHref(id))
 }
 
 function onSelectGroup(id: string) {
-  const href = taxonClickHref(id)
-  if (href) { void router.push(href) }
+  if (!id) { return }
+  void router.push(workbenchHref(id, {
+    unlabeled: unlabeledOn.value,
+    typeChipOff: false,
+  }))
 }
 
 function onSelectEntry(id: string) {
-  if (mode.value === 'observations') {
-    selectedObservationId.value = id
-    return
-  }
   selectComment(id)
 }
+
+const runLabelWithAi = withProgressBar(async () => {
+  const result = await postInboxCode()
+  if (result.privacy_warning) { notice.value = result.privacy_warning }
+  await invalidate({ inbox: true, taxonomy: true })
+})
 
 async function labelWithAi() {
   if (labeling.value) { return }
@@ -237,9 +202,7 @@ async function labelWithAi() {
   error.value = ''
   notice.value = ''
   try {
-    const result = await postInboxCode()
-    if (result.privacy_warning) { notice.value = result.privacy_warning }
-    await invalidate({ inbox: true, taxonomy: true })
+    await runLabelWithAi()
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -250,18 +213,11 @@ async function labelWithAi() {
 }
 
 function commentQueueIds(): string[] {
-  if (mode.value === 'observations') {
-    return (issue.value?.comments ?? []).map((row) => row.id)
-  }
-  return queueItems.value.map((item) => item.comment.id)
+  return matchedItems.value.map((item) => item.comment.id)
 }
 
 function afterCommentAction(next?: string) {
-  if (mode.value === 'observations') {
-    selectedObservationId.value = next
-    return
-  }
-  void router.replace({ query: typeQuery(next) })
+  void router.replace(commentHref(next))
 }
 
 async function act(action: 'accept' | 'verify' | 'drop') {
@@ -280,14 +236,14 @@ async function act(action: 'accept' | 'verify' | 'drop') {
   }
 }
 
-async function change() {
+async function change(issueTypeId: string) {
   const current = inspectorItem.value
-  if (!current || !changeId.value) { return }
+  if (!current || !issueTypeId) { return }
   error.value = ''
   const actedId = current.comment.id
   const idsBefore = commentQueueIds()
   try {
-    await changeInbox(actedId, changeId.value)
+    await changeInbox(actedId, issueTypeId)
     await invalidate({ inbox: true, taxonomy: true, issue: true })
     afterCommentAction(selectedIdAfterAction(idsBefore, actedId, commentQueueIds()))
   }
@@ -297,30 +253,31 @@ async function change() {
 }
 
 async function onDrop(payload: DragPayload, target: DropTarget) {
+  const dragged = payload.kind === 'comment'
+    ? pool.value.find((row) => row.comment.id === payload.id)
+    : null
   const labeledTypeId = payload.kind === 'comment'
-    ? labeledTypeIdForComment(queueItems.value, payload.id)
+    ? labeledTypeIdForComment(pool.value, payload.id)
     : null
   const source = payload.kind === 'issue'
     ? findNode(taxonomy.value?.forest ?? [], payload.id)
     : null
   const action = dropAction(payload, target, labeledTypeId, source ? descendantIds(source) : [])
-  if (action.type === 'ignore' || !allowChangeDrop(mode.value, action.type)) { return }
+  if (action.type === 'ignore' || !allowChangeDrop(Boolean(dragged?.labeled), action.type)) { return }
   error.value = ''
   try {
     if (action.type === 'change') {
       const actedId = action.commentId
-      const idsBefore = queueItems.value.map((item) => item.comment.id)
+      const idsBefore = matchedItems.value.map((item) => item.comment.id)
       await changeInbox(actedId, action.issueTypeId)
       await invalidate({ inbox: true, taxonomy: true, issue: true })
-      await router.replace({
-        query: typeQuery(selectedIdAfterAction(idsBefore, actedId, commentQueueIds())),
-      })
+      await router.replace(commentHref(selectedIdAfterAction(idsBefore, actedId, commentQueueIds())))
       return
     }
     if (action.type === 'merge') {
       await mergeIssues([action.sourceId], action.targetId)
       const next = afterMergeNavigation(
-        selector.value,
+        { unlabeled: unlabeledOn.value, detailsId: detailsId.value },
         action.targetId,
         selectedCommentId.value ?? '',
         groupId.value,
@@ -348,7 +305,10 @@ async function onCreateType(parentId: string | null) {
   try {
     const created = await createIssue(parentId)
     await invalidate({ taxonomy: true, issue: true })
-    await router.push(`/taxonomy/${created.id}`)
+    await router.push(workbenchHref(created.id, {
+      unlabeled: unlabeledOn.value,
+      typeChipOff: false,
+    }))
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -393,23 +353,22 @@ async function onIssueUpdated() {
 
 async function onIssueRemoved() {
   error.value = ''
-  lastTypeId.value = ''
   await invalidate({ taxonomy: true })
-  await router.replace('/')
+  await router.replace(workbenchHref('', {
+    unlabeled: unlabeledOn.value,
+    typeChipOff: false,
+  }))
 }
 
 function onCommentsLayout(layout: CommentsLayout) {
   commentsLayout.value = layout
-  if (layout === 'one' && mode.value === 'observations' && !selectedObservationId.value) { selectedObservationId.value = issue.value?.comments[0]?.id }
 }
 
 function onKey(event: KeyboardEvent) {
   const tag = (event.target as HTMLElement | null)?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') { return }
   if (event.key !== 'j' && event.key !== 'k') { return }
-  const ids = mode.value === 'observations'
-    ? (issue.value?.comments ?? []).map((row) => row.id)
-    : queueItems.value.map((item) => item.comment.id)
+  const ids = matchedItems.value.map((item) => item.comment.id)
   const current = listSelectedId.value
   const i = current ? ids.indexOf(current) : -1
   const next = event.key === 'j' && i >= 0 && i + 1 < ids.length
@@ -429,62 +388,70 @@ onUnmounted(() => {
 })
 watch(() => route.name, () => { void loadInbox() })
 watch(groupId, () => { void loadIssue() })
+watch(
+  () => [commentIdQuery.value, matchedItems.value.map((item) => item.comment.id)] as const,
+  ([queryId, ids]) => {
+    if (!staleCommentQuery(queryId, ids)) { return }
+    void router.replace(commentHref(ids[0]))
+  },
+)
 </script>
 
 <template>
   <div class="flex h-full min-h-0 flex-col">
     <SelectorsBar
-      :selector="selector"
-      :unlabeled-count="inbox?.unlabeled_count ?? 0"
-      :type-href="thisTypeHref(chipTypeIdValue)"
-      :type-label="typeChipLabel"
-      :type-title="chipTypeName"
-      :unlabeled-href="unlabeledHref(chipTypeIdValue)"
-      @dismiss-type="onDismissType"
+      :unlabeled-on="unlabeledOn"
+      :dismiss-unlabeled-href="workbenchHref(detailsId, { unlabeled: false, typeChipOff: !typeOn, commentId: selectedCommentId })"
+      :toggle-unlabeled-href="workbenchHref(detailsId, { unlabeled: !unlabeledOn, typeChipOff: !typeOn, commentId: selectedCommentId })"
+      :type-chip="typeOn && typeChipLabel ? {
+        label: typeChipLabel,
+        title: typeChipTitle,
+        dismissHref: workbenchHref(detailsId, { unlabeled: unlabeledOn, typeChipOff: true, commentId: selectedCommentId }),
+      } : null"
     />
-    <div class="flex min-h-0 flex-1">
-      <GroupsPanel
-        :list="taxonomy"
-        :selected-id="groupId"
-        @select="onSelectGroup"
-        @drop="onDrop"
-        @create="onCreateType"
-        @flatten="onFlattenType"
-        @remove="onRemoveType"
-      />
-      <div class="flex min-h-0 min-w-0 flex-1 flex-col border-r border-[var(--ch-color-border)] bg-[var(--ch-color-background-soft)]">
-        <div class="flex h-9 shrink-0 items-center border-b border-[var(--ch-color-border)] bg-[var(--ch-color-background)] px-2">
-          <span class="text-xs font-medium">Issue Details</span>
-        </div>
-        <div class="min-h-0 flex-1 overflow-auto p-3 text-xs leading-5">
-          <p v-if="error" class="ch-error-text mb-3">
-            {{ error }}
-          </p>
-          <IssueInspector
-            :issue="issue"
-            :selected-id="groupId"
-            :selected-count="selectedCount"
-            :missing="missing"
-            :has-children="Boolean(findNode(taxonomy?.forest ?? [], groupId)?.children.length)"
-            @updated="onIssueUpdated"
-            @removed="onIssueRemoved"
-            @failed="error = $event"
-          />
+    <!-- Issues ~38rem | Comments flex-1. Selectors and Progress stay full-width. -->
+    <div class="flex min-h-0 flex-1 gap-2 p-2">
+      <div class="flex min-h-0 min-w-0 w-[38rem] max-w-[38rem] shrink overflow-hidden rounded-[var(--ch-radius)] border border-[var(--ch-color-border)] bg-[var(--ch-color-background)]">
+        <GroupsPanel
+          :list="taxonomy"
+          :selected-id="groupId"
+          @select="onSelectGroup"
+          @drop="onDrop"
+          @create="onCreateType"
+          @flatten="onFlattenType"
+          @remove="onRemoveType"
+        />
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div class="flex h-9 shrink-0 items-center border-b border-[var(--ch-color-border)] px-2">
+            <span class="text-xs font-medium">Issue Details</span>
+          </div>
+          <div class="min-h-0 flex-1 overflow-auto p-3 text-xs leading-5">
+            <p v-if="error" class="ch-error-text mb-3">
+              {{ error }}
+            </p>
+            <IssueInspector
+              :issue="issue"
+              :selected-id="groupId"
+              :missing="missing"
+              :has-children="Boolean(findNode(taxonomy?.forest ?? [], groupId)?.children.length)"
+              @updated="onIssueUpdated"
+              @removed="onIssueRemoved"
+              @failed="error = $event"
+            />
+          </div>
         </div>
       </div>
-      <div class="flex w-[28rem] shrink-0 flex-col bg-[var(--ch-color-background)]">
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--ch-radius)] border border-[var(--ch-color-border)] bg-[var(--ch-color-background)]">
         <EntriesPanel
-          :mode="mode"
           :layout="commentsLayout"
-          :items="queueItems"
-          :observation-texts="issue?.comments ?? []"
+          :items="matchedItems"
           :selected-id="listSelectedId"
           :total-count="commentTotal"
-          :selected-count="commentSelectedCount"
           :loading="loading"
+          :empty-copy="emptyCopy"
           :error="error"
           :notice="notice"
-          :show-label-with-ai="mode === 'unlabeled'"
+          :show-label-with-ai="Boolean(inbox?.pending_code_count)"
           :labeling="labeling"
           :can-label-with-ai="canLabelWithAi"
           :label-with-ai-title="labelWithAiTitle()"
@@ -507,21 +474,19 @@ watch(groupId, () => { void loadIssue() })
             notice=""
             :location-rows="locationRows"
             :context-parts="contextParts"
-            :suggestion-title="suggestionTitle"
-            :change-id="changeId"
             :forest="taxonomy?.forest ?? []"
-            @update:change-id="changeId = $event"
             @accept="act('accept')"
-            @change="change"
+            @assign="change"
             @verify="act('verify')"
             @drop="act('drop')"
             @configure-llm="openSettings"
           />
-          <p v-else class="ch-muted-text">
-            Select a comment.
+          <p v-else-if="!loading" class="ch-muted-text">
+            {{ emptyCopy }}
           </p>
         </EntriesPanel>
       </div>
     </div>
+    <ProgressBar :progress="inbox?.progress ?? null" />
   </div>
 </template>

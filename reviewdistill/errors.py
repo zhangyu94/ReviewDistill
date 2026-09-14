@@ -10,7 +10,7 @@ class NotFound(ReviewDistillError):
 
 
 class Conflict(ReviewDistillError):
-    """Duplicate code, already labeled, or similar."""
+    """Duplicate name, already labeled, or similar."""
 
 
 class BadInput(ReviewDistillError):

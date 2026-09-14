@@ -5,12 +5,11 @@ import { findNode, flattenForest, isLeaf, moveBody } from './taxonomyTree.ts'
 const forest: TaxonomyNode[] = [
   {
     id: 'root',
-    code: 'P',
     name: 'Parent',
     count: 5,
     children: [
-      { id: 'a', code: 'A', name: 'A', count: 1, children: [] },
-      { id: 'b', code: 'B', name: 'B', count: 4, children: [] },
+      { id: 'a', name: 'A', count: 1, children: [] },
+      { id: 'b', name: 'B', count: 4, children: [] },
     ],
   },
 ]
@@ -39,13 +38,13 @@ describe('taxonomyTree', () => {
 
   it('inserts after a root', () => {
     const twoRoots: TaxonomyNode[] = [
-      { id: 'x', code: 'X', name: 'X', count: 0, children: [] },
-      { id: 'y', code: 'Y', name: 'Y', count: 0, children: [] },
+      { id: 'x', name: 'X', count: 0, children: [] },
+      { id: 'y', name: 'Y', count: 0, children: [] },
     ]
     expect(moveBody(twoRoots, 'y', 'x', 'after')).toEqual({ parent_id: null, position: 1 })
   })
 
   it('finds a nested node', () => {
-    expect(findNode(forest, 'b')?.code).toBe('B')
+    expect(findNode(forest, 'b')?.name).toBe('B')
   })
 })

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from reviewdistill.db.models import ISSUE_ACTIVE, IssueType
 
 
@@ -87,14 +89,24 @@ def lift_children(types: list[IssueType], issue: IssueType) -> list[dict]:
     return dumped
 
 
-def next_new_code(taken: list[str]) -> str:
-    taken_set = set(taken)
-    if "NEW" not in taken_set:
-        return "NEW"
-    n = 2
-    while f"NEW_{n}" in taken_set:
-        n += 1
-    return f"NEW_{n}"
+def next_unique_name(taken: list[str], name: str = "New type") -> str:
+    """Same suffix rule as image-taxonomy-labeler: ``foo``, then ``foo (2)``, filling gaps."""
+    if name not in taken:
+        return name
+    escaped = re.escape(name)
+    pattern = re.compile(rf"^{escaped} \((?P<index>\d+)\)$")
+    indices: set[int] = set()
+    for item in taken:
+        if item == name:
+            indices.add(1)
+            continue
+        match = pattern.match(item)
+        if match:
+            indices.add(int(match.group("index")))
+    for i in range(2, len(indices) + 2):
+        if i not in indices:
+            return f"{name} ({i})"
+    return f"{name} ({max(indices) + 1})"
 
 
 def subtree_count(own: dict[str, int], ids: set[str]) -> int:
@@ -108,7 +120,6 @@ def types_to_forest(types: list[IssueType], own_counts: dict[str, int]) -> list[
         ids = descendant_ids(types, row.id) | {row.id}
         return {
             "id": row.id,
-            "code": row.code,
             "name": row.name,
             "count": subtree_count(own_counts, ids),
             "children": child_nodes,

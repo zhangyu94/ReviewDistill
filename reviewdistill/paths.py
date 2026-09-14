@@ -10,6 +10,30 @@ COMMENTS_FILE = "comments.jsonl"
 LOCK_NAME = ".lock"
 STAGING_DIRNAME = ".commit"
 
+HOME_README = """\
+# ReviewDistill data
+
+Comments, issue types, and coding live in this folder as JSONL files.
+
+## Backup
+
+Copy the whole folder. Do not edit JSONL while `reviewdistill serve` or `extract` is running.
+
+## Move
+
+Quit `reviewdistill serve`, then:
+
+    reviewdistill paths move ~/Documents/reviewdistill
+
+Or point at a folder you already copied:
+
+    reviewdistill paths use DIR
+
+Restart `reviewdistill serve` afterwards.
+
+The assistant API key is in `.env` (gitignored). Do not commit `.env`.
+"""
+
 
 class HomePathError(Exception):
     """User-facing error when choosing or moving the data folder."""
@@ -43,6 +67,18 @@ def data_location() -> dict[str, str]:
 
 def home_config_path() -> Path:
     return home_dir() / "config.yaml"
+
+
+def home_env_path() -> Path:
+    """Assistant API keys. ``paths move`` copies this with the home tree."""
+    return home_dir() / ".env"
+
+
+def ensure_home_readme(home: Path) -> None:
+    path = home / "README.md"
+    if path.exists():
+        return
+    path.write_text(HOME_README, encoding="utf-8")
 
 
 def use_home(directory: Path | str) -> Path:
@@ -119,7 +155,3 @@ def find_project_root(start: Path | None = None) -> Path | None:
 
 def project_config_path(root: Path) -> Path:
     return root / PROJECT_DIRNAME / PROJECT_CONFIG_NAME
-
-
-def project_env_path(root: Path) -> Path:
-    return root / PROJECT_DIRNAME / ".env"

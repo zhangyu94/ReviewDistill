@@ -17,8 +17,9 @@ describe('inboxTooltips', () => {
     expect(acceptTooltip(false)).toMatch(/Label with AI/i)
   })
 
-  it('explains Change as assigning the selected issue type', () => {
-    expect(changeTooltip(true)).toMatch(/dropdown/i)
+  it('explains the type menu as assigning on select', () => {
+    expect(changeTooltip(true)).toMatch(/current type/i)
+    expect(changeTooltip(true)).toMatch(/pick another type/i)
     expect(changeTooltip(false)).toMatch(/no issue types/i)
   })
 

@@ -26,20 +26,13 @@ def test_init_writes_project_config_and_db_row(db, tmp_path: Path, monkeypatch):
     assert (repo / ".reviewdistill" / "config.yaml").is_file()
     gitignore = (repo / ".reviewdistill" / ".gitignore").read_text()
     assert ".env" in gitignore
-    example = (repo / ".reviewdistill" / ".env.example").read_text()
-    assert "DEEPSEEK_API_KEY" in example
-    assert "OPENAI_API_KEY" in example
-    assert "ANTHROPIC_API_KEY" in example
+    assert not (repo / ".reviewdistill" / ".env.example").exists()
     readme = (repo / ".reviewdistill" / "README.md").read_text()
     assert "ReviewDistill" in readme
-    assert ".env" in readme
-    assert "API key" in readme or "api key" in readme.lower()
-    assert "llm:" in readme
-    assert "provider:" in readme
-    assert "model:" in readme
     assert "latex_commands:" in readme
-    assert "DEEPSEEK_API_KEY" in readme
-    assert "workbench" in readme.lower()
+    assert "llm:" not in readme
+    assert "DEEPSEEK_API_KEY" not in readme
+    assert "Settings" in readme
     assert "inbox" not in readme.lower()
 
     with get_session() as session:
@@ -64,11 +57,9 @@ def test_init_adds_missing_scaffold_on_existing_project(db, tmp_path: Path, monk
     repo.mkdir()
     monkeypatch.chdir(repo)
     runner.invoke(app, ["init", "--name", "paper-01"])
-    env_example = repo / ".reviewdistill" / ".env.example"
     readme = repo / ".reviewdistill" / "README.md"
-    env_example.unlink()
     readme.unlink()
     again = runner.invoke(app, ["init", "--name", "paper-01"])
     assert again.exit_code == 0
-    assert env_example.is_file()
     assert readme.is_file()
+    assert not (repo / ".reviewdistill" / ".env.example").exists()

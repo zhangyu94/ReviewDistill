@@ -47,7 +47,6 @@ def _seed_proposed(tmp_path, response: dict) -> str:
 
 def test_accept_existing_marks_coding_and_adds_example(db, tmp_path):
     issue = create_issue_type(
-        code="METHJUST",
         name="Missing methodological justification",
         definition="A design choice is unexplained.",
     )
@@ -73,7 +72,6 @@ def test_accept_existing_marks_coding_and_adds_example(db, tmp_path):
 
 def test_remove_drops_proposed_for_that_type(db, tmp_path):
     issue = create_issue_type(
-        code="METHJUST",
         name="Missing methodological justification",
         definition="A design choice is unexplained.",
     )
@@ -99,7 +97,6 @@ def test_remove_drops_proposed_for_that_type(db, tmp_path):
 
 def test_remove_undo_restores_proposed_so_accept_works(db, tmp_path):
     issue = create_issue_type(
-        code="METHJUST",
         name="Missing methodological justification",
         definition="A design choice is unexplained.",
     )
@@ -121,7 +118,6 @@ def test_remove_undo_restores_proposed_so_accept_works(db, tmp_path):
 
 def test_deactivate_drops_proposed_for_that_type(db, tmp_path):
     issue = create_issue_type(
-        code="METHJUST",
         name="Missing methodological justification",
         definition="A design choice is unexplained.",
     )
@@ -144,7 +140,6 @@ def test_deactivate_drops_proposed_for_that_type(db, tmp_path):
 
 def test_accept_rejects_an_inactive_type(db, tmp_path):
     issue = create_issue_type(
-        code="METHJUST",
         name="Missing methodological justification",
         definition="A design choice is unexplained.",
     )
@@ -214,7 +209,7 @@ def test_unknown_proposed_parent_id_becomes_root(db, tmp_path):
 
 
 def test_existing_proposed_parent_id_is_kept(db, tmp_path):
-    parent = create_issue_type(code="P", name="Parent", definition="")
+    parent = create_issue_type(name="Parent", definition="")
     comment_id = _seed_proposed(
         tmp_path,
         {
@@ -287,7 +282,6 @@ def test_verify_comment_commits_once(db, tmp_path, monkeypatch):
 
 def test_accept_new_reuses_existing_code(db, tmp_path):
     existing = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -305,17 +299,15 @@ def test_accept_new_reuses_existing_code(db, tmp_path):
     )
     result = accept_coding(comment_id)
     assert result.issue_type_id == existing.id
-    assert [issue.code for issue in list_active_issue_types()] == ["OVERCLAIM"]
+    assert [issue.name for issue in list_active_issue_types()] == ["Overclaiming"]
 
 
 def test_change_creates_human_coding(db, tmp_path):
     chosen = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
     other = create_issue_type(
-        code="WEAK",
         name="Weak evidence",
         definition="evidence is thin",
     )
@@ -341,12 +333,10 @@ def test_change_creates_human_coding(db, tmp_path):
 
 def test_change_reassigns_from_one_type_to_another(db, tmp_path):
     first = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
     second = create_issue_type(
-        code="WEAK",
         name="Weak evidence",
         definition="evidence is thin",
     )
@@ -385,12 +375,10 @@ def test_change_rejects_an_inactive_type(db, tmp_path):
     from reviewdistill.taxonomy.operations import deactivate_issue_type
 
     active = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
     inactive = create_issue_type(
-        code="WEAK",
         name="Weak evidence",
         definition="evidence is thin",
     )
@@ -411,7 +399,6 @@ def test_change_rejects_an_inactive_type(db, tmp_path):
 
 def test_change_rejects_the_current_type(db, tmp_path):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -444,7 +431,6 @@ def test_change_rejects_the_current_type(db, tmp_path):
 
 def test_labeled_absent_unreviewed_stays_in_unlabeled_inbox(db, tmp_path):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -469,14 +455,13 @@ def test_labeled_absent_unreviewed_stays_in_unlabeled_inbox(db, tmp_path):
     assert items[0].labeled is True
     assert items[0].issue is not None
     assert items[0].issue.id == issue.id
-    assert items[0].issue.code == "OVERCLAIM"
+    assert items[0].issue.name == "Overclaiming"
     assert items[0].issue.name == "Overclaiming"
     assert list_working_observations(issue.id) == []
 
 
 def test_verify_labeled_absent_moves_off_unlabeled_onto_type(db, tmp_path):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -652,7 +637,6 @@ def test_accept_uses_newest_proposed_coding_not_lexicographic_id(db):
                 coder_type="ai",
                 status="proposed",
                 proposed_issue_name="Old",
-                proposed_issue_code="OLD",
                 proposed_issue_definition="older proposal",
                 created_at=datetime(2020, 1, 1, tzinfo=UTC),
             )
@@ -664,7 +648,6 @@ def test_accept_uses_newest_proposed_coding_not_lexicographic_id(db):
                 coder_type="ai",
                 status="proposed",
                 proposed_issue_name="New",
-                proposed_issue_code="NEWISSUE",
                 proposed_issue_definition="newer proposal",
                 created_at=datetime(2024, 6, 1, tzinfo=UTC),
             )

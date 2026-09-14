@@ -170,6 +170,21 @@ def test_init_db_appends_lock_to_existing_gitignore(rd_home):
     assert ".lock" in lines
 
 
+def test_init_db_writes_home_readme(rd_home):
+    init_db()
+    text = (rd_home / "README.md").read_text(encoding="utf-8")
+    assert "paths move" in text
+    assert "paths use" in text
+    assert ".env" in text
+
+
+def test_init_db_does_not_overwrite_home_readme(rd_home):
+    path = rd_home / "README.md"
+    path.write_text("user notes\n", encoding="utf-8")
+    init_db()
+    assert path.read_text(encoding="utf-8") == "user notes\n"
+
+
 def test_load_removes_leftover_jsonl_tmp(rd_home):
     leftover = rd_home / "comments.jsonl.tmp"
     leftover.write_text("{}\n", encoding="utf-8")

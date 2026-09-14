@@ -25,21 +25,21 @@ Each comment is a lasting **observation**: the wording you wrote, the manuscript
 
 Presence and quality are independent. Extract only updates presence (and wording on revision). It never stamps quality and never assigns an issue type.
 
-## Working set
+## Comments to distill
 
-The **working set** is the set of comments that count for AI suggestions, clustering, taxonomy examples, type chips, and rubric export.
+**Comments to distill** are the comments that count for AI suggestions, clustering, taxonomy examples, type chips, and rubric export. Progress shows this count as **to distill**.
 
-A comment is **in the working set** when it is not `dropped`, and it is either **in the manuscript** or **verified**.
+A comment is **to distill** when it is not `dropped`, and it is either **in the manuscript** or **verified**.
 
-| Quality | In the working set? |
+| Quality | To distill? |
 | --- | --- |
-| `unreviewed` (default after extract) | only while the comment is still in the manuscript. If it has left the `.tex` file, it is not in the working set, but Unlabeled still lists it so you can Verify or Drop |
+| `unreviewed` (default after extract) | only while the comment is still in the manuscript. If it has left the `.tex` file, it is not to distill, but Unlabeled still lists it so you can Verify or Drop |
 | `verified` | yes, whether or not it is still in the manuscript |
 | `dropped` | no (history is kept; same wording in the file does not mint a new row) |
 
-`verified` means the observation itself is quality-assured (wording, context, worth keeping as evidence). It does **not** confirm the issue type. A verified comment that later leaves the `.tex` file stays in the working set: the passage was fixed, and the problem was real.
+`verified` means the observation itself is quality-assured (wording, context, worth keeping as evidence). It does **not** confirm the issue type. A verified comment that later leaves the `.tex` file is still to distill: the passage was fixed, and the problem was real.
 
-`dropped` means do not distill (too local, or a bad extract). Undo Drop from History if you need the row back in the workbench.
+`dropped` means do not distill (too local, or a bad extract). Undo Drop from History if you need the row back.
 
 ## Events
 
@@ -47,7 +47,7 @@ A comment is **in the working set** when it is not `dropped`, and it is either *
 
 A comment in the source that does not match an observation already treated as present.
 
-It becomes a new observation (`quality=unreviewed`) and appears in the workbench as Unlabeled.
+It becomes a new observation (`quality=unreviewed`) and appears as Unlabeled.
 
 ### Revision
 
@@ -75,16 +75,16 @@ A present comment is no longer in the source, and it was not a revision or a mov
 
 The observation is **not** discarded. Presence becomes “not in the manuscript” (`status=pending_disappeared`). Extract does not set quality.
 
-- If the comment was already **verified**, it stays in the working set (fixed passage; the problem was real).
-- If it is still **unreviewed**, it stays on the **Unlabeled** chip (same Comments list) with a **not in manuscript** mark so you can **Verify** or **Drop**. There is no Disappeared queue.
-- If it is **dropped**, it stays out of the working set.
+- If the comment was already **verified**, it is still to distill (fixed passage; the problem was real).
+- If it is still **unreviewed**, it stays on the **Unlabeled** chip (same Comments list) with a **Left the manuscript** chip so you can **Verify** or **Drop**. There is no Disappeared queue.
+- If it is **dropped**, it is not to distill.
 
 Two common meanings of “gone”:
 
-1. **The manuscript was fixed** (or the comment is still useful evidence). **Verify** — quality-assured; it stays in the working set even though the comment command is gone.
-2. **Too local, or a bad extract.** **Drop** — it leaves the working set. History is kept.
+1. **The manuscript was fixed** (or the comment is still useful evidence). **Verify** — quality-assured; it is still to distill even though the comment command is gone.
+2. **Too local, or a bad extract.** **Drop** — it is no longer to distill. History is kept.
 
-Each absent unreviewed item can show a **guess**. The guess is never applied automatically:
+Each unreviewed comment that left the manuscript can show a **guess**. The guess is never applied automatically:
 
 - Nearby manuscript text changed a lot → guess **Verify** (likely resolved).
 - Nearby manuscript text looks the same → guess **Drop** (likely pulled without fixing the passage).
@@ -92,7 +92,7 @@ Each absent unreviewed item can show a **guess**. The guess is never applied aut
 
 ### Same line after a gap
 
-If a comment leaves the source, and later a comment appears on that line (or any line) with different wording, that is **two observations**: the old one is not in the manuscript; the new one is unlabeled.
+If a comment leaves the source, and later a comment appears on that line (or any line) with different wording, that is **two observations**: the old one left the manuscript; the new one is unlabeled.
 
 If the **same wording** returns in the source, the **same observation** becomes present again (including a dropped row: no new id). A revision of the text (fingerprint change) clears `verified` back to `unreviewed`.
 
@@ -133,13 +133,13 @@ It does not run AI labeling. It does not Verify or Drop. It follows the files as
 
 `reviewdistill extract` without `--watch` is the same extraction, run once.
 
-## Workbench
+## Serve UI
 
-In `reviewdistill serve`, the workbench selector bar has a persistent **Unlabeled** chip on the right, plus a dismissable type chip on the left when a group is selected:
+In `reviewdistill serve`, Selectors chips AND. The right-hand **Unlabeled** control toggles a left-hand Unlabeled chip and is never pressed. No chips: Comments lists comments to distill.
 
-- **Unlabeled** — working-set comments with no issue type, **plus** absent + unreviewed comments so you can Verify or Drop. There is no Reject button: not accepting a suggestion leaves the comment unlabeled.
-- **Type chip** — named with the issue code (for example `MISSINGINTRODUCT (3)`). Clicking a type in Issue Taxonomy selects this chip and filters Comments to that type’s **labeled** working-set comments. Dismiss it with × to drop the type filter and clear Issue Details.
+- **Unlabeled** — inbox queue: comments to distill with no **active** issue type, plus comments that left the manuscript and are still unreviewed so you can Verify or Drop. Those rows show a **Left the manuscript** chip. There is no Reject button: not accepting a suggestion leaves the comment unlabeled.
+- **Type chip** — named with the issue type (for example `Missing introduction (3)`). Clicking a type opens Issue Details and replaces the type chip; it does not clear Unlabeled. × on the type chip sets `typechip=0` and keeps `/taxonomy/:id` (Issue Details stays). Comments then lists comments to distill, or the inbox if Unlabeled is still on.
 
-**Verify** and **Drop** are quality stamps on the comment inspector (every comment). They are independent of the label. **Accept** / **Change** assign or change the issue type.
+**Verify** and **Drop** are quality stamps on the comment inspector (every comment). They are independent of the label. **Accept** applies the AI suggestion. Picking a type in the menu assigns it.
 
-The Comments panel switches between a list and a single comment. The list marks rows that are not in the manuscript. The single-comment view shows manuscript context, location, record metadata (including quality), and the guess when the comment is absent.
+The Comments panel switches between a list and a single comment. The list and the inspector Comment header show a **Left the manuscript** chip when the remark is no longer in the `.tex` file. The single-comment view shows manuscript context, location, record metadata (including quality), and the guess under Quality when present.

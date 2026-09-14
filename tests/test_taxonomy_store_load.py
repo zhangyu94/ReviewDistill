@@ -12,7 +12,6 @@ def test_store_does_not_rewrite_category_rows(rd_home):
     path = rd_home / "issue_types.jsonl"
     row = {
         "id": "t1",
-        "code": "A",
         "name": "Alpha",
         "category": "Argumentation",
         "definition": "a",
@@ -62,7 +61,6 @@ def test_invalid_active_parent_fails_fast(rd_home):
         json.dumps(
             {
                 "id": "t1",
-                "code": "A",
                 "name": "A",
                 "parent_id": "missing",
                 "position": 0,
@@ -85,7 +83,6 @@ def test_self_parent_fails_fast(rd_home):
         json.dumps(
             {
                 "id": "t1",
-                "code": "A",
                 "name": "A",
                 "parent_id": "t1",
                 "position": 0,
@@ -110,7 +107,6 @@ def test_parent_cycle_fails_fast(rd_home):
                 json.dumps(
                     {
                         "id": "t1",
-                        "code": "A",
                         "name": "A",
                         "parent_id": "t2",
                         "position": 0,
@@ -121,7 +117,6 @@ def test_parent_cycle_fails_fast(rd_home):
                 json.dumps(
                     {
                         "id": "t2",
-                        "code": "B",
                         "name": "B",
                         "parent_id": "t1",
                         "position": 0,
@@ -148,7 +143,6 @@ def test_inactive_parent_of_active_type_fails_fast(rd_home):
                 json.dumps(
                     {
                         "id": "p1",
-                        "code": "P",
                         "name": "Parent",
                         "parent_id": None,
                         "position": 0,
@@ -159,7 +153,6 @@ def test_inactive_parent_of_active_type_fails_fast(rd_home):
                 json.dumps(
                     {
                         "id": "c1",
-                        "code": "C",
                         "name": "Child",
                         "parent_id": "p1",
                         "position": 0,

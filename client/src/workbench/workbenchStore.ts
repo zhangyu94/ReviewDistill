@@ -76,6 +76,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     await Promise.all(jobs)
   }
 
+  async function refreshAfterHistory(issueId = '') {
+    await invalidate({ inbox: true, taxonomy: true, issue: true }, issueId)
+  }
+
   async function loadAll(issueId = '') {
     loading.value = true
     error.value = ''
@@ -104,6 +108,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     loadTaxonomy,
     loadIssue,
     invalidate,
+    refreshAfterHistory,
     loadAll,
   }
 })

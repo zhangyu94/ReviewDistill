@@ -17,30 +17,48 @@ from reviewdistill.taxonomy.operations import (
     merge_issue_types,
     move_issue_type,
     remove_issue_type,
+    rename_issue_type,
     split_issue_type,
 )
 
 
-def test_create_empty_root_uses_new_code(db):
+def test_create_empty_root(db):
     issue = create_empty_issue_type(parent_id=None)
-    assert issue.code == "NEW"
     assert issue.name == "New type"
     assert issue.parent_id is None
     assert issue.definition == ""
 
 
 def test_create_empty_child_appends(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
+    parent = create_issue_type(name="Parent", definition="")
     create_empty_issue_type(parent_id=parent.id)
     second = create_empty_issue_type(parent_id=parent.id)
-    assert second.code == "NEW_2"
+    assert second.name == "New type (2)"
     assert second.parent_id == parent.id
     assert second.position == 1
 
 
+def test_create_empty_uniquifies_new_type_name(db):
+    first = create_empty_issue_type(parent_id=None)
+    second = create_empty_issue_type(parent_id=None)
+    third = create_empty_issue_type(parent_id=None)
+    assert first.name == "New type"
+    assert second.name == "New type (2)"
+    assert third.name == "New type (3)"
+
+
+def test_rename_to_taken_name_gets_suffix(db):
+    create_issue_type(name="Overclaiming", definition="")
+    other = create_issue_type(name="Other", definition="")
+    renamed = rename_issue_type(other.id, name="Overclaiming")
+    assert renamed.name == "Overclaiming (2)"
+    same = rename_issue_type(renamed.id, name="Overclaiming (2)")
+    assert same.name == "Overclaiming (2)"
+
+
 def test_merge_refuses_descendant_target(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
-    child = create_issue_type(code="C", name="Child", definition="", parent_id=parent.id)
+    parent = create_issue_type(name="Parent", definition="")
+    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
     with pytest.raises(BadInput):
         merge_issue_types(source_ids=[parent.id], target_id=child.id)
     with get_session() as session:
@@ -49,9 +67,9 @@ def test_merge_refuses_descendant_target(db):
 
 
 def test_merge_moves_source_children_to_target(db):
-    target = create_issue_type(code="T", name="Target", definition="t")
-    source = create_issue_type(code="S", name="Source", definition="s")
-    kid = create_issue_type(code="K", name="Kid", definition="k", parent_id=source.id)
+    target = create_issue_type(name="Target", definition="t")
+    source = create_issue_type(name="Source", definition="s")
+    kid = create_issue_type(name="Kid", definition="k", parent_id=source.id)
     merge_issue_types(source_ids=[source.id], target_id=target.id)
     with get_session() as session:
         kid_row = session.get(IssueType, kid.id)
@@ -61,8 +79,8 @@ def test_merge_moves_source_children_to_target(db):
 
 
 def test_flatten_reassigns_descendant_comments(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
-    child = create_issue_type(code="C", name="Child", definition="", parent_id=parent.id)
+    parent = create_issue_type(name="Parent", definition="")
+    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
     with get_session() as session:
         session.add(ProofreadingComment(
             id="c1", project_id="p", source_type="latex_command", source_command="myremark",
@@ -83,14 +101,14 @@ def test_flatten_reassigns_descendant_comments(db):
 
 
 def test_flatten_leaf_is_bad_input(db):
-    leaf = create_issue_type(code="L", name="Leaf", definition="")
+    leaf = create_issue_type(name="Leaf", definition="")
     with pytest.raises(BadInput):
         flatten_issue_type(leaf.id)
 
 
 def test_remove_deletes_subtree_and_unlabels(db):
-    root = create_issue_type(code="R", name="Root", definition="")
-    child = create_issue_type(code="C", name="Child", definition="", parent_id=root.id)
+    root = create_issue_type(name="Root", definition="")
+    child = create_issue_type(name="Child", definition="", parent_id=root.id)
     with get_session() as session:
         session.add(ProofreadingComment(
             id="c1", project_id="p", source_type="latex_command", source_command="myremark",
@@ -110,8 +128,8 @@ def test_remove_deletes_subtree_and_unlabels(db):
 
 
 def test_deactivate_reparents_children(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
-    child = create_issue_type(code="C", name="Child", definition="", parent_id=parent.id)
+    parent = create_issue_type(name="Parent", definition="")
+    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
     deactivate_issue_type(parent.id)
     with get_session() as session:
         child_row = session.get(IssueType, child.id)
@@ -122,21 +140,21 @@ def test_deactivate_reparents_children(db):
 
 
 def test_split_refuses_type_with_children(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
-    create_issue_type(code="C", name="Child", definition="", parent_id=parent.id)
+    parent = create_issue_type(name="Parent", definition="")
+    create_issue_type(name="Child", definition="", parent_id=parent.id)
     with pytest.raises(BadInput):
         split_issue_type(
             parent.id,
-            left={"code": "L", "name": "Left", "definition": "l"},
-            right={"code": "R", "name": "Right", "definition": "r"},
+            left={"name": "Left", "definition": "l"},
+            right={"name": "Right", "definition": "r"},
         )
     with get_session() as session:
         assert session.get(IssueType, parent.id).status == "active"
 
 
 def test_flatten_then_remove_leaves_store_loadable(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
-    child = create_issue_type(code="C", name="Child", definition="", parent_id=parent.id)
+    parent = create_issue_type(name="Parent", definition="")
+    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
     flatten_issue_type(parent.id)
     remove_issue_type(parent.id)
     with get_session() as session:
@@ -155,9 +173,9 @@ def _active_names(parent_id):
 
 
 def test_remove_middle_sibling_then_create_appends_last(db):
-    create_issue_type(code="A", name="Alpha", definition="")
-    middle = create_issue_type(code="B", name="Beta", definition="")
-    create_issue_type(code="C", name="Style", definition="")
+    create_issue_type(name="Alpha", definition="")
+    middle = create_issue_type(name="Beta", definition="")
+    create_issue_type(name="Style", definition="")
     remove_issue_type(middle.id)
     created = create_empty_issue_type(parent_id=None)
     assert _active_names(None) == ["Alpha", "Style", "New type"]
@@ -172,10 +190,10 @@ def test_remove_middle_sibling_then_create_appends_last(db):
 
 
 def test_merge_compacts_source_siblings(db):
-    create_issue_type(code="A", name="Alpha", definition="")
-    source = create_issue_type(code="B", name="Beta", definition="")
-    create_issue_type(code="C", name="Style", definition="")
-    target = create_issue_type(code="T", name="Target", definition="")
+    create_issue_type(name="Alpha", definition="")
+    source = create_issue_type(name="Beta", definition="")
+    create_issue_type(name="Style", definition="")
+    target = create_issue_type(name="Target", definition="")
     merge_issue_types(source_ids=[source.id], target_id=target.id)
     created = create_empty_issue_type(parent_id=None)
     assert _active_names(None)[-1] == "New type"
@@ -190,7 +208,7 @@ def test_merge_compacts_source_siblings(db):
 
 
 def test_inactive_type_mutations_are_not_found(db):
-    issue = create_issue_type(code="L", name="Leaf", definition="")
+    issue = create_issue_type(name="Leaf", definition="")
     deactivate_issue_type(issue.id)
     with pytest.raises(NotFound):
         move_issue_type(issue.id, parent_id=None, position=0)
@@ -199,26 +217,26 @@ def test_inactive_type_mutations_are_not_found(db):
     with pytest.raises(NotFound):
         split_issue_type(
             issue.id,
-            left={"code": "L", "name": "Left", "definition": "l"},
-            right={"code": "R", "name": "Right", "definition": "r"},
+            left={"name": "Left", "definition": "l"},
+            right={"name": "Right", "definition": "r"},
         )
     with pytest.raises(NotFound):
         remove_issue_type(issue.id)
 
 
 def test_merge_inactive_types_are_not_found(db):
-    source = create_issue_type(code="S", name="Source", definition="")
-    create_issue_type(code="K", name="Kid", definition="", parent_id=source.id)
-    target = create_issue_type(code="T", name="Target", definition="")
+    source = create_issue_type(name="Source", definition="")
+    create_issue_type(name="Kid", definition="", parent_id=source.id)
+    target = create_issue_type(name="Target", definition="")
     deactivate_issue_type(target.id)
     with pytest.raises(NotFound):
         merge_issue_types(source_ids=[source.id], target_id=target.id)
     with get_session() as session:
-        child = session.first(IssueType, code="K")
+        child = session.first(IssueType, name="Kid")
         assert child.parent_id == source.id
         assert child.status == "active"
         assert session.get(IssueType, source.id).status == "active"
-    other = create_issue_type(code="L", name="Leaf", definition="")
+    other = create_issue_type(name="Leaf", definition="")
     deactivate_issue_type(other.id)
     with pytest.raises(NotFound):
         merge_issue_types(source_ids=[other.id], target_id=source.id)

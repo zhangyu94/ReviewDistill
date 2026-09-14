@@ -17,12 +17,11 @@ export function defaultLlmModel(provider: string): string {
 }
 
 export function canSaveLlmSettings(args: {
-  projectId: string
   provider: string
   apiKey: string
   keySet: boolean
 }): boolean {
-  if (!args.projectId || !args.provider) { return false }
+  if (!args.provider) { return false }
   if (args.keySet) { return true }
   return args.apiKey.trim().length > 0
 }
@@ -37,4 +36,15 @@ export function keySetForSelectedProvider(
   savedKeySet: boolean,
 ): boolean {
   return Boolean(provider) && provider === savedProvider && savedKeySet
+}
+
+export function apiKeyForSelectedProvider(
+  provider: string,
+  savedProvider: string,
+  savedApiKey: string,
+): string {
+  if (provider && provider === savedProvider) {
+    return savedApiKey
+  }
+  return ''
 }

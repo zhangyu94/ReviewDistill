@@ -7,7 +7,7 @@ export function acceptTooltip(hasProposal: boolean): string {
 
 export function changeTooltip(hasIssues: boolean): string {
   if (hasIssues) {
-    return 'Assign this comment to the issue type chosen in the dropdown.'
+    return 'The menu shows the current type. Pick another type to assign it.'
   }
   return 'No issue types yet. Accept a new-issue suggestion first.'
 }

@@ -11,7 +11,7 @@ class MockLLMProvider:
         if self.scripted_response is not None:
             return self.scripted_response
         return (
-            '{"recommendation":"new","issue_code":"MOCKISSUE",'
+            '{"recommendation":"new",'
             '"issue_name":"Mock issue","parent_id":null,'
             '"definition":"A placeholder issue from the mock provider.",'
             '"confidence":0.5,"rationale":"Mock provider used in tests.",'

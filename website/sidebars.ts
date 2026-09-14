@@ -7,8 +7,8 @@ const sidebars: SidebarsConfig = {
     'workflow',
     {
       type: 'category',
-      label: 'Using the workbench',
-      items: ['workbench', 'llm', 'history'],
+      label: 'Using ReviewDistill',
+      items: ['ui', 'llm', 'history'],
     },
     'export',
     'cli',

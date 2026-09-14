@@ -40,16 +40,14 @@ def _event_types(include_undone: bool = False) -> list[str]:
 
 def test_rename_undo_and_redo(db):
     issue = create_issue_type(
-        code="STRONG",
         name="Overly strong claim",
         definition="old",
     )
-    rename_issue_type(issue.id, name="Overclaiming", code="OVERCLAIM")
+    rename_issue_type(issue.id, name="Overclaiming")
     undo()
     with get_session() as session:
         row = session.get(IssueType, issue.id)
         assert row.name == "Overly strong claim"
-        assert row.code == "STRONG"
     history = list_history()
     assert history["events"][0]["undone"] is True
     assert history["can_redo"] is True
@@ -58,13 +56,31 @@ def test_rename_undo_and_redo(db):
     with get_session() as session:
         row = session.get(IssueType, issue.id)
         assert row.name == "Overclaiming"
-        assert row.code == "OVERCLAIM"
     assert list_history()["can_redo"] is False
+
+
+def test_rename_undo_uniquifies_when_old_name_is_taken(db):
+    first = create_issue_type(name="Foo", definition="")
+    rename_issue_type(first.id, name="Bar")
+    with get_session() as session:
+        session.add(
+            IssueType(
+                id="other",
+                name="Foo",
+                definition="",
+                parent_id=None,
+                position=99,
+                status="active",
+            )
+        )
+        session.commit()
+    undo()
+    with get_session() as session:
+        assert session.get(IssueType, first.id).name == "Foo (2)"
 
 
 def test_no_op_move_is_not_logged(db):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -73,9 +89,9 @@ def test_no_op_move_is_not_logged(db):
 
 
 def test_move_undo_restores_sibling_order(db):
-    create_issue_type(code="A", name="Alpha", definition="")
-    writing = create_issue_type(code="W", name="Writing", definition="")
-    create_issue_type(code="S", name="Style", definition="")
+    create_issue_type(name="Alpha", definition="")
+    writing = create_issue_type(name="Writing", definition="")
+    create_issue_type(name="Style", definition="")
     move_issue_type(writing.id, parent_id=None, position=2)
     undo()
     with get_session() as session:
@@ -87,8 +103,8 @@ def test_move_undo_restores_sibling_order(db):
 
 
 def test_flatten_undo_restores_descendants(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
-    child = create_issue_type(code="C", name="Child", definition="", parent_id=parent.id)
+    parent = create_issue_type(name="Parent", definition="")
+    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
     with get_session() as session:
         session.add(
             ProofreadingComment(
@@ -124,9 +140,9 @@ def test_flatten_undo_restores_descendants(db):
 
 
 def test_flatten_undo_redo_restores_nested_tree_and_coding(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
-    child = create_issue_type(code="C", name="Child", definition="", parent_id=parent.id)
-    grand = create_issue_type(code="G", name="Grand", definition="", parent_id=child.id)
+    parent = create_issue_type(name="Parent", definition="")
+    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
+    grand = create_issue_type(name="Grand", definition="", parent_id=child.id)
     with get_session() as session:
         session.add(
             ProofreadingComment(
@@ -167,10 +183,10 @@ def test_flatten_undo_redo_restores_nested_tree_and_coding(db):
 
 
 def test_deactivate_parent_redo_then_create_appends_last(db):
-    create_issue_type(code="A", name="Alpha", definition="")
-    parent = create_issue_type(code="Z", name="Zeta", definition="")
-    kid = create_issue_type(code="K", name="Kid", definition="", parent_id=parent.id)
-    create_issue_type(code="G", name="Gamma", definition="")
+    create_issue_type(name="Alpha", definition="")
+    parent = create_issue_type(name="Zeta", definition="")
+    kid = create_issue_type(name="Kid", definition="", parent_id=parent.id)
+    create_issue_type(name="Gamma", definition="")
     deactivate_issue_type(parent.id)
     undo()
     redo()
@@ -185,9 +201,9 @@ def test_deactivate_parent_redo_then_create_appends_last(db):
 
 
 def test_move_nest_undo_redo_restores_parent(db):
-    parent = create_issue_type(code="A", name="Alpha", definition="")
-    child = create_issue_type(code="Z", name="Zeta", definition="")
-    create_issue_type(code="G", name="Gamma", definition="")
+    parent = create_issue_type(name="Alpha", definition="")
+    child = create_issue_type(name="Zeta", definition="")
+    create_issue_type(name="Gamma", definition="")
     move_issue_type(child.id, parent_id=parent.id, position=0)
     undo()
     roots = _active_siblings(None)
@@ -212,8 +228,8 @@ def _active_siblings(parent_id: str | None) -> list[IssueType]:
 
 
 def test_remove_undo_restores_subtree(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
-    child = create_issue_type(code="C", name="Child", definition="", parent_id=parent.id)
+    parent = create_issue_type(name="Parent", definition="")
+    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
     remove_issue_type(parent.id)
     undo()
     with get_session() as session:
@@ -222,8 +238,8 @@ def test_remove_undo_restores_subtree(db):
 
 
 def test_deactivate_undo_restores_child_parent(db):
-    parent = create_issue_type(code="P", name="Parent", definition="")
-    child = create_issue_type(code="C", name="Child", definition="", parent_id=parent.id)
+    parent = create_issue_type(name="Parent", definition="")
+    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
     deactivate_issue_type(parent.id)
     undo()
     with get_session() as session:
@@ -232,9 +248,9 @@ def test_deactivate_undo_restores_child_parent(db):
 
 
 def test_undo_add_compacts_remaining_siblings(db):
-    create_issue_type(code="A", name="Alpha", definition="")
-    create_issue_type(code="B", name="Beta", definition="")
-    extra = create_issue_type(code="C", name="Style", definition="")
+    create_issue_type(name="Alpha", definition="")
+    create_issue_type(name="Beta", definition="")
+    extra = create_issue_type(name="Style", definition="")
     undo()
     created = create_empty_issue_type(parent_id=None)
     with get_session() as session:
@@ -248,11 +264,11 @@ def test_undo_add_compacts_remaining_siblings(db):
 
 
 def test_merge_undo_restores_child_positions(db):
-    source = create_issue_type(code="S", name="Source", definition="")
-    first = create_issue_type(code="K1", name="KidA", definition="", parent_id=source.id)
-    second = create_issue_type(code="K2", name="KidB", definition="", parent_id=source.id)
-    target = create_issue_type(code="T", name="Target", definition="")
-    create_issue_type(code="TK", name="Mid", definition="", parent_id=target.id)
+    source = create_issue_type(name="Source", definition="")
+    first = create_issue_type(name="KidA", definition="", parent_id=source.id)
+    second = create_issue_type(name="KidB", definition="", parent_id=source.id)
+    target = create_issue_type(name="Target", definition="")
+    create_issue_type(name="Mid", definition="", parent_id=target.id)
     merge_issue_types(source_ids=[source.id], target_id=target.id)
     undo()
     with get_session() as session:
@@ -265,9 +281,9 @@ def test_merge_undo_restores_child_positions(db):
 
 
 def test_deactivate_undo_restores_sibling_order(db):
-    create_issue_type(code="A", name="Alpha", definition="")
-    middle = create_issue_type(code="Z", name="Zeta", definition="")
-    create_issue_type(code="G", name="Gamma", definition="")
+    create_issue_type(name="Alpha", definition="")
+    middle = create_issue_type(name="Zeta", definition="")
+    create_issue_type(name="Gamma", definition="")
     deactivate_issue_type(middle.id)
     undo()
     roots = _active_siblings(None)
@@ -276,9 +292,9 @@ def test_deactivate_undo_restores_sibling_order(db):
 
 
 def test_remove_undo_restores_sibling_order(db):
-    create_issue_type(code="A", name="Alpha", definition="")
-    middle = create_issue_type(code="Z", name="Zeta", definition="")
-    create_issue_type(code="G", name="Gamma", definition="")
+    create_issue_type(name="Alpha", definition="")
+    middle = create_issue_type(name="Zeta", definition="")
+    create_issue_type(name="Gamma", definition="")
     remove_issue_type(middle.id)
     undo()
     roots = _active_siblings(None)
@@ -287,9 +303,9 @@ def test_remove_undo_restores_sibling_order(db):
 
 
 def test_remove_redo_compacts_remaining_siblings(db):
-    create_issue_type(code="A", name="Alpha", definition="")
-    middle = create_issue_type(code="Z", name="Zeta", definition="")
-    create_issue_type(code="G", name="Gamma", definition="")
+    create_issue_type(name="Alpha", definition="")
+    middle = create_issue_type(name="Zeta", definition="")
+    create_issue_type(name="Gamma", definition="")
     remove_issue_type(middle.id)
     undo()
     redo()
@@ -301,10 +317,10 @@ def test_remove_redo_compacts_remaining_siblings(db):
 
 
 def test_merge_undo_restores_source_sibling_order(db):
-    create_issue_type(code="A", name="Alpha", definition="")
-    source = create_issue_type(code="Z", name="Zeta", definition="")
-    create_issue_type(code="G", name="Gamma", definition="")
-    target = create_issue_type(code="T", name="Target", definition="")
+    create_issue_type(name="Alpha", definition="")
+    source = create_issue_type(name="Zeta", definition="")
+    create_issue_type(name="Gamma", definition="")
+    target = create_issue_type(name="Target", definition="")
     merge_issue_types(source_ids=[source.id], target_id=target.id)
     undo()
     roots = _active_siblings(None)
@@ -313,11 +329,11 @@ def test_merge_undo_restores_source_sibling_order(db):
 
 
 def test_merge_redo_matches_forward_child_order(db):
-    source = create_issue_type(code="S", name="Source", definition="")
-    create_issue_type(code="K1", name="KidA", definition="", parent_id=source.id)
-    create_issue_type(code="K2", name="KidB", definition="", parent_id=source.id)
-    target = create_issue_type(code="T", name="Target", definition="")
-    create_issue_type(code="TK", name="Mid", definition="", parent_id=target.id)
+    source = create_issue_type(name="Source", definition="")
+    create_issue_type(name="KidA", definition="", parent_id=source.id)
+    create_issue_type(name="KidB", definition="", parent_id=source.id)
+    target = create_issue_type(name="Target", definition="")
+    create_issue_type(name="Mid", definition="", parent_id=target.id)
     merge_issue_types(source_ids=[source.id], target_id=target.id)
     forward = _active_siblings(target.id)
     forward_names = [row.name for row in forward]
@@ -331,13 +347,13 @@ def test_merge_redo_matches_forward_child_order(db):
 
 
 def test_split_undo_then_create_appends_last(db):
-    create_issue_type(code="A", name="Alpha", definition="")
-    middle = create_issue_type(code="Z", name="Zeta", definition="")
-    create_issue_type(code="G", name="Gamma", definition="")
+    create_issue_type(name="Alpha", definition="")
+    middle = create_issue_type(name="Zeta", definition="")
+    create_issue_type(name="Gamma", definition="")
     split_issue_type(
         middle.id,
-        left={"code": "ZL", "name": "Zeta Left", "definition": "l"},
-        right={"code": "ZR", "name": "Zeta Right", "definition": "r"},
+        left={"name": "Zeta Left", "definition": "l"},
+        right={"name": "Zeta Right", "definition": "r"},
     )
     undo()
     created = create_empty_issue_type(parent_id=None)
@@ -348,13 +364,13 @@ def test_split_undo_then_create_appends_last(db):
 
 
 def test_split_redo_matches_forward_sibling_order(db):
-    create_issue_type(code="A", name="Alpha", definition="")
-    middle = create_issue_type(code="Z", name="Zeta", definition="")
-    create_issue_type(code="G", name="Gamma", definition="")
+    create_issue_type(name="Alpha", definition="")
+    middle = create_issue_type(name="Zeta", definition="")
+    create_issue_type(name="Gamma", definition="")
     split_issue_type(
         middle.id,
-        left={"code": "ZL", "name": "Zeta Left", "definition": "l"},
-        right={"code": "ZR", "name": "Zeta Right", "definition": "r"},
+        left={"name": "Zeta Left", "definition": "l"},
+        right={"name": "Zeta Right", "definition": "r"},
     )
     forward = [row.name for row in _active_siblings(None)]
     undo()
@@ -370,12 +386,12 @@ def test_split_redo_matches_forward_sibling_order(db):
 
 
 def test_split_redo_keeps_pair_before_later_sibling(db):
-    first = create_issue_type(code="Z", name="Zeta", definition="")
-    create_issue_type(code="G", name="Gamma", definition="")
+    first = create_issue_type(name="Zeta", definition="")
+    create_issue_type(name="Gamma", definition="")
     split_issue_type(
         first.id,
-        left={"code": "ZL", "name": "Zeta Left", "definition": "l"},
-        right={"code": "ZR", "name": "Zeta Right", "definition": "r"},
+        left={"name": "Zeta Left", "definition": "l"},
+        right={"name": "Zeta Right", "definition": "r"},
     )
     forward = [row.name for row in _active_siblings(None)]
     undo()
@@ -386,7 +402,6 @@ def test_split_redo_keeps_pair_before_later_sibling(db):
 
 def test_edit_does_not_log_move(db):
     issue = create_issue_type(
-        code="OVERCLAIM",
         name="Overclaiming",
         definition="too strong",
     )
@@ -407,7 +422,6 @@ def test_accept_is_logged_and_undo_returns_to_inbox(db, tmp_path):
     (repo / "main.tex").write_text("\\myremark{Why this method?}\n")
     extract_project(repo)
     issue = create_issue_type(
-        code="METHJUST",
         name="Missing methodological justification",
         definition="A design choice is unexplained.",
     )
@@ -444,12 +458,10 @@ def test_undo_change_restores_previous_label(db, tmp_path):
     (repo / "main.tex").write_text("\\myremark{Why this method?}\n")
     extract_project(repo)
     first = create_issue_type(
-        code="METHJUST",
         name="Missing methodological justification",
         definition="A design choice is unexplained.",
     )
     second = create_issue_type(
-        code="WEAK",
         name="Weak evidence",
         definition="evidence is thin",
     )
@@ -508,13 +520,12 @@ def test_propose_is_one_event_and_undo_removes_suggestions(db, tmp_path):
 
 def test_new_action_drops_redo_tail(db):
     issue = create_issue_type(
-        code="STRONG",
         name="Overly strong claim",
         definition="old",
     )
-    rename_issue_type(issue.id, name="Overclaiming", code="OVERCLAIM")
+    rename_issue_type(issue.id, name="Overclaiming")
     undo()
-    create_issue_type(code="AMBIG", name="Ambiguous terminology", definition="vague")
+    create_issue_type(name="Ambiguous terminology", definition="vague")
     history = list_history()
     assert history["can_redo"] is False
     assert "rename" not in _event_types(include_undone=True)
@@ -552,7 +563,7 @@ def test_history_api_undo_redo_and_empty_errors(db):
     assert client.post("/api/history/undo").status_code == 400
     assert client.post("/api/history/redo").status_code == 400
 
-    create_issue_type(code="U", name="Unsupported claim", definition="a")
+    create_issue_type(name="Unsupported claim", definition="a")
     listed = client.get("/api/history").json()
     assert listed["can_undo"] is True
     assert listed["events"][0]["summary"]
@@ -563,3 +574,36 @@ def test_history_api_undo_redo_and_empty_errors(db):
     assert after["events"][0]["undone"] is True
     assert client.post("/api/history/redo").status_code == 200
     assert client.get("/api/history").json()["can_redo"] is False
+
+
+def test_list_history_sorts_naive_and_aware_created_at(rd_home):
+    from reviewdistill.db.session import init_db, reset_engine
+
+    reset_engine()
+    (rd_home / "taxonomy_events.jsonl").write_text(
+        json.dumps(
+            {
+                "id": "old",
+                "event_type": "add",
+                "payload_json": "{}",
+                "undone": False,
+                "created_at": "2026-09-08T06:41:03.626817",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "id": "new",
+                "event_type": "add",
+                "payload_json": "{}",
+                "undone": False,
+                "created_at": "2026-09-13T09:42:18.900855Z",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    init_db()
+    body = list_history()
+    assert [event["id"] for event in body["events"]] == ["new", "old"]
+

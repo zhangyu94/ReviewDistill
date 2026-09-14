@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
@@ -17,22 +15,17 @@ from reviewdistill.coding.validation import (
 from reviewdistill.config import (
     LLM_SETTINGS_PROVIDERS,
     PROVIDER_ENV_KEYS,
+    api_key_from_dotenv,
     default_llm_model,
     ensure_env_gitignore,
-    paper_key_set,
+    home_key_set,
+    load_llm_config,
     upsert_env_var,
-    write_project_llm,
+    write_home_llm,
 )
-from reviewdistill.db.models import Project
-from reviewdistill.db.session import get_session
 from reviewdistill.errors import BadInput, Conflict, CorruptStore, NotFound, ReviewDistillError
 from reviewdistill.history import list_history, redo, undo
-from reviewdistill.paths import data_location, project_env_path
-from reviewdistill.projects import (
-    default_registered_project_id,
-    list_registered_project_rows,
-    llm_selected_payload,
-)
+from reviewdistill.paths import data_location, home_dir, home_env_path
 from reviewdistill.taxonomy.export import export_rubric
 from reviewdistill.taxonomy.operations import (
     add_counterexample,
@@ -91,7 +84,7 @@ _LLM_FAILED = "LLM request failed"
 
 @router.post("/inbox/code")
 def post_code():
-    """Propose issue types for every unlabeled working-set comment. There is no CLI ``code`` command."""
+    """Propose issue types for every unlabeled comment to distill. There is no CLI ``code`` command."""
     try:
         summary = code_uncoded_comments()
     except httpx.HTTPError as exc:
@@ -133,7 +126,6 @@ def post_drop(comment_id: str):
 
 class RenameBody(BaseModel):
     name: str
-    code: str
 
 
 class EditBody(BaseModel):
@@ -160,7 +152,6 @@ class MergeBody(BaseModel):
 
 
 class SplitSide(BaseModel):
-    code: str
     name: str
     definition: str
 
@@ -193,9 +184,10 @@ def post_merge(body: MergeBody):
 
 
 @router.get("/taxonomy/export")
-def get_export(format: str = "md"):
+def get_export(format: str = "md", id: list[str] | None = Query(None)):
+    """Rubric for active types. ``id`` (repeatable) keeps only those types; omit for all. Does not change labels in the UI."""
     try:
-        text = export_rubric(fmt=format)
+        text = export_rubric(fmt=format, issue_ids=id)
     except ValueError as exc:
         raise _domain_http(exc, mutate=False) from exc
     media = "text/markdown; charset=utf-8"
@@ -213,26 +205,23 @@ def get_paths():
 
 
 @router.get("/llm-settings")
-def get_llm_settings(project_id: str | None = None):
-    """Paper list + selected YAML/``.env`` state. Never includes the API key (``key_set`` only)."""
-    try:
-        projects = list_registered_project_rows()
-        default_id = default_registered_project_id()
-        selected_id = project_id or default_id
-        selected = llm_selected_payload(selected_id) if selected_id else None
-    except ValueError as exc:
-        raise _domain_http(exc, mutate=False) from exc
-    if project_id and selected is None:
-        raise HTTPException(status_code=404, detail="Unknown project")
+def get_llm_settings():
+    """Home YAML/``.env`` state, including the saved key for Settings. Ignores ``REVIEWDISTILL_LLM_*``."""
+    config = load_llm_config()
+    provider = config.llm_provider
+    model = config.llm_model
+    if provider and provider.lower() == "mock":
+        provider = None
+        model = None
     return {
-        "projects": projects,
-        "default_project_id": default_id,
-        "selected": selected,
+        "provider": provider,
+        "model": model,
+        "key_set": home_key_set(provider),
+        "api_key": api_key_from_dotenv(home_env_path(), provider),
     }
 
 
 class LlmSettingsBody(BaseModel):
-    project_id: str
     provider: str
     model: str = ""
     api_key: str = ""
@@ -240,31 +229,23 @@ class LlmSettingsBody(BaseModel):
 
 @router.post("/llm-settings")
 def post_llm_settings(body: LlmSettingsBody):
-    """Save provider/model to YAML and optional key to gitignored ``.env``. Empty ``api_key`` keeps the existing key."""
+    """Save provider/model to home YAML and optional key to gitignored ``.env``. Empty ``api_key`` keeps the existing key."""
     provider = body.provider.lower().strip()
     if provider not in LLM_SETTINGS_PROVIDERS:
         raise HTTPException(status_code=400, detail="Unknown LLM provider")
-    try:
-        with get_session() as session:
-            project = session.get(Project, body.project_id)
-    except ValueError as exc:
-        raise _domain_http(exc, mutate=False) from exc
-    if project is None:
-        raise HTTPException(status_code=404, detail="Unknown project")
-    root = Path(project.root_path)
     model = body.model.strip() or default_llm_model(provider)
     env_name = PROVIDER_ENV_KEYS[provider]
     incoming = body.api_key.strip()
-    if not incoming and not paper_key_set(root, provider):
+    if not incoming and not home_key_set(provider):
         raise HTTPException(
             status_code=400,
             detail=f"Paste an API key for {provider} ({env_name})",
         )
-    write_project_llm(root, provider=provider, model=model)
+    write_home_llm(provider=provider, model=model)
     if incoming:
-        upsert_env_var(project_env_path(root), env_name, incoming)
-    ensure_env_gitignore(root)
-    return {"ok": True, "key_set": paper_key_set(root, provider)}
+        upsert_env_var(home_env_path(), env_name, incoming)
+    ensure_env_gitignore(home_dir())
+    return {"ok": True, "key_set": home_key_set(provider)}
 
 
 @router.get("/taxonomy/{issue_id}")
@@ -277,7 +258,7 @@ def get_issue(issue_id: str):
 
 @router.post("/taxonomy/{issue_id}/rename")
 def post_rename(issue_id: str, body: RenameBody):
-    return _mutate(lambda: rename_issue_type(issue_id, name=body.name, code=body.code))
+    return _mutate(lambda: rename_issue_type(issue_id, name=body.name))
 
 
 @router.post("/taxonomy/{issue_id}/edit")

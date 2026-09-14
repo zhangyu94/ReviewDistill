@@ -1,33 +1,24 @@
 <script setup lang="ts">
 import type { ExportFormat } from '../../api/client.ts'
 import { computed, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { exportFilename, fetchExport } from '../../api/client.ts'
 import {
-  deactivateIssue,
-  exportFilename,
-  fetchExport,
-} from '../../api/client.ts'
+  allTypeIds,
+  canDownloadExport,
+  toggleCheckedId,
+} from '../../workbench/exportSelection.ts'
 import { flattenForest } from '../../workbench/taxonomyTree.ts'
-import { groupIdFromRoute, issueIdAfterLeave, typeRouteAfterDeactivate } from '../../workbench/workbenchMode.ts'
 import { useWorkbenchStore } from '../../workbench/workbenchStore.ts'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select'
 
 const open = ref(false)
 const fmt = ref<ExportFormat>('md')
-const route = useRoute()
-const router = useRouter()
 const store = useWorkbenchStore()
 const error = ref('')
-const notice = ref('')
 const busy = ref(false)
+const checked = ref<string[]>([])
 const list = computed(() => store.taxonomy)
-const deactivateId = ref('')
+const rows = computed(() => flattenForest(list.value?.forest ?? []))
+const canDownload = computed(() => canDownloadExport(checked.value))
 
 const formats: { id: ExportFormat, label: string }[] = [
   { id: 'md', label: 'Markdown' },
@@ -35,30 +26,27 @@ const formats: { id: ExportFormat, label: string }[] = [
   { id: 'json', label: 'JSON' },
 ]
 
-function allIssues() {
-  return flattenForest(list.value?.forest ?? []).map(({ node }) => node)
-}
-
-function onDeactivateId(value: unknown) {
-  if (typeof value === 'string') { deactivateId.value = value }
-}
-
 async function show() {
   open.value = true
   error.value = ''
-  notice.value = ''
   await store.invalidate({ taxonomy: true })
+  checked.value = allTypeIds(list.value?.forest ?? [])
 }
 
 function hide() {
   open.value = false
 }
 
+function onToggle(id: string) {
+  checked.value = toggleCheckedId(list.value?.forest ?? [], checked.value, id)
+}
+
 async function download() {
+  if (!canDownload.value) { return }
   busy.value = true
   error.value = ''
   try {
-    const text = await fetchExport(fmt.value)
+    const text = await fetchExport(fmt.value, checked.value)
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
     const href = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -75,41 +63,12 @@ async function download() {
   }
 }
 
-async function deactivate() {
-  const deactivated = deactivateId.value
-  if (!deactivated) { return }
-  busy.value = true
-  error.value = ''
-  notice.value = ''
-  try {
-    const viewing = groupIdFromRoute(
-      typeof route.params.id === 'string' ? route.params.id : '',
-      typeof route.query.type === 'string' ? route.query.type : '',
-    )
-    await deactivateIssue(deactivated)
-    notice.value = 'Group deactivated.'
-    deactivateId.value = ''
-    const href = typeRouteAfterDeactivate(viewing, deactivated)
-    if (href) { await router.replace(href) }
-    await store.invalidate({ taxonomy: true, inbox: true, issue: true }, issueIdAfterLeave(href, viewing))
-  }
-  catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
-  }
-  finally {
-    busy.value = false
-  }
-}
-
 defineExpose({ show })
 </script>
 
 <template>
-  <button class="ch-chip ch-chip-idle gap-1" type="button" title="Download the rubric or deactivate a group" @click="show">
-    <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M8 3v7M5.5 7.5 8 10l2.5-2.5" />
-      <path stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M3.5 12.5h9" />
-    </svg>
+  <button class="ch-chip ch-chip-idle gap-1" type="button" title="Download the rubric" @click="show">
+    <span class="i-fa6-solid:download h-3.5 w-3.5 shrink-0" aria-hidden="true" />
     Export
   </button>
   <div
@@ -118,14 +77,22 @@ defineExpose({ show })
     @click.self="hide"
   >
     <div class="w-full max-w-md rounded-[4px] border border-[var(--ch-color-border)] bg-[var(--ch-color-background)] p-4 text-xs shadow-lg">
-      <h2 class="mb-3 font-semibold">
-        Export
-      </h2>
+      <div class="mb-3 flex items-center gap-1.5">
+        <h2 class="font-semibold">
+          Export
+        </h2>
+        <button
+          class="ch-btn ch-btn-outline ml-auto px-1.5"
+          type="button"
+          title="Close"
+          aria-label="Close"
+          @click="hide"
+        >
+          <span class="i-fa6-solid:xmark h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </div>
       <p v-if="error" class="ch-error-text mb-2">
         {{ error }}
-      </p>
-      <p v-if="notice" class="ch-muted-text mb-2">
-        {{ notice }}
       </p>
       <p class="ch-muted-text mb-1.5">
         Format
@@ -143,43 +110,46 @@ defineExpose({ show })
           {{ row.label }}
         </button>
       </div>
-      <button
-        class="ch-btn ch-btn-default mb-4"
-        type="button"
-        :title="`Download ${exportFilename(fmt)}`"
-        :disabled="busy"
-        @click="download"
-      >
-        Download {{ exportFilename(fmt) }}
-      </button>
-      <h3 class="mb-1.5 font-medium">
-        Deactivate a group
-      </h3>
-      <p class="ch-muted-text mb-2">
-        Hide a type from the active taxonomy. Its children become siblings of this type. Labeled comments on this type return to Unlabeled. Undo restores the labels.
+      <p class="ch-muted-text mb-1.5">
+        Types to include. Unchecked types stay in the taxonomy.
       </p>
-      <Select :model-value="deactivateId || undefined" @update:model-value="onDeactivateId">
-        <SelectTrigger class="mb-2 w-full" title="Issue type to hide from the active taxonomy">
-          <SelectValue placeholder="Choose a group" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem v-for="row in allIssues()" :key="row.id" :value="row.id">
-            {{ row.code }} · {{ row.name }}
-          </SelectItem>
-        </SelectContent>
-      </Select>
-      <div class="flex justify-end gap-1.5">
-        <button class="ch-btn ch-btn-outline" type="button" title="Close this dialog" @click="hide">
-          Close
-        </button>
-        <button
-          class="ch-btn ch-btn-outline"
-          type="button"
-          title="Hide the chosen type from the active taxonomy"
-          :disabled="busy || !deactivateId"
-          @click="deactivate"
+      <div
+        v-if="rows.length"
+        class="mb-3 max-h-56 overflow-auto rounded-[4px] border border-[var(--ch-color-border)] py-1"
+        role="tree"
+        aria-label="Issue types to export"
+        aria-multiselectable="true"
+      >
+        <label
+          v-for="{ node, depth } in rows"
+          :key="node.id"
+          class="flex cursor-pointer items-center gap-1.5 px-2 py-0.5 hover:bg-[var(--ch-color-background-muted)]"
+          :style="{ paddingLeft: `${8 + depth * 12}px` }"
+          role="treeitem"
+          :aria-checked="checked.includes(node.id)"
         >
-          Deactivate
+          <input
+            class="shrink-0"
+            type="checkbox"
+            :checked="checked.includes(node.id)"
+            :title="`Include ${node.name} in the download`"
+            @change="onToggle(node.id)"
+          >
+          <span class="truncate">{{ node.name }}</span>
+        </label>
+      </div>
+      <p v-else class="ch-muted-text mb-3">
+        No issue types yet.
+      </p>
+      <div class="flex justify-end">
+        <button
+          class="ch-btn ch-btn-default"
+          type="button"
+          :title="`Download ${exportFilename(fmt)}`"
+          :disabled="busy || !canDownload"
+          @click="download"
+        >
+          Download {{ exportFilename(fmt) }}
         </button>
       </div>
     </div>

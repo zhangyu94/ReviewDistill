@@ -48,7 +48,6 @@ def _resolved_parent_id(session, parent_id: str | None) -> str | None:
 @dataclass
 class InboxIssue:
     id: str
-    code: str
     name: str
     parent_id: str | None
 
@@ -66,9 +65,9 @@ def _accepted_issue(session, comment_id: str) -> InboxIssue | None:
         if not row.issue_type_id:
             continue
         issue = session.get(IssueType, row.issue_type_id)
-        if issue is None:
+        if issue is None or issue.status != ISSUE_ACTIVE:
             continue
-        return InboxIssue(id=issue.id, code=issue.code, name=issue.name, parent_id=issue.parent_id)
+        return InboxIssue(id=issue.id, name=issue.name, parent_id=issue.parent_id)
     return None
 
 
@@ -162,14 +161,12 @@ def accept_coding(comment_id: str) -> Coding:
         if issue_type_id is None:
             if not coding.proposed_issue_name:
                 raise BadInput("Proposed coding has no issue type and no new-issue fields")
-            code = coding.proposed_issue_code or _slug_code(coding.proposed_issue_name)
-            existing = session.first(IssueType, status=ISSUE_ACTIVE, code=code)
+            existing = session.first(IssueType, status=ISSUE_ACTIVE, name=coding.proposed_issue_name)
             if existing is not None:
                 issue_type_id = existing.id
             else:
                 issue = add_issue_type(
                     session,
-                    code=code,
                     name=coding.proposed_issue_name,
                     parent_id=_resolved_parent_id(session, coding.proposed_parent_id),
                     definition=coding.proposed_issue_definition or coding.proposed_issue_name,
@@ -254,7 +251,3 @@ def change_coding(comment_id: str, *, issue_type_id: str) -> Coding:
         session.commit()
         session.refresh(human)
         return human
-
-
-def _slug_code(name: str) -> str:
-    return "".join(ch if ch.isalnum() else "" for ch in name.upper())[:16] or "NEWISSUE"
