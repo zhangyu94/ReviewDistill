@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from reviewdistill.extraction.latex import scan_macros
+from reviewdistill.extraction.latex import _normalize_comment_text, scan_macros
 
 SECTION_RE = re.compile(r"\\(?:sub)*section\*?\{([^}]+)\}")
 
@@ -23,6 +23,7 @@ SECTION_RE = re.compile(r"\\(?:sub)*section\*?\{([^}]+)\}")
 class ManuscriptContext:
     context_text: str
     section: str | None
+    context_offset: int | None = None
 
 
 def extract_context(
@@ -31,7 +32,14 @@ def extract_context(
     *,
     commands: list[str] | None = None,
     command: str | None = None,
+    source_command: str | None = None,
+    raw_text: str | None = None,
 ) -> ManuscriptContext:
+    """Insertion neighborhood, plus this remark's hole if identity is given.
+
+    ``source_command`` and ``raw_text`` pick this macro's hole (not another on
+    the same line). Omit them and ``context_offset`` stays ``None``.
+    """
     raw_lines = source.splitlines()
     cmds = list(commands) if commands else ([command] if command else [])
     if not raw_lines:
@@ -43,10 +51,146 @@ def extract_context(
     stops: set[int] = set()
     if cmds:
         neighborhood, stops = _drop_post_macro_headings(raw_lines, neighborhood, cmds)
+    context_text = choose_anchor(neighborhood, idx, glue=glue, stop=stops)
     return ManuscriptContext(
-        context_text=choose_anchor(neighborhood, idx, glue=glue, stop=stops),
+        context_text=context_text,
         section=_section_at(neighborhood, idx),
+        context_offset=_context_offset(
+            source,
+            cmds,
+            line_number,
+            idx,
+            glue,
+            stops,
+            neighborhood,
+            context_text,
+            source_command=source_command,
+            raw_text=raw_text,
+        ),
     )
+
+
+def _context_offset(
+    source: str,
+    commands: list[str],
+    line_number: int,
+    idx: int,
+    glue: set[int] | frozenset[int],
+    stop: set[int] | frozenset[int],
+    neighborhood: list[str],
+    context_text: str,
+    *,
+    source_command: str | None,
+    raw_text: str | None,
+) -> int | None:
+    """Map this remark's hole through strip / ``%`` tails onto stored ``context_text``.
+
+    Uses the heading-dropped ``neighborhood`` already chosen for the text (not a
+    second span on pre-heading-drop lines). Hole outside that span is walk-up:
+    offset is ``len(context_text)``.
+    """
+    if not context_text or source_command is None or raw_text is None:
+        return None
+    working = "\n".join(source.splitlines())
+    match = _pick_macro(working, commands, line_number, source_command, raw_text)
+    if match is None:
+        return None
+    keep = [True] * len(working)
+    matches, _unstable = scan_macros(working, commands)
+    for item in matches:
+        for i in range(item.start, item.end):
+            if working[i] != "\n":
+                keep[i] = False
+    stripped_index = sum(1 for i in range(match.start) if keep[i])
+    stripped_lines = "".join(working[i] if keep[i] else "" for i in range(len(working))).split("\n")
+    hole_line, hole_col = _hole_line_col(stripped_lines, stripped_index)
+    span = _primary_anchor_span(neighborhood, idx, glue, stop)
+    if span is None:
+        return None
+    start, end = span
+    if hole_line < start or hole_line > end:
+        return len(context_text)
+    return _offset_in_join(neighborhood, start, end, hole_line, hole_col)
+
+
+def _pick_macro(
+    working: str,
+    commands: list[str],
+    line_number: int,
+    source_command: str,
+    raw_text: str,
+):
+    """Harvest identity: opening line, command, normalized body; earlier ``start`` wins."""
+    matches, unstable = scan_macros(working, commands)
+    if unstable:
+        return None
+    found = [
+        match
+        for match in matches
+        if match.command == source_command
+        and working.count("\n", 0, match.start) + 1 == line_number
+        and _normalize_comment_text(match.body) == raw_text
+    ]
+    if not found:
+        return None
+    return min(found, key=lambda match: match.start)
+
+
+def _hole_line_col(stripped_lines: list[str], index: int) -> tuple[int, int]:
+    text = "\n".join(stripped_lines)
+    clipped = min(index, len(text))
+    line = text.count("\n", 0, clipped)
+    last_nl = text.rfind("\n", 0, clipped)
+    col = clipped if last_nl < 0 else clipped - (last_nl + 1)
+    dropped = drop_percent_tails(stripped_lines)
+    if not dropped:
+        return 0, 0
+    line = min(line, len(dropped) - 1)
+    col = min(col, len(dropped[line]))
+    return line, col
+
+
+def _primary_anchor_span(
+    lines: list[str],
+    idx: int,
+    glue: set[int] | frozenset[int],
+    stop: set[int] | frozenset[int],
+) -> tuple[int, int] | None:
+    blocks = blank_line_blocks(lines, glue=glue, stop=stop)
+    if not blocks:
+        return None
+    bi = _block_index_at_or_above(blocks, idx)
+    if bi is None:
+        return None
+
+    def text_at(i: int) -> str:
+        return _block_text(lines, *blocks[i])
+
+    while bi >= 0 and not text_at(bi):
+        bi -= 1
+    if bi < 0:
+        return None
+    return blocks[bi]
+
+
+def _offset_in_join(
+    lines: list[str],
+    start: int,
+    end: int,
+    hole_line: int,
+    hole_col: int,
+) -> int:
+    indexed = [(i, lines[i].rstrip()) for i in range(start, end + 1)]
+    while indexed and not indexed[0][1].strip():
+        indexed.pop(0)
+    while indexed and not indexed[-1][1].strip():
+        indexed.pop()
+    context = "\n".join(part for _i, part in indexed)
+    for k, (i, part) in enumerate(indexed):
+        if i == hole_line:
+            prefix = sum(len(p) + 1 for _j, p in indexed[:k])
+            return prefix + min(hole_col, len(part))
+    return len(context)
 
 
 def _section_at(lines: list[str], idx: int) -> str | None:

@@ -232,10 +232,19 @@ def _pending_from(comment: ExtractedComment) -> _Pending:
     )
 
 
-def _context_fields(root: Path, pending: _Pending, commands: list[str]) -> tuple[str, str | None]:
+def _context_fields(
+    root: Path, pending: _Pending, commands: list[str]
+) -> tuple[str, str | None, int | None]:
+    """Rebuild ``context_text`` and ``context_offset`` together from this pending remark."""
     source = (root / pending.file_path).read_text(errors="replace")
-    ctx = extract_context(source, pending.line_number, commands=commands)
-    return ctx.context_text, ctx.section
+    ctx = extract_context(
+        source,
+        pending.line_number,
+        commands=commands,
+        source_command=pending.source_command,
+        raw_text=pending.raw_text,
+    )
+    return ctx.context_text, ctx.section, ctx.context_offset
 
 
 def _apply_source(
@@ -251,7 +260,7 @@ def _apply_source(
     row.line_number = pending.line_number
     row.git_commit = git.commit_hash
     row.git_url = git.remote_url
-    row.context_text, row.section = _context_fields(root, pending, commands)
+    row.context_text, row.section, row.context_offset = _context_fields(root, pending, commands)
     if update_text:
         text_changed = fingerprint_for(row.source_command, row.raw_text) != pending.fingerprint
         row.raw_text = pending.raw_text
@@ -264,7 +273,7 @@ def _apply_source(
 def _to_row(
     project_id: str, comment: _Pending, root: Path, git: GitMetadata, commands: list[str]
 ) -> ProofreadingComment:
-    context_text, section = _context_fields(root, comment, commands)
+    context_text, section, context_offset = _context_fields(root, comment, commands)
     return ProofreadingComment(
         id=str(uuid4()),
         project_id=project_id,
@@ -274,6 +283,7 @@ def _to_row(
         line_number=comment.line_number,
         raw_text=comment.raw_text,
         context_text=context_text,
+        context_offset=context_offset,
         section=section,
         git_commit=git.commit_hash,
         git_url=git.remote_url,

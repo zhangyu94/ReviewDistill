@@ -69,6 +69,32 @@ def test_comment_raw_text_persists(rd_home):
     assert "demonstrate" in line
 
 
+def test_comment_context_offset_persists(rd_home):
+    init_db()
+    with get_session() as session:
+        session.add(Project(id="p1", name="paper-01", root_path="/tmp/paper"))
+        session.add(
+            ProofreadingComment(
+                id="c1",
+                project_id="p1",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=10,
+                raw_text="Too strong.",
+                context_text="Hello.",
+                context_offset=5,
+                status="active",
+            )
+        )
+        session.commit()
+
+    with get_session() as session:
+        comment = session.get(ProofreadingComment, "c1")
+        assert comment.context_offset == 5
+        assert comment.context_text == "Hello."
+
+
 def _record(**extra):
     base = {
         "id": "c1",

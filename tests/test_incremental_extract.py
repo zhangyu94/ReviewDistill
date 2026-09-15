@@ -436,6 +436,7 @@ def test_inline_comment_stores_paragraph(db, tmp_path: Path):
     assert "\\cite{smith2020}" in row.context_text
     assert "% – corpus" not in row.context_text
     assert "Where are the tables" not in row.context_text
+    assert row.context_offset == len(row.context_text)
 
 
 def test_extracts_command_with_space_before_brace(db, tmp_path: Path):

@@ -64,6 +64,7 @@ Time the row was first inserted. Not updated when `name` or `root_path` change.
 | `line_number` | integer | no | — | no |
 | `raw_text` | string | no | — | no |
 | `context_text` | string | no | `""` | no |
+| `context_offset` | integer | yes | `null` | no |
 | `section` | string | yes | `null` | no |
 | `git_commit` | string | yes | `null` | no |
 | `git_url` | string | yes | `null` | no |
@@ -120,6 +121,14 @@ Built as source TeX of the insertion neighborhood:
 6. Keep line breaks. Trim edge blanks. Do not append `Citations:` / `Refs:`.
 
 When the comment is not in the manuscript, a non-binding guess compares stored `context_text` to a fresh extract of `{root_path}/{file_path}` at `line_number`.
+
+#### `context_offset`
+
+Character index into `context_text` of the hole left by this comment’s macro after strip / `%` tails / join, or `null`. The mark sits before that index, or at the end when the index equals the length. Walk-up (remark after a blank line, or only headings above) uses the length. Empty context is `null`. Missing key on an old row is `null` until the next extract that rebuilds context.
+
+The hole is this remark, not another macro on the same line: extract matches harvest on `line_number`, `source_command`, and normalized `raw_text`, and takes the earlier file `start` if more than one still qualifies. `extract_context` needs those identity fields for an offset; omit them and the offset is `null`.
+
+Not a sentinel inside `context_text`. Disappearance matching ignores this field. Retrieval, export, and skill-eval passages use unmarked `context_text`. History dumps and restores the field with the rest of the row (no new event type); an older payload without the key restores as `null`.
 
 #### `section`
 
@@ -184,7 +193,7 @@ Selector views:
 
 ### What extract updates in place
 
-On unchanged, revised, moved, or resurrected rows, extract refreshes location and git, and rebuilds `context_text` / `section`. On revision it also updates `raw_text`, `source_command`, and `source_type`, and clears verified to false. It does not change `id`, `project_id`, `created_at`, or `supersedes_id`.
+On unchanged, revised, moved, or resurrected rows, extract refreshes location and git, and rebuilds `context_text` / `context_offset` / `section`. On revision it also updates `raw_text`, `source_command`, and `source_type`, and clears verified to false. It does not change `id`, `project_id`, `created_at`, or `supersedes_id`.
 
 ---
 

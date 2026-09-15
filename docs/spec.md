@@ -527,7 +527,8 @@ For each comment, extract:
 * the blank-line paragraph that contains the command, with configured comment macros stripped on the raw file (same brace rule as harvest) then `%` tails removed (a blank line inside `{...}` is not an outer paragraph break);
 * if that paragraph is empty after strip, headings / `\label` immediately above, or the previous prose paragraph, skipping other empty-after-strip remarks (never the next paragraph after a heading);
 * section/subsection titles (separate field);
-* source file and line number.
+* source file and line number;
+* character offset of this remark’s insertion hole in that neighborhood (`context_offset`: opening line + command + normalized body, not a search of words copied from the remark), shown as a square in the inspector (with a parenthetical legend beside the heading that shows the same square) and as `‹remark›` in the coding prompt.
 
 The inspector and the coding prompt see that same source TeX. Details: website `docs/extract.md`.
 

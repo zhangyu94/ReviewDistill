@@ -544,3 +544,70 @@ def test_two_configured_macros_in_one_paragraph_are_both_stripped():
     assert "yzc" not in ctx.context_text
     assert "myremark" not in ctx.context_text
 
+
+def test_extract_context_offset_null_without_identity():
+    source = "We created the evaluation corpus. \\yzc{Where are the tables?}\n"
+    ctx = extract_context(source, line_number=1, command="yzc")
+    assert ctx.context_offset is None
+
+
+def test_extract_context_offset_inline_end_of_sentence():
+    source = "We created the evaluation corpus. \\yzc{Where are the tables?}\n"
+    ctx = extract_context(
+        source,
+        line_number=1,
+        commands=["yzc"],
+        source_command="yzc",
+        raw_text="Where are the tables?",
+    )
+    assert ctx.context_text == "We created the evaluation corpus."
+    assert ctx.context_offset == len(ctx.context_text)
+
+
+def test_extract_context_offset_walk_up_after_blank_line():
+    source = "The results demonstrate that X.\n\n\\yzc{Too strong.}\n"
+    ctx = extract_context(
+        source,
+        line_number=3,
+        commands=["yzc"],
+        source_command="yzc",
+        raw_text="Too strong.",
+    )
+    assert ctx.context_text == "The results demonstrate that X."
+    assert ctx.context_offset == len(ctx.context_text)
+
+
+def test_extract_context_offset_empty_is_null():
+    ctx = extract_context(
+        "\\yzc{Only this.}\n",
+        line_number=1,
+        commands=["yzc"],
+        source_command="yzc",
+        raw_text="Only this.",
+    )
+    assert ctx.context_text == ""
+    assert ctx.context_offset is None
+
+
+def test_extract_context_offset_picks_this_macro_on_one_line():
+    source = "A claim. \\yzc{tone} More text. \\myremark{cite me.}\n"
+    yzc = extract_context(
+        source,
+        line_number=1,
+        commands=["yzc", "myremark"],
+        source_command="yzc",
+        raw_text="tone",
+    )
+    remark = extract_context(
+        source,
+        line_number=1,
+        commands=["yzc", "myremark"],
+        source_command="myremark",
+        raw_text="cite me.",
+    )
+    assert yzc.context_text == "A claim.  More text."
+    assert remark.context_text == yzc.context_text
+    assert yzc.context_offset == 9
+    assert remark.context_offset == len(remark.context_text)
+    assert yzc.context_text[: yzc.context_offset] == "A claim. "
+

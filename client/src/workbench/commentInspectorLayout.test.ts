@@ -15,6 +15,10 @@ const progressSource = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '../components/workbench/ProgressBar.vue'),
   'utf8',
 )
+const unoSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '../../uno.config.ts'),
+  'utf8',
+)
 
 function commentInspectorKickerHeadings(source: string): string[] {
   const headings: string[] = []
@@ -88,6 +92,29 @@ function inspectorFileRevealUsesButton(source: string): boolean {
     && source.includes('emit(\'reveal\')')
 }
 
+function manuscriptContextLegendIsParenthetical(source: string): boolean {
+  const headingAt = source.indexOf('Manuscript context')
+  if (headingAt < 0) {
+    return false
+  }
+  const sectionStart = source.lastIndexOf('<section', headingAt)
+  const sectionEnd = source.indexOf('</section>', headingAt)
+  if (sectionStart < 0 || sectionEnd < 0) {
+    return false
+  }
+  const section = source.slice(sectionStart, sectionEnd)
+  const localHeading = section.indexOf('Manuscript context')
+  const rowStart = section.lastIndexOf('<div', localHeading)
+  const rowEnd = section.indexOf('</div>', localHeading)
+  if (rowStart < 0 || rowEnd < 0) {
+    return false
+  }
+  const row = section.slice(rowStart, rowEnd)
+  return row.includes('ch-kicker')
+    && row.includes('ch-context-mark')
+    && /\([\s\S]*Comment sat here\s*\)/.test(row)
+}
+
 describe('comment inspector body order', () => {
   it('places label then triage between manuscript context and location', () => {
     const headings = commentInspectorKickerHeadings(inspectorSource)
@@ -111,6 +138,13 @@ describe('comment inspector body order', () => {
   it('posts reveal from the workbench page', () => {
     expect(pageSource.includes('revealInboxFile')).toBe(true)
     expect(pageSource.includes('@reveal="revealFile"')).toBe(true)
+  })
+
+  it('shows a square insertion mark and a matching legend', () => {
+    expect(unoSource).toMatch(/['"]ch-context-mark['"],\s*'[^']*h-2\.5[^']*w-2\.5[^']*'/)
+    expect(inspectorSource.match(/ch-context-mark/g)?.length).toBeGreaterThanOrEqual(2)
+    expect(inspectorSource).toContain('Comment sat here')
+    expect(manuscriptContextLegendIsParenthetical(inspectorSource)).toBe(true)
   })
 
   it('explains unlabeled and verified without treating Verify as a label assignment', () => {

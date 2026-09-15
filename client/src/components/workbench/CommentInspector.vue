@@ -4,6 +4,7 @@ import type { LocationRow } from '../../inboxLocation.ts'
 import { computed, ref, watch } from 'vue'
 import { fileRevealAccessibleName, fileRevealLabel } from '../../inboxLocation.ts'
 import { assignSuggestion, shouldAssignOnSelect } from '../../workbench/assignLabel.ts'
+import { splitContextMark } from '../../workbench/contextMark.ts'
 import { assignableLabelRows } from '../../workbench/taxonomyTree.ts'
 import { showAssignLabel } from '../../workbench/workbenchMode.ts'
 import {
@@ -58,6 +59,10 @@ const changeMenuTitle = computed(() => (
 const suggestion = computed(() =>
   assignSuggestion(props.selected?.coding, changeLabels.value),
 )
+const contextMark = computed(() => {
+  const text = props.selected?.comment.context_text ?? ''
+  return splitContextMark(text, props.selected?.comment.context_offset)
+})
 const whyOpen = ref(false)
 watch(() => props.selected?.comment.id, () => {
   whyOpen.value = false
@@ -88,11 +93,29 @@ watch(() => props.selected?.comment.id, () => {
         </section>
 
         <section class="ch-panel-muted">
-          <h2 class="ch-kicker">
-            Manuscript context
-          </h2>
-          <p class="font-[var(--ch-font-mono)] leading-5 whitespace-pre-wrap text-[var(--ch-color-body)]">
-            {{ selected.comment.context_text || '—' }}
+          <div class="mb-1.5 flex flex-wrap items-center gap-1.5">
+            <h2 class="ch-kicker mb-0">
+              Manuscript context
+            </h2>
+            <span
+              v-if="contextMark.marked"
+              class="ch-muted-text inline-flex items-center gap-1"
+            >(<span class="ch-context-mark" aria-hidden="true" /> Comment sat here)</span>
+          </div>
+          <p
+            v-if="contextMark.marked"
+            class="font-[var(--ch-font-mono)] leading-5 whitespace-pre-wrap text-[var(--ch-color-body)]"
+          ><span>{{ contextMark.before }}</span><span
+            class="ch-context-mark mx-px"
+            title="Comment sat here"
+            role="img"
+            aria-label="Comment sat here"
+          /><span>{{ contextMark.after }}</span></p>
+          <p
+            v-else
+            class="font-[var(--ch-font-mono)] leading-5 whitespace-pre-wrap text-[var(--ch-color-body)]"
+          >
+            {{ contextMark.text || '—' }}
           </p>
         </section>
 

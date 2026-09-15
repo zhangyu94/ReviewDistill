@@ -75,6 +75,7 @@ class ProofreadingComment(SQLModel):
     line_number: int
     raw_text: str
     context_text: str = ""
+    context_offset: int | None = None  # hole in context_text; null if unknown / empty
     section: str | None = None
     git_commit: str | None = None
     git_url: str | None = None

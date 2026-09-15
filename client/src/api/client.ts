@@ -13,6 +13,7 @@ export interface CommentJson {
   line_number: number
   raw_text: string
   context_text: string
+  context_offset: number | null
   section: string | null
   git_commit: string | null
   git_url: string | null

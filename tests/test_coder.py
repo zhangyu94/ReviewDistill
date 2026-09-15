@@ -9,6 +9,20 @@ from reviewdistill.db.session import get_session
 from reviewdistill.extraction.incremental import extract_project
 from reviewdistill.llm.mock import MockLLMProvider
 from reviewdistill.taxonomy.operations import add_example, create_label
+from reviewdistill.context.mark import REMARK_TOKEN, splice_remark
+
+
+def test_splice_remark_inserts_token_at_offset():
+    assert splice_remark("ab", 1) == f"a{REMARK_TOKEN}b"
+    assert splice_remark("ab", 0) == f"{REMARK_TOKEN}ab"
+    assert splice_remark("ab", 2) == f"ab{REMARK_TOKEN}"
+
+
+def test_splice_remark_leaves_text_when_offset_unusable():
+    assert splice_remark("ab", None) == "ab"
+    assert splice_remark("ab", 3) == "ab"
+    assert splice_remark("ab", -1) == "ab"
+    assert splice_remark("ab", True) == "ab"
 
 
 def test_parse_existing_and_new_recommendations():
@@ -83,6 +97,29 @@ def test_build_prompt_separates_observation_from_interpretation():
     assert "required" in prompt
     assert "Overclaiming" in prompt
     assert "demonstrate" in prompt
+
+
+def test_build_prompt_splices_remark_token():
+    prompt = build_prompt(
+        raw_text="Too strong.",
+        context_text="Hello world",
+        section="Results",
+        candidates=[],
+        context_offset=5,
+    )
+    assert f"Hello{REMARK_TOKEN} world" in prompt
+    assert "Manuscript context:\nHello world\n" not in prompt
+
+
+def test_build_prompt_skips_token_when_offset_missing():
+    prompt = build_prompt(
+        raw_text="Too strong.",
+        context_text="Hello world",
+        section=None,
+        candidates=[],
+    )
+    assert "Manuscript context:\nHello world\n" in prompt
+    assert REMARK_TOKEN not in prompt
 
 
 def test_code_uncoded_comments_writes_proposed_coding(db, tmp_path):

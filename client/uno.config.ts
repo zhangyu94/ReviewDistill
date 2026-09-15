@@ -129,6 +129,7 @@ export default defineConfig({
     ['ch-panel-muted', 'rounded-[4px] border border-[var(--ch-color-border)] bg-[var(--ch-color-background-muted)] p-3'],
     ['ch-workbench-card', 'flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[var(--ch-radius)] border border-[var(--ch-color-border)] bg-[var(--ch-color-background)]'],
     ['ch-kicker', 'mb-1.5 text-xs font-medium uppercase tracking-[0.06em] text-[var(--ch-color-muted-foreground)]'],
+    ['ch-context-mark', 'inline-block h-2.5 w-2.5 shrink-0 bg-[var(--ch-color-primary)] align-middle'],
     ['ch-field-label', 'mb-0.5 block text-xs text-[var(--ch-color-muted-foreground)]'],
     ['ch-prose', 'text-sm leading-5'],
   ],

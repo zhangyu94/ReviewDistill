@@ -23,6 +23,7 @@ function item(partial: Partial<InboxItemJson> & { id: string }): InboxItemJson {
       line_number: 1,
       raw_text: 'x',
       context_text: '',
+      context_offset: null,
       section: null,
       git_commit: null,
       git_url: null,

@@ -7,6 +7,7 @@ from uuid import uuid4
 import httpx
 
 from reviewdistill.coding.retrieval import retrieve_candidates
+from reviewdistill.context.mark import splice_remark
 from reviewdistill.db.models import (
     CODING_PROPOSED,
     LABEL_ACTIVE,
@@ -81,7 +82,14 @@ def proposal_has_new_label(proposal: ModelProposal) -> bool:
     return bool((proposal.label_name or "").strip())
 
 
-def build_prompt(*, raw_text: str, context_text: str, section: str | None, candidates) -> str:
+def build_prompt(
+    *,
+    raw_text: str,
+    context_text: str,
+    section: str | None,
+    candidates,
+    context_offset: int | None = None,
+) -> str:
     lines = [
         "You are assisting qualitative coding of scholarly proofreading comments.",
         "Distinguish the reviewer's observation from your interpretation.",
@@ -91,7 +99,8 @@ def build_prompt(*, raw_text: str, context_text: str, section: str | None, candi
         raw_text,
         "",
         "Manuscript context:",
-        context_text or "(none)",
+        # Stored TeX stays unmarked; ‹remark› is prompt-only when the offset is valid.
+        splice_remark(context_text, context_offset) if context_text else "(none)",
         "",
         f"Section: {section or '(unknown)'}",
         "",
@@ -201,6 +210,7 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
             context_text=comment.context_text,
             section=comment.section,
             candidates=[item.label for item in ranked],
+            context_offset=comment.context_offset,
         )
         try:
             proposal = parse_model_output(provider.generate(prompt))
