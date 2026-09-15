@@ -19,8 +19,6 @@ const props = defineProps<{
   labelOn: boolean
   loading: boolean
   emptyCopy: string
-  error?: string
-  notice?: string
   showLabelWithAi: boolean
   labeling: boolean
   canLabelWithAi: boolean
@@ -105,12 +103,6 @@ function leafTypeLabel(item: InboxItemJson): string {
         <span class="ch-muted-text">{{ commentsTotalLabel(totalCount, { unlabeled, labelOn }, toDistillCount) }}</span>
       </span>
     </div>
-    <p v-if="error" class="ch-error-text px-2 pt-2">
-      {{ error }}
-    </p>
-    <p v-if="notice" class="ch-muted-text px-2 pt-2">
-      {{ notice }}
-    </p>
     <div v-if="layout === 'list'" class="min-h-0 flex-1 overflow-auto">
       <button
         v-for="item in items"
@@ -141,7 +133,7 @@ function leafTypeLabel(item: InboxItemJson): string {
           {{ leafTypeLabel(item) }}
         </div>
       </button>
-      <p v-if="!loading && items.length === 0" class="ch-muted-text p-2">
+      <p v-if="!loading && items.length === 0 && emptyCopy" class="ch-muted-text p-2">
         {{ emptyCopy }}
       </p>
     </div>

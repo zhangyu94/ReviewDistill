@@ -4,7 +4,7 @@ import httpx
 import pytest
 from reviewdistill.cli.init import init_project
 from reviewdistill.coding.coder import build_prompt, code_uncoded_comments, parse_model_output
-from reviewdistill.db.models import Coding, ProofreadingComment
+from reviewdistill.db.models import LABEL_ACTIVE, Coding, Label, ProofreadingComment
 from reviewdistill.db.session import get_session
 from reviewdistill.extraction.incremental import extract_project
 from reviewdistill.llm.mock import MockLLMProvider
@@ -122,7 +122,7 @@ def test_build_prompt_skips_token_when_offset_missing():
     assert REMARK_TOKEN not in prompt
 
 
-def test_code_uncoded_comments_writes_proposed_coding(db, tmp_path):
+def test_code_uncoded_comments_writes_accepted_coding(db, tmp_path):
     repo = tmp_path / "paper"
     repo.mkdir()
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
@@ -145,15 +145,44 @@ def test_code_uncoded_comments_writes_proposed_coding(db, tmp_path):
     )
     summary = code_uncoded_comments(provider=provider)
     assert summary.coded == 1
+    assert summary.label_names == [label.name]
     with get_session() as session:
         comment = session.first(ProofreadingComment)
         coding = session.first(Coding)
         assert comment.raw_text.startswith("I think")
         assert coding.comment_id == comment.id
         assert coding.coder_type == "ai"
-        assert coding.status == "proposed"
+        assert coding.status == "accepted"
         assert coding.label_id == label.id
         assert coding.confidence == 0.91
+
+
+def test_code_new_name_mints_one_label_for_the_batch(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{First.}\n\\myremark{Second.}\n")
+    extract_project(repo)
+    summary = code_uncoded_comments(
+        provider=MockLLMProvider(
+            scripted_response=json.dumps(
+                {
+                    "recommendation": "new",
+                    "label_name": "Unclear thesis",
+                    "definition": "The claim is unclear.",
+                    "confidence": 0.7,
+                    "rationale": "Unclear.",
+                }
+            )
+        )
+    )
+    assert summary.coded == 2
+    with get_session() as session:
+        labels = [row for row in session.find(Label) if row.status == LABEL_ACTIVE]
+        assert [row.name for row in labels] == ["Unclear thesis"]
+        accepted = session.find(Coding, status="accepted")
+        assert len(accepted) == 2
+        assert {row.label_id for row in accepted} == {labels[0].id}
 
 
 def test_code_skips_new_recommendation_without_label_name(db, tmp_path):
@@ -292,7 +321,11 @@ def test_code_replaces_placeholder_mock_proposal(db, tmp_path):
         rows = session.find(Coding, comment_id=comment_id)
         assert session.get(Coding, "mock-proposed") is None
         assert len(rows) == 1
+        assert rows[0].status == "accepted"
         assert rows[0].proposed_label_name == "Unclear thesis"
+        minted = session.first(Label, status=LABEL_ACTIVE, name="Unclear thesis")
+        assert minted is not None
+        assert rows[0].label_id == minted.id
 
 
 def test_unknown_label_id_does_not_fall_back_to_top_candidate(db, tmp_path):
@@ -323,9 +356,12 @@ def test_unknown_label_id_does_not_fall_back_to_top_candidate(db, tmp_path):
     code_uncoded_comments(provider=provider)
     with get_session() as session:
         coding = session.first(Coding)
-        assert coding.label_id is None
-        assert coding.proposed_label_name == "Overclaiming (proposed)"
-        assert coding.label_id != label.id
+        existing = session.get(Label, label.id)
+        minted = session.first(Label, status=LABEL_ACTIVE, name="Overclaiming (proposed)")
+        assert coding.status == "accepted"
+        assert minted is not None
+        assert coding.label_id == minted.id
+        assert coding.label_id != existing.id
 
 
 def test_code_continues_after_one_unparseable_response(db, tmp_path):
@@ -346,7 +382,7 @@ def test_code_continues_after_one_unparseable_response(db, tmp_path):
     assert summary.coded == 1
     assert summary.skipped >= 1
     with get_session() as session:
-        names = {row.proposed_label_name for row in session.find(Coding)}
+        names = {row.name for row in session.find(Label) if row.status == LABEL_ACTIVE}
         assert "Second" in names
 
 

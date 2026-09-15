@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import uuid4
 
 import httpx
@@ -9,6 +9,7 @@ import httpx
 from reviewdistill.coding.retrieval import retrieve_candidates
 from reviewdistill.context.mark import splice_remark
 from reviewdistill.db.models import (
+    CODING_ACCEPTED,
     CODING_PROPOSED,
     LABEL_ACTIVE,
     Coding,
@@ -20,6 +21,7 @@ from reviewdistill.db.models import (
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.history import dump_row, record
 from reviewdistill.llm.base import LLMProvider, get_provider, privacy_warning
+from reviewdistill.taxonomy.operations import add_label, ensure_example
 from reviewdistill.taxonomy.tree import active_children
 
 
@@ -40,6 +42,7 @@ class CodeSummary:
     coded: int
     skipped: int
     privacy_warning: str | None = None
+    label_names: list[str] = field(default_factory=list)
 
 
 def parse_model_output(text: str) -> ModelProposal:
@@ -225,8 +228,13 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
             continue
         pending.append((comment, proposal, label_id))
         coded += 1
+    label_names: list[str] = []
     if pending:
         with get_session() as session:
+            minted: dict[str, str] = {}
+            created_label_ids: list[str] = []
+            examples: list[dict] = []
+            seen_names: set[str] = set()
             for comment, proposal, label_id in pending:
                 if label_id:
                     label = session.get(Label, label_id)
@@ -240,6 +248,21 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
                     skipped += 1
                     coded -= 1
                     continue
+                if not label_id:
+                    requested = (proposal.label_name or "").strip()
+                    label_id = minted.get(requested)
+                    if not label_id:
+                        parent_id = _proposal_parent_id(session, proposal.parent_id)
+                        label = add_label(
+                            session,
+                            name=requested,
+                            definition=(proposal.definition or requested),
+                            parent_id=parent_id,
+                            log=False,
+                        )
+                        minted[requested] = label.id
+                        created_label_ids.append(label.id)
+                        label_id = label.id
                 for row in list(session.find(Coding, comment_id=comment.id, status=CODING_PROPOSED)):
                     if hide_placeholder_coding(row, provider_name=provider.name):
                         session.delete(row)
@@ -253,7 +276,7 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
                     coder_type="ai",
                     confidence=proposal.confidence,
                     rationale=proposal.rationale,
-                    status=CODING_PROPOSED,
+                    status=CODING_ACCEPTED,
                     proposed_label_name=proposal.label_name,
                     proposed_parent_id=_proposal_parent_id(session, proposal.parent_id),
                     proposed_label_definition=proposal.definition,
@@ -261,6 +284,29 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
                 )
                 session.add(coding)
                 created.append(dump_row(coding))
-            record(session, "propose", {"created": created, "replaced": replaced})
+                example, made = ensure_example(
+                    session, label_id, comment.raw_text, comment.id
+                )
+                if made:
+                    examples.append(dump_row(example))
+                named = session.get(Label, label_id)
+                if named is not None and named.name not in seen_names:
+                    seen_names.add(named.name)
+                    label_names.append(named.name)
+            record(
+                session,
+                "propose",
+                {
+                    "created": created,
+                    "replaced": replaced,
+                    "created_label_ids": created_label_ids,
+                    "examples": examples,
+                },
+            )
             session.commit()
-    return CodeSummary(coded=coded, skipped=skipped, privacy_warning=warning)
+    return CodeSummary(
+        coded=coded,
+        skipped=skipped,
+        privacy_warning=warning,
+        label_names=label_names,
+    )

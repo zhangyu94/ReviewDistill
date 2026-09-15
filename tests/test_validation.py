@@ -39,10 +39,24 @@ def _seed_proposed(tmp_path, response: dict) -> str:
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
     (repo / "main.tex").write_text("\\myremark{Why did we choose this method?}\n")
     extract_project(repo)
-    code_uncoded_comments(provider=MockLLMProvider(scripted_response=json.dumps(response)))
-    items = inbox_items()
-    assert len(items) == 1
-    return items[0].comment.id
+    with get_session() as session:
+        comment = session.first(ProofreadingComment)
+        session.add(
+            Coding(
+                id="seed-proposed",
+                comment_id=comment.id,
+                label_id=response.get("label_id"),
+                coder_type="ai",
+                status="proposed",
+                proposed_label_name=response.get("label_name"),
+                proposed_label_definition=response.get("definition"),
+                proposed_parent_id=response.get("parent_id"),
+                confidence=response.get("confidence"),
+                rationale=response.get("rationale"),
+            )
+        )
+        session.commit()
+        return comment.id
 
 
 def test_accept_existing_marks_coding_and_adds_example(db, tmp_path):
@@ -201,7 +215,7 @@ def test_unknown_proposed_parent_id_becomes_root(db, tmp_path):
     )
     with get_session() as session:
         coding = session.first(Coding)
-        assert coding.proposed_parent_id is None
+        assert coding.proposed_parent_id == "not-a-type"
     result = accept_coding(comment_id)
     with get_session() as session:
         label = session.get(Label, result.label_id)

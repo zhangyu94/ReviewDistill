@@ -3,7 +3,7 @@
 Undo/Redo mark ``undone`` on the tip instead of appending. A new forward
 action deletes the redo tail. Old merge/split rows without invert payload
 fields are not invertible. ``propose`` is one event per Label with AI
-batch. Accept of a new label is ``add`` then ``accept``; undo Accept first.
+batch. Accept of a leftover stored proposal that mints a label is ``add`` then ``accept``; undo Accept first.
 """
 
 from __future__ import annotations
@@ -48,7 +48,6 @@ INVERTIBLE = frozenset(
         "change",
         "verify",
         "unverify",
-        "drop",
         "delete",
         "recycle",
     }
@@ -168,8 +167,6 @@ def event_summary(event_type: str, payload: dict) -> str:
         return "Verify comment"
     if event_type == "unverify":
         return "Unverify comment"
-    if event_type == "drop":
-        return "Drop comment"
     if event_type == "delete":
         return "Delete comment"
     return event_type
@@ -439,6 +436,16 @@ def _invert_propose(session, payload: dict) -> None:
         existing = session.get(Coding, row["id"])
         if existing is not None:
             session.delete(existing)
+    for row in payload.get("examples") or []:
+        existing = session.get(LabelExample, row["id"])
+        if existing is not None:
+            session.delete(existing)
+    for label_id in payload.get("created_label_ids") or []:
+        created = session.get(Label, label_id)
+        if created is not None:
+            created.status = LABEL_INACTIVE
+            created.updated_at = utcnow()
+            session.add(created)
     for row in payload.get("replaced") or []:
         comment_id = row.get("comment_id")
         if comment_id and session.get(ProofreadingComment, comment_id) is None:
@@ -447,12 +454,25 @@ def _invert_propose(session, payload: dict) -> None:
 
 
 def _apply_propose(session, payload: dict) -> None:
+    placements = []
+    for label_id in payload.get("created_label_ids") or []:
+        created = session.get(Label, label_id)
+        if created is not None:
+            placements.append((created, created.parent_id, created.position))
+    placements.sort(key=lambda item: (item[2], item[0].name, item[0].id))
+    for created, parent_id, position in placements:
+        created.status = LABEL_ACTIVE
+        created.updated_at = utcnow()
+        session.add(created)
+        _place(session, created, parent_id, position)
     for row in payload.get("replaced") or []:
         existing = session.get(Coding, row["id"])
         if existing is not None:
             session.delete(existing)
     for row in payload.get("created") or []:
         session.add(coding_from_dump(row))
+    for row in payload.get("examples") or []:
+        session.add(example_from_dump(row))
 
 
 def _invert_accept(session, payload: dict) -> None:
@@ -556,15 +576,6 @@ def _apply_unverify(session, payload: dict) -> None:
         return
     comment.verified = False
     session.add(comment)
-
-
-def _apply_drop(session, payload: dict) -> None:
-    # Legacy Drop: stay invertible so the pointer can move; never write dropped or recreate the comment.
-    return
-
-
-def _invert_drop(session, payload: dict) -> None:
-    return
 
 
 def _apply_delete(session, payload: dict) -> None:
@@ -698,6 +709,12 @@ def _invert_keep_source_split(session, payload: dict) -> None:
         session.add(coding_from_dump(row))
     for row in payload.get("replaced") or []:
         session.add(coding_from_dump(row))
+    for row in payload.get("examples") or []:
+        existing = session.get(LabelExample, row["id"])
+        if existing is not None:
+            session.delete(existing)
+    for row in payload.get("deleted_examples") or []:
+        session.add(example_from_dump(row))
     _restore_reassigned(session, payload)
 
 
@@ -723,6 +740,12 @@ def _apply_keep_source_split(session, payload: dict) -> None:
             session.delete(existing)
     for row in payload.get("created") or []:
         session.add(coding_from_dump(row))
+    for row in payload.get("deleted_examples") or []:
+        existing = session.get(LabelExample, row["id"])
+        if existing is not None:
+            session.delete(existing)
+    for row in payload.get("examples") or []:
+        session.add(example_from_dump(row))
     ungrouped_id = payload.get("ungrouped_id")
     if ungrouped_id:
         _apply_reassigned(session, payload, ungrouped_id)
@@ -912,7 +935,6 @@ HANDLERS = {
     "change": (_apply_change, _invert_change),
     "verify": (_apply_verify, _invert_verify),
     "unverify": (_apply_unverify, _invert_unverify),
-    "drop": (_apply_drop, _invert_drop),
     "delete": (_apply_delete, _invert_delete),
     "flatten": (_apply_flatten, _invert_flatten),
     "remove": (_apply_remove, _invert_remove),

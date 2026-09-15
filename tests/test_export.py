@@ -86,7 +86,7 @@ def test_export_unknown_id_is_bad_input(db):
 
 def test_export_omits_examples_from_dropped_comments(db, tmp_path):
     from reviewdistill.cli.init import init_project
-    from reviewdistill.coding.validation import accept_coding, delete_comment
+    from reviewdistill.coding.validation import delete_comment
     from reviewdistill.extraction.incremental import extract_project
     from reviewdistill.llm.mock import MockLLMProvider
     from reviewdistill.coding.coder import code_uncoded_comments
@@ -117,7 +117,6 @@ def test_export_omits_examples_from_dropped_comments(db, tmp_path):
     from reviewdistill.db.session import get_session
     with get_session() as session:
         comment_id = session.first(ProofreadingComment).id
-    accept_coding(comment_id)
     (repo / "main.tex").write_text("no comments\n")
     extract_project(repo)
     delete_comment(comment_id)

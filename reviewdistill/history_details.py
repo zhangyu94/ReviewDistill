@@ -279,9 +279,15 @@ def _split(payload: dict, lookup: HistoryLookup) -> dict:
     if payload.get("keep_source"):
         source_id = payload.get("source_id")
         if source_id:
-            explanation = f"Split {_name(lookup, source_id)} into {joined}."
+            explanation = (
+                f"Split {_name(lookup, source_id)} into {joined}. "
+                "Comments were labeled onto those labels."
+            )
         else:
-            explanation = f"Split unlabeled comments into {joined}."
+            explanation = (
+                f"Split unlabeled comments into {joined}. "
+                "Comments were labeled onto those labels."
+            )
         comments = []
         seen: set[str] = set()
         for row in payload.get("created") or []:
@@ -392,14 +398,6 @@ def _unverify(payload: dict, lookup: HistoryLookup) -> dict:
     }
 
 
-def _drop(payload: dict, lookup: HistoryLookup) -> dict:
-    return {
-        "explanation": "Dropped this comment.",
-        "comments": _one_comment(payload, lookup, None),
-        "quotes": [],
-    }
-
-
 def _delete(payload: dict, lookup: HistoryLookup) -> dict:
     dumped = payload.get("comment") or {}
     text = dumped.get("raw_text")
@@ -452,7 +450,6 @@ HANDLERS = {
     "change": _change,
     "verify": _verify,
     "unverify": _unverify,
-    "drop": _drop,
     "delete": _delete,
     "recycle": _recycle,
 }

@@ -1,3 +1,5 @@
+import { userFacingFetchError, userFacingHttpError } from './httpError.ts'
+
 export interface LabelOption {
   id: string
   name: string
@@ -75,25 +77,34 @@ export class ApiError extends Error {
 }
 
 async function throwHttpError(response: Response): Promise<never> {
-  let detail = response.statusText
+  let detail: string | undefined
   try {
     const body = await response.json() as { detail?: unknown }
     if (typeof body.detail === 'string') { detail = body.detail }
   }
   catch {
-    // keep statusText
+    // HTML proxy pages have no JSON detail
   }
-  throw new ApiError(detail, response.status)
+  throw new ApiError(
+    userFacingHttpError(response.status, response.statusText, detail),
+    response.status,
+  )
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  })
+  let response: Response
+  try {
+    response = await fetch(path, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+      },
+    })
+  }
+  catch (err) {
+    throw new ApiError(userFacingFetchError(err), 0)
+  }
   if (!response.ok) {
     await throwHttpError(response)
   }
@@ -112,7 +123,13 @@ export function revealInboxFile(commentId: string): Promise<{ ok: true }> {
   return api(`/api/inbox/${commentId}/reveal`, { method: 'POST' })
 }
 
-export function postInboxCode(): Promise<{ ok: true, coded: number, failed: number, privacy_warning: string | null }> {
+export function postInboxCode(): Promise<{
+  ok: true
+  coded: number
+  failed: number
+  privacy_warning: string | null
+  label_names?: string[]
+}> {
   return api('/api/inbox/code', { method: 'POST' })
 }
 
@@ -196,11 +213,21 @@ export function mergeLabels(sourceIds: string[], targetId: string): Promise<{ ok
   })
 }
 
-export function splitLabel(id: string): Promise<{ ok: true, privacy_warning: string | null }> {
+export function splitLabel(id: string): Promise<{
+  ok: true
+  labeled: number
+  privacy_warning: string | null
+  label_names?: string[]
+}> {
   return api(`/api/labels/${id}/split`, { method: 'POST' })
 }
 
-export function splitForest(): Promise<{ ok: true, privacy_warning: string | null }> {
+export function splitForest(): Promise<{
+  ok: true
+  labeled: number
+  privacy_warning: string | null
+  label_names?: string[]
+}> {
   return api('/api/labels/split', { method: 'POST' })
 }
 
@@ -259,7 +286,13 @@ export async function fetchExport(fmt: ExportFormat, ids: string[]): Promise<str
   for (const id of ids) {
     params.append('id', id)
   }
-  const response = await fetch(`/api/labels/export?${params.toString()}`)
+  let response: Response
+  try {
+    response = await fetch(`/api/labels/export?${params.toString()}`)
+  }
+  catch (err) {
+    throw new ApiError(userFacingFetchError(err), 0)
+  }
   if (!response.ok) {
     await throwHttpError(response)
   }

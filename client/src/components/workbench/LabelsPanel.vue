@@ -279,7 +279,7 @@ function rowClass(node: TaxonomyNode) {
           >{{ node.count }}</span>
         </div>
       </div>
-      <p v-if="!list || rows.length === 0" class="ch-muted-text px-1.5 py-1">
+      <p v-if="list && rows.length === 0" class="ch-muted-text px-1.5 py-1">
         No labels yet.
       </p>
     </div>

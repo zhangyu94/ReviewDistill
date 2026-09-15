@@ -2,6 +2,7 @@ import type { InboxResponse, LabelDetail, TaxonomyListResponse } from '../api/cl
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { ApiError, fetchInbox, fetchLabel, fetchLabels } from '../api/client.ts'
+import { isServerUnreachableMessage } from '../api/httpError.ts'
 import { clearLabelBeforeLoad, labelLoadErrorView, shouldApplyLabelLoad } from './workbenchMode.ts'
 
 export interface InvalidateParts {
@@ -17,7 +18,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const missing = ref(false)
   const error = ref('')
   const loading = ref(false)
+  const labelLoading = ref(true)
   const settingsOpen = ref(false)
+  const assignmentNotice = ref('')
+  const errorNotice = ref('')
   let labelLoadGen = 0
 
   function openSettings() {
@@ -26,6 +30,27 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   function closeSettings() {
     settingsOpen.value = false
+  }
+
+  function setAssignmentNotice(text: string) {
+    assignmentNotice.value = text
+    errorNotice.value = ''
+  }
+
+  function clearAssignmentNotice() {
+    assignmentNotice.value = ''
+  }
+
+  function setErrorNotice(text: string) {
+    errorNotice.value = text
+    assignmentNotice.value = ''
+    if (error.value === text) {
+      error.value = ''
+    }
+  }
+
+  function clearErrorNotice() {
+    errorNotice.value = ''
   }
 
   async function loadInbox() {
@@ -38,14 +63,20 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   async function loadLabel(id: string) {
     const gen = ++labelLoadGen
+    labelLoading.value = true
     if (clearLabelBeforeLoad(label.value?.id ?? '', id)) {
       label.value = null
     }
     if (!id) {
       missing.value = false
       error.value = ''
+      if (shouldApplyLabelLoad(gen, labelLoadGen)) {
+        labelLoading.value = false
+      }
       return
     }
+    missing.value = false
+    error.value = ''
     try {
       const next = await fetchLabel(id)
       if (!shouldApplyLabelLoad(gen, labelLoadGen)) { return }
@@ -63,7 +94,18 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       }
       else {
         missing.value = false
-        error.value = err instanceof Error ? err.message : String(err)
+        const message = err instanceof Error ? err.message : String(err)
+        if (isServerUnreachableMessage(message)) {
+          setErrorNotice(message)
+        }
+        else {
+          error.value = errorNotice.value === message ? '' : message
+        }
+      }
+    }
+    finally {
+      if (shouldApplyLabelLoad(gen, labelLoadGen)) {
+        labelLoading.value = false
       }
     }
   }
@@ -77,17 +119,26 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   async function refreshAfterHistory(labelId = '') {
-    await invalidate({ inbox: true, labels: true, label: true }, labelId)
+    clearAssignmentNotice()
+    clearErrorNotice()
+    try {
+      await invalidate({ inbox: true, labels: true, label: true }, labelId)
+    }
+    catch (err) {
+      setErrorNotice(err instanceof Error ? err.message : String(err))
+      throw err
+    }
   }
 
   async function loadAll(labelId = '') {
     loading.value = true
     error.value = ''
+    errorNotice.value = ''
     try {
       await invalidate({ inbox: true, labels: true, label: true }, labelId)
     }
     catch (err) {
-      error.value = err instanceof Error ? err.message : String(err)
+      setErrorNotice(err instanceof Error ? err.message : String(err))
     }
     finally {
       loading.value = false
@@ -101,9 +152,16 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     missing,
     error,
     loading,
+    labelLoading,
     settingsOpen,
+    assignmentNotice,
+    errorNotice,
     openSettings,
     closeSettings,
+    setAssignmentNotice,
+    clearAssignmentNotice,
+    setErrorNotice,
+    clearErrorNotice,
     loadInbox,
     loadLabels,
     loadLabel,

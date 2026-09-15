@@ -42,4 +42,9 @@ describe('label taxonomy tree actions', () => {
   it('posts recycle from the workbench page', () => {
     expect(workbenchPostsRecycle(pageSource)).toBe(true)
   })
+
+  it('does not claim No labels yet when the taxonomy never loaded', () => {
+    expect(panelSource).toContain('v-if="list && rows.length === 0"')
+    expect(panelSource).not.toContain('v-if="!list || rows.length === 0"')
+  })
 })

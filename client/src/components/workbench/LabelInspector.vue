@@ -5,6 +5,7 @@ import { editLabel, renameLabel } from '../../api/client.ts'
 import {
   canSaveLabelEdit,
   canShowLabelEdit,
+  labelDetailsEmptyCopy,
   labelDetailsErrorText,
   labelEditSaves,
   nextLabelSaveError,
@@ -17,6 +18,7 @@ const props = defineProps<{
   selectedId: string
   missing: boolean
   error: string
+  loading: boolean
 }>()
 
 const emit = defineEmits<{
@@ -37,7 +39,15 @@ const showEdit = computed(() => canShowLabelEdit({
 
 const canSave = computed(() => canSaveLabelEdit(editName.value, editDefinition.value))
 
-const errorText = computed(() => labelDetailsErrorText(saveError.value, props.error))
+const errorText = computed(() => labelDetailsErrorText(saveError.value, props.error, props.loading))
+
+const emptyCopy = computed(() => labelDetailsEmptyCopy({
+  selectedId: props.selectedId,
+  missing: props.missing,
+  hasLabel: props.label != null,
+  loading: props.loading,
+  hasError: Boolean(errorText.value),
+}))
 
 function syncFromLabel(label: LabelDetail) {
   editName.value = label.name
@@ -151,11 +161,11 @@ async function save() {
       <p v-if="errorText" class="ch-error-text mb-3">
         {{ errorText }}
       </p>
-      <p v-if="!selectedId" class="ch-muted-text">
-        Select a label.
-      </p>
-      <p v-else-if="missing">
-        This label was not found.
+      <p
+        v-if="emptyCopy"
+        :class="missing ? '' : 'ch-muted-text'"
+      >
+        {{ emptyCopy }}
       </p>
       <template v-else-if="label">
         <div class="flex w-full flex-col gap-2">

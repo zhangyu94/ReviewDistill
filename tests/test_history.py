@@ -618,19 +618,21 @@ def test_accept_is_logged_and_undo_returns_to_inbox(db, tmp_path):
         name="Missing methodological justification",
         definition="A design choice is unexplained.",
     )
-    code_uncoded_comments(
-        provider=MockLLMProvider(
-            scripted_response=json.dumps(
-                {
-                    "recommendation": "existing",
-                    "label_id": label.id,
-                    "confidence": 0.84,
-                    "rationale": "Asks why the method was chosen.",
-                }
+    with get_session() as session:
+        comment = session.first(ProofreadingComment)
+        comment_id = comment.id
+        session.add(
+            Coding(
+                id="seed-proposed",
+                comment_id=comment.id,
+                label_id=label.id,
+                coder_type="ai",
+                status="proposed",
+                confidence=0.84,
+                rationale="Asks why the method was chosen.",
             )
         )
-    )
-    comment_id = inbox_items()[0].comment.id
+        session.commit()
     accept_coding(comment_id)
     assert "accept" in _event_types()
     assert inbox_items() == []
@@ -670,8 +672,7 @@ def test_undo_change_restores_previous_label(db, tmp_path):
             )
         )
     )
-    comment_id = inbox_items()[0].comment.id
-    accept_coding(comment_id)
+    comment_id = list_working_observations(first.id)[0].id
     change_coding(comment_id, label_id=second.id)
     assert [row.id for row in list_working_observations(second.id)] == [comment_id]
     assert list_working_observations(first.id) == []
@@ -704,10 +705,13 @@ def test_propose_is_one_event_and_undo_removes_suggestions(db, tmp_path):
     propose = [event for event in list_history()["events"] if event["event_type"] == "propose"]
     assert len(propose) == 1
     assert len(propose[0]["payload"]["created"]) == 2
+    assert propose[0]["payload"]["created_label_ids"]
     assert propose[0]["summary"].startswith("Label with AI")
     undo()
     with get_session() as session:
-        assert session.find(Coding) == []
+        assert session.find(Coding, status="accepted") == []
+        minted = session.get(Label, propose[0]["payload"]["created_label_ids"][0])
+        assert minted.status == "inactive"
     assert len(inbox_items()) == 2
 
 
@@ -752,43 +756,6 @@ def test_delete_undo_restores_comment_and_dependents(db, tmp_path):
     redo()
     with get_session() as session:
         assert session.get(ProofreadingComment, comment_id) is None
-
-
-def test_old_drop_undo_is_noop_and_unblocks_history(db, tmp_path):
-    from uuid import uuid4
-
-    from reviewdistill.db.models import TaxonomyEvent
-
-    repo = tmp_path / "paper"
-    repo.mkdir()
-    init_project(name="paper-01", commands=["myremark"], cwd=repo)
-    (repo / "main.tex").write_text("\\myremark{Keep me.}\n")
-    extract_project(repo)
-    verify_comment(inbox_items()[0].comment.id)
-    with get_session() as session:
-        comment_id = session.first(ProofreadingComment).id
-        session.add(
-            TaxonomyEvent(
-                id=str(uuid4()),
-                event_type="drop",
-                payload_json=json.dumps(
-                    {"comment_id": comment_id, "previous_quality": "verified"}
-                ),
-            )
-        )
-        session.commit()
-    history = list_history()
-    assert history["can_undo"] is True
-    undo()
-    with get_session() as session:
-        row = session.get(ProofreadingComment, comment_id)
-        assert row is not None
-        assert row.verified
-    redo()
-    with get_session() as session:
-        row = session.get(ProofreadingComment, comment_id)
-        assert row is not None
-        assert row.verified
 
 
 def test_unverify_undo_restores_verified(db, tmp_path):

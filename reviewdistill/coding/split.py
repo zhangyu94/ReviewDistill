@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 
 # LLM divide of a leaf or an empty forest into N ≥ 2 labels. The parent stays.
-# Assignments become proposed codings. Invalid JSON writes nothing.
+# Assignments become accepted codings. Invalid JSON writes nothing.
 
 SPLIT_TASK = "Task: split these comments into more specific labels."
 
@@ -19,6 +19,19 @@ class SplitPlan:
 class SplitSummary:
     labels: list
     privacy_warning: str | None
+    labeled: int
+
+    @property
+    def label_names(self) -> list[str]:
+        names: list[str] = []
+        seen: set[str] = set()
+        for label in self.labels:
+            name = getattr(label, "name", None)
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            names.append(name)
+        return names
 
 
 def build_split_prompt(
@@ -178,6 +191,7 @@ def run_leaf_split(source_id: str, provider=None):
     return SplitSummary(
         labels=apply_split(source_id=source_id, plan=plan),
         privacy_warning=warning,
+        labeled=len(plan.assignments),
     )
 
 
@@ -201,4 +215,5 @@ def run_header_split(provider=None):
     return SplitSummary(
         labels=apply_split(source_id=None, plan=plan),
         privacy_warning=warning,
+        labeled=len(plan.assignments),
     )

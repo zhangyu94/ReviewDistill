@@ -162,9 +162,15 @@ describe('mergeCommentPool', () => {
 
 describe('commentsEmptyCopy', () => {
   it('names the empty AND', () => {
-    expect(commentsEmptyCopy({ unlabeled: true, labelOn: true })).toBe('No comments match these selectors.')
-    expect(commentsEmptyCopy({ unlabeled: true, labelOn: false })).toBe('No unlabeled observations.')
-    expect(commentsEmptyCopy({ unlabeled: false, labelOn: true })).toBe('No labeled comments on this label yet.')
-    expect(commentsEmptyCopy({ unlabeled: false, labelOn: false })).toBe('No comments to distill.')
+    expect(commentsEmptyCopy({ unlabeled: true, labelOn: true, loaded: true })).toBe('No comments match these selectors.')
+    expect(commentsEmptyCopy({ unlabeled: true, labelOn: false, loaded: true })).toBe('No unlabeled observations.')
+    expect(commentsEmptyCopy({ unlabeled: false, labelOn: true, loaded: true })).toBe('No comments matched.')
+    expect(commentsEmptyCopy({ unlabeled: false, labelOn: false, loaded: true })).toBe('No comments to distill.')
+  })
+
+  it('is blank when comments never loaded', () => {
+    expect(commentsEmptyCopy({ unlabeled: false, labelOn: false, loaded: false })).toBe('')
+    expect(commentsEmptyCopy({ unlabeled: false, labelOn: true, loaded: false })).toBe('')
+    expect(commentsEmptyCopy({ unlabeled: true, labelOn: false, loaded: false })).toBe('')
   })
 })

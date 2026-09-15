@@ -1,6 +1,6 @@
 import type { HistoryDetails, HistoryEvent } from '../api/client.ts'
 
-const GENERIC_SUMMARY = /^(?:Merge labels|Split label|Change label assignment|Accept suggested label assignment|Verify comment|Unverify comment|Drop comment|Delete comment|Edit definition|Label with AI)\b/
+const GENERIC_SUMMARY = /^(?:Merge labels|Split label|Change label assignment|Accept suggested label assignment|Verify comment|Unverify comment|Delete comment|Edit definition|Label with AI)\b/
 
 export function historyDetailsOf(
   event: Pick<HistoryEvent, 'summary'> & { details?: HistoryDetails | null },

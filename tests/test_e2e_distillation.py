@@ -3,11 +3,11 @@ from pathlib import Path
 
 from reviewdistill.cli.init import init_project
 from reviewdistill.coding.coder import code_uncoded_comments
-from reviewdistill.coding.validation import accept_coding, inbox_items
+from reviewdistill.coding.validation import inbox_items
 from reviewdistill.extraction.incremental import extract_project
 from reviewdistill.llm.mock import MockLLMProvider
 from reviewdistill.taxonomy.export import export_rubric
-from reviewdistill.taxonomy.operations import list_active_labels
+from reviewdistill.taxonomy.operations import list_active_labels, list_working_observations
 
 
 def test_second_paper_reuses_accepted_taxonomy(db, tmp_path):
@@ -31,8 +31,6 @@ def test_second_paper_reuses_accepted_taxonomy(db, tmp_path):
         )
     )
     code_uncoded_comments(provider=provider_new)
-    for item in inbox_items():
-        accept_coding(item.comment.id)
 
     types = list_active_labels()
     assert any(label.name == "Overclaiming" for label in types)
@@ -56,9 +54,9 @@ def test_second_paper_reuses_accepted_taxonomy(db, tmp_path):
         )
     )
     items = inbox_items()
-    assert len(items) == 1
-    assert items[0].coding.label_id == overclaim.id
-    accept_coding(items[0].comment.id)
+    assert items == []
+    labeled = list_working_observations(overclaim.id)
+    assert len(labeled) >= 2
 
     rubric = export_rubric("md")
     assert "Overclaiming" in rubric

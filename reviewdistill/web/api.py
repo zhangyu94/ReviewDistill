@@ -26,6 +26,7 @@ from reviewdistill.config import (
 )
 from reviewdistill.errors import BadInput, Conflict, CorruptStore, NotFound, ReviewDistillError
 from reviewdistill.history import list_history, redo, undo
+from reviewdistill.llm.provider import llm_http_detail
 from reviewdistill.paths import (
     HomePathError,
     choose_data_folder,
@@ -86,21 +87,15 @@ class ChangeBody(BaseModel):
     label_id: str
 
 
-_LLM_FAILED = "LLM request failed"
-
-
 @router.post("/inbox/code")
 def post_code():
     """Propose labels for every unlabeled comment to distill. There is no CLI ``code`` command."""
     try:
         summary = code_uncoded_comments()
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=400, detail=_LLM_FAILED) from exc
+        raise HTTPException(status_code=400, detail=llm_http_detail(exc)) from exc
     except RuntimeError as exc:
-        msg = str(exc)
-        if msg.startswith(_LLM_FAILED):
-            raise HTTPException(status_code=400, detail=_LLM_FAILED) from exc
-        raise HTTPException(status_code=400, detail=msg) from exc
+        raise HTTPException(status_code=400, detail=llm_http_detail(exc)) from exc
     except ValueError as exc:
         raise _domain_http(exc, mutate=True) from exc
     return {
@@ -108,6 +103,7 @@ def post_code():
         "coded": summary.coded,
         "failed": summary.skipped,
         "privacy_warning": summary.privacy_warning,
+        "label_names": summary.label_names,
     }
 
 
@@ -173,13 +169,20 @@ def _llm_mutate(fn):
     try:
         result = fn()
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=400, detail=_LLM_FAILED) from exc
+        raise HTTPException(status_code=400, detail=llm_http_detail(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=llm_http_detail(exc)) from exc
     except ValueError as exc:
         raise _domain_http(exc, mutate=True) from exc
     warning = getattr(result, "privacy_warning", None)
-    return {"ok": True, "privacy_warning": warning}
+    body = {"ok": True, "privacy_warning": warning}
+    labeled = getattr(result, "labeled", None)
+    if labeled is not None:
+        body["labeled"] = labeled
+    names = getattr(result, "label_names", None)
+    if names:
+        body["label_names"] = list(names)
+    return body
 
 
 @router.get("/labels")

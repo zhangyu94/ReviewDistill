@@ -776,17 +776,28 @@ def apply_split(*, source_id: str | None, plan) -> list[Label]:
             row.position = index
             session.add(row)
         created_codings = []
+        examples = []
+        deleted_examples = []
         for row in plan.assignments:
             child = created[row["label_index"]]
+            comment = session.get(ProofreadingComment, row["comment_id"])
+            if comment is not None:
+                for example in list(session.find(LabelExample, source_comment_id=comment.id)):
+                    deleted_examples.append(dump_row(example))
+                    session.delete(example)
             coding = Coding(
                 id=str(uuid4()),
                 comment_id=row["comment_id"],
                 label_id=child.id,
                 coder_type="ai",
-                status=CODING_PROPOSED,
+                status=CODING_ACCEPTED,
             )
             session.add(coding)
             created_codings.append(dump_row(coding))
+            if comment is not None:
+                example, made = ensure_example(session, child.id, comment.raw_text, comment.id)
+                if made:
+                    examples.append(dump_row(example))
         created_ids = [label.id for label in created]
         if parked.get("ungrouped_id"):
             created_ids.append(parked["ungrouped_id"])
@@ -801,6 +812,8 @@ def apply_split(*, source_id: str | None, plan) -> list[Label]:
                 "deleted_codings": deleted_codings,
                 "created": created_codings,
                 "replaced": replaced,
+                "examples": examples,
+                "deleted_examples": deleted_examples,
                 **parked,
             },
         )

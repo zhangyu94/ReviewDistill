@@ -64,9 +64,10 @@ export function applyCommentSelectors(
   })
 }
 
-export function commentsEmptyCopy(chips: { unlabeled: boolean, labelOn: boolean }): string {
+export function commentsEmptyCopy(chips: { unlabeled: boolean, labelOn: boolean, loaded: boolean }): string {
+  if (!chips.loaded) { return '' }
   if (chips.unlabeled && chips.labelOn) { return 'No comments match these selectors.' }
   if (chips.unlabeled) { return 'No unlabeled observations.' }
-  if (chips.labelOn) { return 'No labeled comments on this label yet.' }
+  if (chips.labelOn) { return 'No comments matched.' }
   return 'No comments to distill.'
 }

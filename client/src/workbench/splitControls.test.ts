@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   afterRecycleHref,
-  afterSplitHref,
   canHeaderRecycle,
   canHeaderRecycleFromState,
   canHeaderSplit,
@@ -53,11 +52,6 @@ describe('splitControls', () => {
     expect(canLeafSplit({ isLeaf: true, count: 2, llmConfigured: false })).toBe(false)
     expect(canLeafSplit({ isLeaf: true, count: 1, llmConfigured: true })).toBe(false)
     expect(canLeafSplit({ isLeaf: false, count: 5, llmConfigured: true })).toBe(false)
-  })
-
-  it('routes to unlabeled with the type chip off after split', () => {
-    expect(afterSplitHref('abc')).toBe('/labels/abc?unlabeled=1&labelchip=0')
-    expect(afterSplitHref(null)).toBe('/?unlabeled=1')
   })
 })
 

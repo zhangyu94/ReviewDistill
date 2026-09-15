@@ -21,6 +21,7 @@ import {
   splitForest,
   splitLabel,
 } from '../api/client.ts'
+import AssignmentSnackbar from '../components/workbench/AssignmentSnackbar.vue'
 import CommentInspector from '../components/workbench/CommentInspector.vue'
 import EntriesPanel from '../components/workbench/EntriesPanel.vue'
 import LabelInspector from '../components/workbench/LabelInspector.vue'
@@ -28,8 +29,8 @@ import LabelsPanel from '../components/workbench/LabelsPanel.vue'
 import ProgressBar from '../components/workbench/ProgressBar.vue'
 import SelectorsBar from '../components/workbench/SelectorsBar.vue'
 import { inboxLocationRows, safeHttpHref } from '../inboxLocation.ts'
-import { privacyNoticeText } from '../llmSettings.ts'
 import { selectedIdAfterAction } from '../select.ts'
+import { assignmentNoticeText, workbenchSnackbar } from '../workbench/assignmentNotice.ts'
 import {
   applyCommentSelectors,
   commentsEmptyCopy,
@@ -42,7 +43,6 @@ import {
 import { dropAction } from '../workbench/dropAction.ts'
 import {
   afterRecycleHref,
-  afterSplitHref,
   canHeaderRecycleFromState,
   canHeaderSplitFromState,
 } from '../workbench/splitControls.ts'
@@ -72,8 +72,22 @@ const labelOn = computed(() => labelChipVisible(detailsId.value, route.query.lab
 const commentIdQuery = computed(() => queryStr(route.query.id))
 
 const store = useWorkbenchStore()
-const { inbox, labels, label, missing, error, loading } = storeToRefs(store)
+const { inbox, labels, label, missing, error, loading, labelLoading, assignmentNotice, errorNotice } = storeToRefs(store)
 const { loadInbox, openSettings } = store
+const snackbar = computed(() => workbenchSnackbar(errorNotice.value, assignmentNotice.value))
+
+function beginAction() {
+  store.clearErrorNotice()
+}
+
+function showActionError(err: unknown) {
+  store.setErrorNotice(err instanceof Error ? err.message : String(err))
+}
+
+function onSnackbarClose() {
+  store.clearErrorNotice()
+  store.clearAssignmentNotice()
+}
 
 async function loadLabel() {
   await store.loadLabel(labelId.value)
@@ -88,7 +102,6 @@ async function invalidate(parts: InvalidateParts, id = labelId.value) {
 }
 const labeling = ref(false)
 const revealing = ref(false)
-const notice = ref('')
 
 const commentsLayout = ref<CommentsLayout>('one')
 
@@ -145,6 +158,7 @@ const toDistillCount = computed(() => inbox.value?.progress.working_set ?? 0)
 const emptyCopy = computed(() => commentsEmptyCopy({
   unlabeled: unlabeledOn.value,
   labelOn: labelOn.value,
+  loaded: inbox.value != null,
 }))
 
 function commentHref(commentId?: string): string {
@@ -211,20 +225,19 @@ function onSelectEntry(id: string) {
 
 const runLabelWithAi = withProgressBar(async () => {
   const result = await postInboxCode()
-  notice.value = privacyNoticeText(result.privacy_warning)
+  store.setAssignmentNotice(assignmentNoticeText(result.coded))
   await invalidate({ inbox: true, labels: true })
 })
 
 async function labelWithAi() {
   if (labeling.value) { return }
   labeling.value = true
-  error.value = ''
-  notice.value = ''
+  beginAction()
   try {
     await runLabelWithAi()
   }
   catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    showActionError(err)
   }
   finally {
     labeling.value = false
@@ -233,21 +246,19 @@ async function labelWithAi() {
 
 const runSplit = withProgressBar(async (id: string | null) => {
   const result = id ? await splitLabel(id) : await splitForest()
-  notice.value = privacyNoticeText(result.privacy_warning)
+  store.setAssignmentNotice(assignmentNoticeText(result.labeled))
   await invalidate({ inbox: true, labels: true, label: true })
-  await router.push(afterSplitHref(id))
 })
 
 async function onSplitLabel(id: string | null) {
   if (labeling.value) { return }
   labeling.value = true
-  error.value = ''
-  notice.value = ''
+  beginAction()
   try {
     await runSplit(id)
   }
   catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    showActionError(err)
   }
   finally {
     labeling.value = false
@@ -265,7 +276,7 @@ function afterCommentAction(next?: string) {
 async function act(action: 'accept' | 'verify' | 'delete') {
   const current = inspectorItem.value
   if (!current) { return }
-  error.value = ''
+  beginAction()
   const actedId = current.comment.id
   const idsBefore = commentQueueIds()
   try {
@@ -279,7 +290,7 @@ async function act(action: 'accept' | 'verify' | 'delete') {
     }
   }
   catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    showActionError(err)
   }
 }
 
@@ -287,12 +298,12 @@ async function revealFile() {
   const current = inspectorItem.value
   if (!current || revealing.value) { return }
   revealing.value = true
-  error.value = ''
+  beginAction()
   try {
     await revealInboxFile(current.comment.id)
   }
   catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    showActionError(err)
   }
   finally {
     revealing.value = false
@@ -302,7 +313,7 @@ async function revealFile() {
 async function change(nextLabelId: string) {
   const current = inspectorItem.value
   if (!current || !nextLabelId) { return }
-  error.value = ''
+  beginAction()
   const actedId = current.comment.id
   const idsBefore = commentQueueIds()
   try {
@@ -311,7 +322,7 @@ async function change(nextLabelId: string) {
     afterCommentAction(selectedIdAfterAction(idsBefore, actedId, commentQueueIds()))
   }
   catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    showActionError(err)
   }
 }
 
@@ -327,7 +338,7 @@ async function onDrop(payload: DragPayload, target: DropTarget) {
     : null
   const action = dropAction(payload, target, labeledTypeId, source ? descendantIds(source) : [])
   if (action.type === 'ignore' || !allowChangeDrop(Boolean(dragged?.labeled), action.type)) { return }
-  error.value = ''
+  beginAction()
   try {
     if (action.type === 'change') {
       const actedId = action.commentId
@@ -359,36 +370,36 @@ async function onDrop(payload: DragPayload, target: DropTarget) {
     }
   }
   catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    showActionError(err)
   }
 }
 
 async function onCreateLabel(parentId: string | null) {
-  error.value = ''
+  beginAction()
   try {
     const created = await createLabel(parentId)
     await invalidate(afterLabelTreeChangeParts())
     await router.push(selectGroupHref(created.id, unlabeledOn.value))
   }
   catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    showActionError(err)
   }
 }
 
 async function onRecycleUngrouped() {
-  error.value = ''
+  beginAction()
   try {
     const created = await recycleUngrouped()
     await invalidate(afterLabelTreeChangeParts())
     await router.push(afterRecycleHref(created.id))
   }
   catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    showActionError(err)
   }
 }
 
 async function onFlattenLabel(id: string) {
-  error.value = ''
+  beginAction()
   const viewing = labelId.value
   const node = findNode(labels.value?.forest ?? [], id)
   const href = labelRouteAfterRemove(viewing, node ? descendantIds(node) : [])
@@ -398,12 +409,12 @@ async function onFlattenLabel(id: string) {
     await invalidate({ labels: true, inbox: true, label: true }, labelIdAfterLeave(href, viewing))
   }
   catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    showActionError(err)
   }
 }
 
 async function onRemoveLabel(id: string) {
-  error.value = ''
+  beginAction()
   const viewing = labelId.value
   const node = findNode(labels.value?.forest ?? [], id)
   const deletedIds = node ? [id, ...descendantIds(node)] : [id]
@@ -414,13 +425,18 @@ async function onRemoveLabel(id: string) {
     await invalidate({ labels: true, inbox: true, label: true }, labelIdAfterLeave(href, viewing))
   }
   catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    showActionError(err)
   }
 }
 
 async function onLabelUpdated() {
-  error.value = ''
-  await invalidate({ labels: true, label: true })
+  beginAction()
+  try {
+    await invalidate({ labels: true, label: true })
+  }
+  catch (err) {
+    showActionError(err)
+  }
 }
 
 function onCommentsLayout(layout: CommentsLayout) {
@@ -449,7 +465,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
 })
-watch(() => route.name, () => { void loadInbox() })
+watch(() => route.name, () => { void loadInbox().catch(showActionError) })
 watch(labelId, () => { void loadLabel() })
 watch(
   () => [commentIdQuery.value, matchedItems.value.map((item) => item.comment.id)] as const,
@@ -495,6 +511,7 @@ watch(
           :selected-id="labelId"
           :missing="missing"
           :error="error"
+          :loading="labelLoading"
           @updated="onLabelUpdated"
         />
       </div>
@@ -510,8 +527,6 @@ watch(
           :label-on="labelOn"
           :loading="loading"
           :empty-copy="emptyCopy"
-          :error="error"
-          :notice="notice"
           :show-label-with-ai="Boolean(inbox?.pending_code_count)"
           :labeling="labeling"
           :can-label-with-ai="canLabelWithAi"
@@ -535,12 +550,17 @@ watch(
             @reveal="revealFile"
             @configure-llm="openSettings"
           />
-          <p v-else-if="!loading" class="ch-muted-text p-2">
+          <p v-else-if="!loading && emptyCopy" class="ch-muted-text p-2">
             {{ emptyCopy }}
           </p>
         </EntriesPanel>
       </div>
     </div>
+    <AssignmentSnackbar
+      :text="snackbar.text"
+      :kind="snackbar.kind"
+      @close="onSnackbarClose"
+    />
     <ProgressBar :progress="inbox?.progress ?? null" />
   </div>
 </template>

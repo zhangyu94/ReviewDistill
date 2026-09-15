@@ -41,8 +41,36 @@ export function shouldSyncLabelEditFromProps(saving: boolean): boolean {
   return !saving
 }
 
-export function labelDetailsErrorText(saveError: string, loadError: string): string {
-  return saveError.trim() ? saveError : loadError
+export function labelDetailsErrorText(saveError: string, loadError: string, loading = false): string {
+  if (saveError.trim()) {
+    return saveError
+  }
+  if (loading) {
+    return ''
+  }
+  return loadError
+}
+
+export function labelDetailsEmptyCopy(opts: {
+  selectedId: string
+  missing: boolean
+  hasLabel: boolean
+  loading: boolean
+  hasError: boolean
+}): string {
+  if (!opts.selectedId) {
+    return 'Select a label.'
+  }
+  if (opts.loading) {
+    return ''
+  }
+  if (opts.missing) {
+    return 'This label was not found.'
+  }
+  if (opts.hasLabel || opts.hasError) {
+    return ''
+  }
+  return 'Couldn\'t load this label.'
 }
 
 export function nextLabelSaveError(opts: { keepDraft: boolean, current: string }): string {

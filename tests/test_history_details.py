@@ -286,7 +286,7 @@ def test_legacy_split_still_says_unlabeled():
     assert details["comments"] == [{"text": "too strong", "label_name": None}]
 
 
-def test_keep_source_split_captions_proposed_child():
+def test_keep_source_split_captions_labeled_child():
     lookup = HistoryLookup(
         comments={"c1": "too strong", "c2": "hedge this"},
         labels={"src": "Overclaiming", "a": "Evidence", "b": "Wording"},
@@ -308,7 +308,10 @@ def test_keep_source_split_captions_proposed_child():
         lookup,
         summary="Split Overclaiming into 2 labels",
     )
-    assert details["explanation"] == "Split Overclaiming into Evidence and Wording."
+    assert details["explanation"] == (
+        "Split Overclaiming into Evidence and Wording. "
+        "Comments were labeled onto those labels."
+    )
     assert details["comments"] == [
         {"text": "too strong", "label_name": "Evidence"},
         {"text": "hedge this", "label_name": "Wording"},
@@ -335,7 +338,10 @@ def test_header_split_details_have_no_source():
         lookup,
         summary="Split unlabeled comments into 2 labels",
     )
-    assert details["explanation"] == "Split unlabeled comments into Evidence and Wording."
+    assert details["explanation"] == (
+        "Split unlabeled comments into Evidence and Wording. "
+        "Comments were labeled onto those labels."
+    )
 
 
 def test_propose_lists_every_created_comment():
@@ -445,7 +451,7 @@ def test_accept_missing_comment_uses_placeholder():
     ]
 
 
-def test_verify_and_drop_show_comment_without_type():
+def test_verify_shows_comment_without_type():
     lookup = HistoryLookup(comments={"c1": "Keep me."}, labels={}, coding_comments={})
     verified = event_details("verify", {"comment_id": "c1"}, lookup, summary="Verify comment")
     assert verified["explanation"] == "Verified this comment."
@@ -453,9 +459,6 @@ def test_verify_and_drop_show_comment_without_type():
     unverified = event_details("unverify", {"comment_id": "c1"}, lookup, summary="Unverify comment")
     assert unverified["explanation"] == "Unverified this comment."
     assert unverified["comments"] == [{"text": "Keep me.", "label_name": None}]
-    dropped = event_details("drop", {"comment_id": "c1"}, lookup, summary="Drop comment")
-    assert dropped["explanation"] == "Dropped this comment."
-    assert dropped["comments"] == [{"text": "Keep me.", "label_name": None}]
 
 
 def test_delete_shows_dumped_comment_without_type():
@@ -566,29 +569,6 @@ def test_broken_handler_does_not_fail_list(db, monkeypatch):
         "comments": [],
         "quotes": [],
     }
-
-
-def test_drop_missing_comment_placeholder(db):
-    import json
-    from uuid import uuid4
-
-    from reviewdistill.db.models import TaxonomyEvent
-
-    _add_comment("c-drop", "Keep me.")
-    with get_session() as session:
-        session.add(
-            TaxonomyEvent(
-                id=str(uuid4()),
-                event_type="drop",
-                payload_json=json.dumps({"comment_id": "c-drop", "previous_quality": "unreviewed"}),
-            )
-        )
-        session.delete(session.get(ProofreadingComment, "c-drop"))
-        session.commit()
-    event = next(item for item in list_history()["events"] if item["event_type"] == "drop")
-    assert event["details"]["comments"] == [
-        {"text": "Comment is no longer available", "label_name": None}
-    ]
 
 
 def test_recycle_lists_assigned_comments():

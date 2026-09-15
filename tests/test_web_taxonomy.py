@@ -417,9 +417,12 @@ def test_post_split_leaf_creates_children(db, monkeypatch):
     assert response.status_code == 200
     assert response.json()["ok"] is True
     assert "privacy_warning" in response.json()
+    assert response.json()["labeled"] == 2
+    assert response.json()["label_names"] == ["Evidence", "Wording"]
     listed = client.get("/api/labels").json()
     node = next(item for item in listed["forest"] if item["id"] == source.id)
     assert {child["name"] for child in node["children"]} == {"Evidence", "Wording"}
+    assert all(child["count"] > 0 for child in node["children"])
 
 
 def test_post_split_forest_creates_roots(db, monkeypatch):
@@ -437,8 +440,14 @@ def test_post_split_forest_creates_roots(db, monkeypatch):
     response = client.post("/api/labels/split")
     assert response.status_code == 200
     assert "privacy_warning" in response.json()
+    assert response.json()["labeled"] == 2
+    assert response.json()["label_names"] == ["Evidence", "Wording"]
     listed = client.get("/api/labels").json()
     assert {node["name"] for node in listed["forest"]} == {"Evidence", "Wording"}
+    assert all(node["count"] > 0 for node in listed["forest"])
+    inbox = client.get("/api/inbox").json()
+    assert inbox["unlabeled_count"] == 0
+    assert all(item["labeled"] is True for item in inbox["working_items"])
 
 
 def test_post_split_forest_rejects_existing_taxonomy(db):

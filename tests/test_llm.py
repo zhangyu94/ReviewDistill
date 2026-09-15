@@ -2,7 +2,13 @@ import pytest
 
 from reviewdistill.config import HomeConfig, write_home_config
 from reviewdistill.llm.base import get_provider, resolve_api_key
-from reviewdistill.llm.provider import LiteLLMProvider, litellm_model_id
+from reviewdistill.llm.provider import (
+    LiteLLMProvider,
+    litellm_model_id,
+    llm_failed_message,
+    llm_http_detail,
+    sanitize_llm_error,
+)
 
 
 def test_factory_default_requires_config(rd_home, monkeypatch):
@@ -66,7 +72,7 @@ def test_litellm_generate_requests_json_object(rd_home, monkeypatch):
     assert captured["response_format"] == {"type": "json_object"}
     assert captured["api_key"] == "sk-test"
     assert captured["temperature"] == 0
-    assert captured["num_retries"] == 3
+    assert captured["num_retries"] == 0
 
 
 def test_litellm_errors_become_runtime_error(rd_home, monkeypatch):
@@ -84,7 +90,35 @@ def test_litellm_errors_become_runtime_error(rd_home, monkeypatch):
     provider = LiteLLMProvider(name="openai", model="gpt-4o-mini")
     with pytest.raises(RuntimeError, match="LLM request failed") as caught:
         provider.generate("hello")
-    assert "upstream down" not in str(caught.value)
+    assert "upstream down" in str(caught.value)
+    assert str(caught.value) == "LLM request failed (openai): upstream down"
+
+
+def test_sanitize_llm_error_strips_urls_and_keys():
+    dirty = "401 https://api.openai.com/v1/chat/completions key=sk-secretvalue extra"
+    assert "openai.com" not in sanitize_llm_error(dirty)
+    assert "sk-secretvalue" not in sanitize_llm_error(dirty)
+    assert sanitize_llm_error(dirty) == "401 key=[key] extra"
+
+
+def test_llm_failed_message_keeps_timeout_cause():
+    msg = llm_failed_message(
+        "deepseek",
+        TimeoutError("Connection timed out after 60.0 seconds."),
+    )
+    assert msg == (
+        "LLM request failed (deepseek): Connection timed out after 60.0 seconds."
+    )
+
+
+def test_llm_http_detail_keeps_provider_message_and_config_errors():
+    wrapped = RuntimeError(
+        "LLM request failed (deepseek): Connection timed out after 60.0 seconds.",
+    )
+    assert llm_http_detail(wrapped) == str(wrapped)
+    assert llm_http_detail(RuntimeError("No LLM provider configured.")) == (
+        "No LLM provider configured."
+    )
 
 
 def test_resolve_api_key_ignores_yaml_api_key(rd_home, monkeypatch):

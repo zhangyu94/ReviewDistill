@@ -25,18 +25,20 @@ def _seed(tmp_path):
         name="Overclaiming",
         definition="too strong",
     )
-    code_uncoded_comments(
-        provider=MockLLMProvider(
-            scripted_response=json.dumps(
-                {
-                    "recommendation": "existing",
-                    "label_id": label.id,
-                    "confidence": 0.91,
-                    "rationale": "Objects to claim strength.",
-                }
+    with get_session() as session:
+        comment = session.first(ProofreadingComment)
+        session.add(
+            Coding(
+                id="seed-proposed",
+                comment_id=comment.id,
+                label_id=label.id,
+                coder_type="ai",
+                status="proposed",
+                confidence=0.91,
+                rationale="Objects to claim strength.",
             )
         )
-    )
+        session.commit()
     return label
 
 
@@ -431,10 +433,11 @@ def test_post_inbox_code_proposes_all_uncoded(db, tmp_path):
     assert body["ok"] is True
     assert body["coded"] == 2
     assert body["failed"] == 0
+    assert body["label_names"]
     after = client.get("/api/inbox").json()
     assert after["pending_code_count"] == 0
-    assert after["unlabeled_count"] == 2
-    assert all(item["coding"] is not None for item in after["items"])
+    assert after["unlabeled_count"] == 0
+    assert all(item["labeled"] is True for item in after["working_items"])
     again = client.post("/api/inbox/code")
     assert again.json()["coded"] == 0
 
@@ -463,7 +466,8 @@ def test_post_inbox_code_http_error_is_400(db, tmp_path, monkeypatch):
     response = client.post("/api/inbox/code")
     assert response.status_code == 400
     detail = response.json()["detail"]
-    assert detail == "LLM request failed"
+    assert detail.startswith("LLM request failed")
+    assert "bad" in detail
     assert "openai.com" not in detail
     assert "sk-" not in detail
 

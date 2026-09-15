@@ -24,11 +24,6 @@ export function canLeafSplit(opts: { isLeaf: boolean, count: number, llmConfigur
   return opts.isLeaf && opts.count >= 2 && opts.llmConfigured
 }
 
-export function afterSplitHref(sourceId: string | null): string {
-  // Unlabeled on, type chip off: placements are proposals until Accept.
-  return workbenchHref(sourceId ?? '', { unlabeled: true, labelChipOff: true })
-}
-
 export function canHeaderRecycle(opts: {
   forestEmpty: boolean
   unlabeledCount: number
