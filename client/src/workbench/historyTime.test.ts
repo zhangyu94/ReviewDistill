@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatHistoryTime } from './historyTime.ts'
+import { formatHistoryTime } from './historyTime'
 
 const NOW = new Date('2026-09-14T12:00:00Z')
 const UTC = { now: NOW, timeZone: 'UTC' } as const

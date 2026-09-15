@@ -20,7 +20,7 @@ export function formatHistoryTime(
     minute: '2-digit',
     hourCycle: 'h23',
   }).formatToParts(date)
-  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find(part => part.type === type)?.value ?? ''
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? ''
   const year = get('year')
   const nowYear = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric' }).format(now)
   const time = `${get('hour')}:${get('minute')}`
