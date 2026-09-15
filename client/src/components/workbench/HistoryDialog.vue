@@ -117,7 +117,7 @@ async function wrap(fn: () => Promise<unknown>) {
             Redo
           </button>
         </span>
-        <p v-if="error" class="ch-muted-text min-w-0 flex-1 truncate">
+        <p v-if="error" class="ch-error-text min-w-0 flex-1 truncate">
           {{ error }}
         </p>
         <button
