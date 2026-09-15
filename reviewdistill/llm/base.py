@@ -45,7 +45,7 @@ def require_api_key(provider_name: str) -> str:
 def privacy_warning(*, provider_name: str, comment_count: int) -> str:
     return (
         f"Sending {comment_count} review comment(s) plus nearby manuscript context "
-        f"and candidate issue definitions to external LLM provider '{provider_name}'. "
+        f"and candidate label definitions to external LLM provider '{provider_name}'. "
         "The rest of the repository is not sent."
     )
 

@@ -7,11 +7,7 @@ from sqlmodel import Field, SQLModel
 from reviewdistill.errors import CorruptStore
 
 # Presence: ``active`` = in the manuscript, ``pending_disappeared`` = not.
-# Quality is a separate field. To distill (working_set) = not dropped, and (present or verified).
-
-QUALITY_UNREVIEWED = "unreviewed"
-QUALITY_VERIFIED = "verified"
-QUALITY_DROPPED = "dropped"
+# To distill (working_set) = in the manuscript or verified.
 
 STATUS_ACTIVE = "active"
 STATUS_PENDING_DISAPPEARED = "pending_disappeared"
@@ -20,8 +16,8 @@ CODING_PROPOSED = "proposed"
 CODING_ACCEPTED = "accepted"
 CODING_MODIFIED = "modified"
 
-ISSUE_ACTIVE = "active"
-ISSUE_INACTIVE = "inactive"
+LABEL_ACTIVE = "active"
+LABEL_INACTIVE = "inactive"
 
 
 def utcnow() -> datetime:
@@ -34,11 +30,25 @@ def as_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def comment_quality(comment: ProofreadingComment) -> str:
-    quality = comment.quality
-    if quality not in {QUALITY_UNREVIEWED, QUALITY_VERIFIED, QUALITY_DROPPED}:
-        raise CorruptStore(f"Unknown comment quality {quality!r}")
-    return quality
+def normalize_comment_record(data: dict, *, purge_dropped: bool = True) -> dict | None:
+    """Map a raw comment dict onto ``verified``. None means purge (dropped)."""
+    data = dict(data)
+    data.pop("fingerprint", None)
+    quality = data.pop("quality", None)
+    if quality == "dropped" and purge_dropped:
+        return None
+    verified = data.get("verified")
+    if isinstance(verified, bool):
+        return data
+    if "verified" in data:
+        raise CorruptStore(f"Unknown comment verified {verified!r}")
+    if quality == "verified":
+        data["verified"] = True
+        return data
+    if quality in {"unreviewed", "dropped", None}:
+        data["verified"] = False
+        return data
+    raise CorruptStore(f"Unknown comment quality {quality!r}")
 
 
 def in_manuscript(comment: ProofreadingComment) -> bool:
@@ -46,9 +56,7 @@ def in_manuscript(comment: ProofreadingComment) -> bool:
 
 
 def in_working_set(comment: ProofreadingComment) -> bool:
-    if comment_quality(comment) == QUALITY_DROPPED:
-        return False
-    return in_manuscript(comment) or comment_quality(comment) == QUALITY_VERIFIED
+    return in_manuscript(comment) or comment.verified
 
 
 class Project(SQLModel):
@@ -70,9 +78,8 @@ class ProofreadingComment(SQLModel):
     section: str | None = None
     git_commit: str | None = None
     git_url: str | None = None
-    fingerprint: str
     status: str = "active"
-    quality: str = "unreviewed"
+    verified: bool = False
     supersedes_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -80,14 +87,14 @@ class ProofreadingComment(SQLModel):
 class Coding(SQLModel):
     id: str
     comment_id: str
-    issue_type_id: str | None = None
+    label_id: str | None = None
     coder_type: str
     confidence: float | None = None
     rationale: str | None = None
     status: str
-    proposed_issue_name: str | None = None
-    proposed_parent_id: str | None = None  # new-type parent; unknown/inactive → root
-    proposed_issue_definition: str | None = None
+    proposed_label_name: str | None = None
+    proposed_parent_id: str | None = None  # new-label parent; unknown/inactive → root
+    proposed_label_definition: str | None = None
     suggested_evidence: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -95,53 +102,38 @@ class Coding(SQLModel):
 def is_labeled(session, comment_id: str) -> bool:
     return any(
         row.status == CODING_ACCEPTED
-        and row.issue_type_id
-        and (issue := session.get(IssueType, row.issue_type_id)) is not None
-        and issue.status == ISSUE_ACTIVE
+        and row.label_id
+        and (label := session.get(Label, row.label_id)) is not None
+        and label.status == LABEL_ACTIVE
         for row in session.find(Coding, comment_id=comment_id)
     )
 
 
-class IssueType(SQLModel):
+class Label(SQLModel):
+    """Category in the taxonomy. Assignment lives on Coding.label_id."""
     id: str
     name: str
     parent_id: str | None = None  # null = root; must be active when this row is active
     position: int = 0  # sibling order; compacted to 0..n-1
     definition: str
-    detection_guidance: str | None = None  # retrieval only; not shown in Issue Details
+    detection_guidance: str | None = None  # retrieval only; not shown in Label Details
     status: str = "active"
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
 
-class IssueExample(SQLModel):
+class LabelExample(SQLModel):
     id: str
-    issue_type_id: str
-    text: str
-    source_comment_id: str | None = None
-    created_at: datetime = Field(default_factory=utcnow)
-
-
-class IssueCounterexample(SQLModel):
-    id: str
-    issue_type_id: str
+    label_id: str
     text: str
     source_comment_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
 class TaxonomyEvent(SQLModel):
+    """Scheme mutation log (add/rename/move/merge/split/…). Not a Label row."""
     id: str
     event_type: str
     payload_json: str
     undone: bool = False
     created_at: datetime = Field(default_factory=utcnow)
-
-
-class GitCommitRecord(SQLModel):
-    id: str
-    project_id: str
-    repository: str
-    commit_hash: str
-    remote_url: str | None = None
-    recorded_at: datetime = Field(default_factory=utcnow)

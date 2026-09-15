@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, fetchInbox, fetchIssue, fetchTaxonomy } from '../api/client.ts'
+import { ApiError, fetchInbox, fetchLabel, fetchLabels } from '../api/client.ts'
 import { useWorkbenchStore } from './workbenchStore.ts'
 
 vi.mock('../api/client.ts', async (importOriginal) => {
@@ -8,8 +8,8 @@ vi.mock('../api/client.ts', async (importOriginal) => {
   return {
     ...actual,
     fetchInbox: vi.fn(),
-    fetchTaxonomy: vi.fn(),
-    fetchIssue: vi.fn(),
+    fetchLabels: vi.fn(),
+    fetchLabel: vi.fn(),
   }
 })
 
@@ -17,8 +17,8 @@ describe('workbenchStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.mocked(fetchInbox).mockReset()
-    vi.mocked(fetchTaxonomy).mockReset()
-    vi.mocked(fetchIssue).mockReset()
+    vi.mocked(fetchLabels).mockReset()
+    vi.mocked(fetchLabel).mockReset()
   })
 
   it('opens and closes settings without window events', () => {
@@ -35,7 +35,7 @@ describe('workbenchStore', () => {
       unlabeled_count: 1,
       pending_code_count: 0,
       llm_provider: null,
-      issues: [],
+      labels: [],
       items: [],
       working_items: [],
       progress: {
@@ -44,22 +44,21 @@ describe('workbenchStore', () => {
         labeled: 0,
         unreviewed: 0,
         verified: 0,
-        dropped: 0,
       },
     })
-    vi.mocked(fetchTaxonomy).mockResolvedValue({ forest: [] })
+    vi.mocked(fetchLabels).mockResolvedValue({ forest: [] })
     const store = useWorkbenchStore()
-    await store.invalidate({ inbox: true, taxonomy: true })
+    await store.invalidate({ inbox: true, labels: true })
     expect(store.inbox?.unlabeled_count).toBe(1)
-    expect(store.taxonomy).toEqual({ forest: [] })
+    expect(store.labels).toEqual({ forest: [] })
   })
 
-  it('refreshAfterHistory reloads issue details for the open type', async () => {
+  it('refreshAfterHistory reloads label details for the open label', async () => {
     vi.mocked(fetchInbox).mockResolvedValue({
       unlabeled_count: 0,
       pending_code_count: 0,
       llm_provider: null,
-      issues: [],
+      labels: [],
       items: [],
       working_items: [],
       progress: {
@@ -68,11 +67,10 @@ describe('workbenchStore', () => {
         labeled: 0,
         unreviewed: 0,
         verified: 0,
-        dropped: 0,
       },
     })
-    vi.mocked(fetchTaxonomy).mockResolvedValue({ forest: [] })
-    vi.mocked(fetchIssue).mockResolvedValue({
+    vi.mocked(fetchLabels).mockResolvedValue({ forest: [] })
+    vi.mocked(fetchLabel).mockResolvedValue({
       id: 't1',
       name: 'Overclaiming',
       parent_id: null,
@@ -80,46 +78,45 @@ describe('workbenchStore', () => {
       definition: 'after undo',
       status: 'active',
       examples: [],
-      counterexamples: [],
       comments: [],
     })
     const store = useWorkbenchStore()
     await store.refreshAfterHistory('t1')
-    expect(fetchIssue).toHaveBeenCalledWith('t1')
-    expect(store.issue?.definition).toBe('after undo')
+    expect(fetchLabel).toHaveBeenCalledWith('t1')
+    expect(store.label?.definition).toBe('after undo')
   })
 
-  it('treats a 500 issue load as an error, not missing', async () => {
-    vi.mocked(fetchIssue).mockRejectedValue(new ApiError('store corrupt', 500))
+  it('treats a 500 label load as an error, not missing', async () => {
+    vi.mocked(fetchLabel).mockRejectedValue(new ApiError('store corrupt', 500))
     const store = useWorkbenchStore()
-    await store.loadIssue('t1')
+    await store.loadLabel('t1')
     expect(store.missing).toBe(false)
     expect(store.error).toBe('store corrupt')
   })
 
-  it('treats a 404 issue load as missing', async () => {
-    vi.mocked(fetchIssue).mockRejectedValue(new ApiError('Unknown issue type', 404))
+  it('treats a 404 label load as missing', async () => {
+    vi.mocked(fetchLabel).mockRejectedValue(new ApiError('Unknown label', 404))
     const store = useWorkbenchStore()
-    await store.loadIssue('t1')
+    await store.loadLabel('t1')
     expect(store.missing).toBe(true)
-    expect(store.issue).toBeNull()
+    expect(store.label).toBeNull()
     expect(store.error).toBe('')
   })
 
-  it('clears a previous missing flag when loading with no issue id', async () => {
-    vi.mocked(fetchIssue).mockRejectedValue(new ApiError('Unknown issue type', 404))
+  it('clears a previous missing flag when loading with no label id', async () => {
+    vi.mocked(fetchLabel).mockRejectedValue(new ApiError('Unknown label', 404))
     const store = useWorkbenchStore()
-    await store.loadIssue('t1')
+    await store.loadLabel('t1')
     expect(store.missing).toBe(true)
-    await store.loadIssue('')
+    await store.loadLabel('')
     expect(store.missing).toBe(false)
-    expect(store.issue).toBeNull()
+    expect(store.label).toBeNull()
     expect(store.error).toBe('')
-    expect(fetchIssue).toHaveBeenCalledTimes(1)
+    expect(fetchLabel).toHaveBeenCalledTimes(1)
   })
 
-  it('ignores a stale issue response when a newer load is in flight', async () => {
-    const issue = (id: string) => ({
+  it('ignores a stale label response when a newer load is in flight', async () => {
+    const labelDetail = (id: string) => ({
       id,
       name: id,
       parent_id: null,
@@ -127,25 +124,24 @@ describe('workbenchStore', () => {
       definition: '',
       status: 'active',
       examples: [],
-      counterexamples: [],
       comments: [],
     })
-    let finishFirst: (value: ReturnType<typeof issue>) => void = () => {}
-    vi.mocked(fetchIssue)
+    let finishFirst: (value: ReturnType<typeof labelDetail>) => void = () => {}
+    vi.mocked(fetchLabel)
       .mockImplementationOnce(() => new Promise((resolve) => {
         finishFirst = resolve
       }))
-      .mockResolvedValueOnce(issue('t2'))
+      .mockResolvedValueOnce(labelDetail('t2'))
     const store = useWorkbenchStore()
-    const first = store.loadIssue('t1')
-    const second = store.loadIssue('t2')
-    finishFirst(issue('t1'))
+    const first = store.loadLabel('t1')
+    const second = store.loadLabel('t2')
+    finishFirst(labelDetail('t1'))
     await Promise.all([first, second])
-    expect(store.issue?.id).toBe('t2')
+    expect(store.label?.id).toBe('t2')
   })
 
-  it('ignores a stale 404 when a newer issue load succeeded', async () => {
-    const issue = (id: string) => ({
+  it('ignores a stale 404 when a newer label load succeeded', async () => {
+    const labelDetail = (id: string) => ({
       id,
       name: id,
       parent_id: null,
@@ -153,21 +149,20 @@ describe('workbenchStore', () => {
       definition: '',
       status: 'active',
       examples: [],
-      counterexamples: [],
       comments: [],
     })
     let failFirst: (err: ApiError) => void = () => {}
-    vi.mocked(fetchIssue)
+    vi.mocked(fetchLabel)
       .mockImplementationOnce(() => new Promise((_, reject) => {
         failFirst = reject
       }))
-      .mockResolvedValueOnce(issue('t2'))
+      .mockResolvedValueOnce(labelDetail('t2'))
     const store = useWorkbenchStore()
-    const first = store.loadIssue('t1')
-    const second = store.loadIssue('t2')
-    failFirst(new ApiError('Unknown issue type', 404))
+    const first = store.loadLabel('t1')
+    const second = store.loadLabel('t2')
+    failFirst(new ApiError('Unknown label', 404))
     await Promise.all([first, second])
-    expect(store.issue?.id).toBe('t2')
+    expect(store.label?.id).toBe('t2')
     expect(store.missing).toBe(false)
   })
 })

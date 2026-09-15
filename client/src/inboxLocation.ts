@@ -17,11 +17,6 @@ export function safeHttpHref(url: string | null | undefined): string | null {
   return null
 }
 
-export function shortCommit(hash: string | null): string {
-  if (!hash) { return '—' }
-  return hash.slice(0, 7)
-}
-
 export function fileRevealLabel(): string {
   return 'Show this file on this computer'
 }
@@ -50,6 +45,6 @@ export function inboxLocationRows(args: {
   ]
   if (args.heading) { rows.push({ label: 'Heading', value: args.heading, href: null, reveal: false }) }
   if (args.gitUrl) { rows.push({ label: 'Remote', value: args.gitUrl, href: args.gitHref, reveal: false }) }
-  if (args.gitCommit) { rows.push({ label: 'Commit', value: shortCommit(args.gitCommit), href: null, reveal: false }) }
+  if (args.gitCommit) { rows.push({ label: 'Commit', value: args.gitCommit, href: null, reveal: false }) }
   return rows
 }

@@ -1,23 +1,23 @@
 import type { InboxItemJson, TaxonomyNode } from '../api/client.ts'
 import { findNode, isLeaf } from './taxonomyTree.ts'
 
-export function commentListLeafTypes(
-  item: Pick<InboxItemJson, 'labeled' | 'issue'>,
+export function commentListLeafLabels(
+  item: Pick<InboxItemJson, 'labeled' | 'label'>,
   forest: TaxonomyNode[],
 ): { id: string, name: string }[] {
-  if (!item.labeled || !item.issue) {
+  if (!item.labeled || !item.label) {
     return []
   }
-  const node = findNode(forest, item.issue.id)
+  const node = findNode(forest, item.label.id)
   if (node && !isLeaf(node)) {
     return []
   }
-  return [{ id: item.issue.id, name: item.issue.name }]
+  return [{ id: item.label.id, name: item.label.name }]
 }
 
-export function commentListLeafTypeLabel(
-  item: Pick<InboxItemJson, 'labeled' | 'issue'>,
+export function commentListLeafLabelNames(
+  item: Pick<InboxItemJson, 'labeled' | 'label'>,
   forest: TaxonomyNode[],
 ): string {
-  return commentListLeafTypes(item, forest).map((type) => type.name).join(' · ')
+  return commentListLeafLabels(item, forest).map((label) => label.name).join(' · ')
 }

@@ -1,3 +1,6 @@
+import fa6Brands from '@iconify-json/fa6-brands/icons.json'
+import fa6Regular from '@iconify-json/fa6-regular/icons.json'
+import fa6Solid from '@iconify-json/fa6-solid/icons.json'
 import { defineConfig, presetIcons, presetWind4 } from 'unocss'
 
 const themePreflight = String.raw`
@@ -134,6 +137,11 @@ export default defineConfig({
     presetIcons({
       scale: 1.2,
       warn: true,
+      collections: {
+        'fa6-brands': () => fa6Brands,
+        'fa6-regular': () => fa6Regular,
+        'fa6-solid': () => fa6Solid,
+      },
       extraProperties: {
         'display': 'inline-block',
         'vertical-align': 'middle',

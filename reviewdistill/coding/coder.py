@@ -9,9 +9,9 @@ import httpx
 from reviewdistill.coding.retrieval import retrieve_candidates
 from reviewdistill.db.models import (
     CODING_PROPOSED,
-    ISSUE_ACTIVE,
+    LABEL_ACTIVE,
     Coding,
-    IssueType,
+    Label,
     ProofreadingComment,
     in_working_set,
     is_labeled,
@@ -25,8 +25,8 @@ from reviewdistill.taxonomy.tree import active_children
 @dataclass
 class ModelProposal:
     recommendation: str
-    issue_type_id: str | None = None
-    issue_name: str | None = None
+    label_id: str | None = None
+    label_name: str | None = None
     parent_id: str | None = None
     definition: str | None = None
     confidence: float | None = None
@@ -51,17 +51,17 @@ def parse_model_output(text: str) -> ModelProposal:
         raise ValueError("Model output did not contain JSON") from exc
     if not isinstance(data, dict):
         raise ValueError("Model output did not contain JSON")
-    issue_name = _first_text(data.get("issue_name"), data.get("name"), data.get("title"))
-    nested = data.get("new_issue") or data.get("issue")
-    if isinstance(nested, dict) and not issue_name:
-        issue_name = _first_text(nested.get("issue_name"), nested.get("name"), nested.get("title"))
-    definition = _first_text(data.get("definition"), data.get("issue_definition"))
+    label_name = _first_text(data.get("label_name"), data.get("name"), data.get("title"))
+    nested = data.get("new_label") or data.get("label")
+    if isinstance(nested, dict) and not label_name:
+        label_name = _first_text(nested.get("label_name"), nested.get("name"), nested.get("title"))
+    definition = _first_text(data.get("definition"), data.get("label_definition"))
     if isinstance(nested, dict) and not definition:
         definition = _first_text(nested.get("definition"))
     return ModelProposal(
         recommendation=data.get("recommendation", "new"),
-        issue_type_id=data.get("issue_type_id"),
-        issue_name=issue_name,
+        label_id=data.get("label_id"),
+        label_name=label_name,
         parent_id=data.get("parent_id"),
         definition=definition,
         confidence=data.get("confidence"),
@@ -77,8 +77,8 @@ def _first_text(*values) -> str | None:
     return None
 
 
-def proposal_has_new_type(proposal: ModelProposal) -> bool:
-    return bool((proposal.issue_name or "").strip())
+def proposal_has_new_label(proposal: ModelProposal) -> bool:
+    return bool((proposal.label_name or "").strip())
 
 
 def build_prompt(*, raw_text: str, context_text: str, section: str | None, candidates) -> str:
@@ -95,25 +95,25 @@ def build_prompt(*, raw_text: str, context_text: str, section: str | None, candi
         "",
         f"Section: {section or '(unknown)'}",
         "",
-        "Existing issue types:",
+        "Existing labels:",
     ]
     if not candidates:
         lines.append("(none yet)")
-    for issue in candidates:
+    for label in candidates:
         lines.append(
-            f"- id={issue.id} name={issue.name} parent_id={issue.parent_id}"
+            f"- id={label.id} name={label.name} parent_id={label.parent_id}"
         )
-        lines.append(f"  definition: {issue.definition}")
+        lines.append(f"  definition: {label.definition}")
     lines.extend(
         [
             "",
             "Task:",
-            "Determine whether this observation is best explained by an existing issue type.",
-            "If so, recommend the best match using recommendation=existing and issue_type_id.",
-            "If no existing issue type adequately captures the observation, propose a candidate new issue type.",
-            "If recommendation is new, issue_name and definition are required. Do not omit them.",
+            "Determine whether this observation is best explained by an existing label.",
+            "If so, recommend the best match using recommendation=existing and label_id.",
+            "If no existing label adequately captures the observation, propose a candidate new label.",
+            "If recommendation is new, label_name and definition are required. Do not omit them.",
             "Return JSON with keys:",
-            "recommendation, issue_type_id, issue_name, parent_id, definition,",
+            "recommendation, label_id, label_name, parent_id, definition,",
             "confidence, rationale, suggested_evidence",
         ]
     )
@@ -124,8 +124,8 @@ def _proposal_parent_id(session, parent_id: str | None) -> str | None:
     """Keep only an existing active type id. Unknown or omitted → root (None)."""
     if not parent_id:
         return None
-    parent = session.get(IssueType, parent_id)
-    if parent is None or parent.status != ISSUE_ACTIVE:
+    parent = session.get(Label, parent_id)
+    if parent is None or parent.status != LABEL_ACTIVE:
         return None
     return parent.id
 
@@ -136,9 +136,9 @@ _UNSET = object()
 def is_placeholder_coding(coding: Coding | None) -> bool:
     if coding is None or coding.status != CODING_PROPOSED:
         return False
-    name = (coding.proposed_issue_name or "").strip()
+    name = (coding.proposed_label_name or "").strip()
     rationale = coding.rationale or ""
-    return name == "Mock issue" or rationale.startswith("Mock provider")
+    return name == "Mock label" or rationale.startswith("Mock provider")
 
 
 def effective_provider_name() -> str | None:
@@ -173,7 +173,7 @@ def uncoded_comments(*, provider_name: str | None | object = _UNSET) -> list[Pro
             if (
                 coding.status == CODING_PROPOSED
                 and not hide_placeholder_coding(coding, provider_name=resolved)
-                and (coding.issue_type_id or (coding.proposed_issue_name or "").strip())
+                and (coding.label_id or (coding.proposed_label_name or "").strip())
             ):
                 resolved_ids.add(coding.comment_id)
         return [comment for comment in comments if comment.id not in resolved_ids]
@@ -200,7 +200,7 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
             raw_text=comment.raw_text,
             context_text=comment.context_text,
             section=comment.section,
-            candidates=[item.issue for item in ranked],
+            candidates=[item.label for item in ranked],
         )
         try:
             proposal = parse_model_output(provider.generate(prompt))
@@ -209,24 +209,24 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
         except ValueError:
             skipped += 1
             continue
-        issue_type_id = proposal.issue_type_id if proposal.recommendation == "existing" else None
-        if not issue_type_id and not proposal_has_new_type(proposal):
+        label_id = proposal.label_id if proposal.recommendation == "existing" else None
+        if not label_id and not proposal_has_new_label(proposal):
             skipped += 1
             continue
-        pending.append((comment, proposal, issue_type_id))
+        pending.append((comment, proposal, label_id))
         coded += 1
     if pending:
         with get_session() as session:
-            for comment, proposal, issue_type_id in pending:
-                if issue_type_id:
-                    issue = session.get(IssueType, issue_type_id)
+            for comment, proposal, label_id in pending:
+                if label_id:
+                    label = session.get(Label, label_id)
                     if (
-                        issue is None
-                        or issue.status != ISSUE_ACTIVE
-                        or active_children(session.find(IssueType), issue.id)
+                        label is None
+                        or label.status != LABEL_ACTIVE
+                        or active_children(session.find(Label), label.id)
                     ):
-                        issue_type_id = None
-                if not issue_type_id and not proposal_has_new_type(proposal):
+                        label_id = None
+                if not label_id and not proposal_has_new_label(proposal):
                     skipped += 1
                     coded -= 1
                     continue
@@ -239,14 +239,14 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
                 coding = Coding(
                     id=str(uuid4()),
                     comment_id=comment.id,
-                    issue_type_id=issue_type_id,
+                    label_id=label_id,
                     coder_type="ai",
                     confidence=proposal.confidence,
                     rationale=proposal.rationale,
                     status=CODING_PROPOSED,
-                    proposed_issue_name=proposal.issue_name,
+                    proposed_label_name=proposal.label_name,
                     proposed_parent_id=_proposal_parent_id(session, proposal.parent_id),
-                    proposed_issue_definition=proposal.definition,
+                    proposed_label_definition=proposal.definition,
                     suggested_evidence=proposal.suggested_evidence,
                 )
                 session.add(coding)

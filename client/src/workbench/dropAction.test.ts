@@ -4,51 +4,51 @@ import { allowDropHighlight, dropAction, parseDragPayload, serializeDragPayload,
 describe('dropAction', () => {
   it('assigns a comment dropped on a leaf', () => {
     expect(
-      dropAction({ kind: 'comment', id: 'c1' }, { kind: 'issue', id: 't1', placement: 'inner', isLeaf: true }),
-    ).toEqual({ type: 'change', commentId: 'c1', issueTypeId: 't1' })
+      dropAction({ kind: 'comment', id: 'c1' }, { kind: 'label', id: 't1', placement: 'inner', isLeaf: true }),
+    ).toEqual({ type: 'change', commentId: 'c1', labelId: 't1' })
   })
 
   it('ignores a comment dropped on a parent', () => {
     expect(
-      dropAction({ kind: 'comment', id: 'c1' }, { kind: 'issue', id: 't1', placement: 'inner', isLeaf: false }),
+      dropAction({ kind: 'comment', id: 'c1' }, { kind: 'label', id: 't1', placement: 'inner', isLeaf: false }),
     ).toEqual({ type: 'ignore' })
   })
 
   it('ignores a comment dropped on the type it already has', () => {
     expect(
-      dropAction({ kind: 'comment', id: 'c1' }, { kind: 'issue', id: 't1', placement: 'inner', isLeaf: true }, 't1'),
+      dropAction({ kind: 'comment', id: 'c1' }, { kind: 'label', id: 't1', placement: 'inner', isLeaf: true }, 't1'),
     ).toEqual({ type: 'ignore' })
   })
 
   it('merges only on the merge placement of a leaf', () => {
     expect(
-      dropAction({ kind: 'issue', id: 'src' }, { kind: 'issue', id: 'dst', placement: 'merge', isLeaf: true }),
+      dropAction({ kind: 'label', id: 'src' }, { kind: 'label', id: 'dst', placement: 'merge', isLeaf: true }),
     ).toEqual({ type: 'merge', sourceId: 'src', targetId: 'dst' })
   })
 
   it('ignores merge on a parent', () => {
     expect(
-      dropAction({ kind: 'issue', id: 'src' }, { kind: 'issue', id: 'dst', placement: 'merge', isLeaf: false }),
+      dropAction({ kind: 'label', id: 'src' }, { kind: 'label', id: 'dst', placement: 'merge', isLeaf: false }),
     ).toEqual({ type: 'ignore' })
   })
 
-  it('nests when dropping inner on another issue', () => {
+  it('nests when dropping inner on another label', () => {
     expect(
-      dropAction({ kind: 'issue', id: 'src' }, { kind: 'issue', id: 'dst', placement: 'inner', isLeaf: false }),
-    ).toEqual({ type: 'move', issueTypeId: 'src', targetId: 'dst', placement: 'inner' })
+      dropAction({ kind: 'label', id: 'src' }, { kind: 'label', id: 'dst', placement: 'inner', isLeaf: false }),
+    ).toEqual({ type: 'move', labelId: 'src', targetId: 'dst', placement: 'inner' })
   })
 
-  it('ignores an issue dropped on itself', () => {
+  it('ignores a label dropped on itself', () => {
     expect(
-      dropAction({ kind: 'issue', id: 't1' }, { kind: 'issue', id: 't1', placement: 'inner', isLeaf: true }),
+      dropAction({ kind: 'label', id: 't1' }, { kind: 'label', id: 't1', placement: 'inner', isLeaf: true }),
     ).toEqual({ type: 'ignore' })
   })
 
   it('ignores merge onto a descendant', () => {
     expect(
       dropAction(
-        { kind: 'issue', id: 'src' },
-        { kind: 'issue', id: 'kid', placement: 'merge', isLeaf: true },
+        { kind: 'label', id: 'src' },
+        { kind: 'label', id: 'kid', placement: 'merge', isLeaf: true },
         null,
         ['kid'],
       ),
@@ -58,8 +58,8 @@ describe('dropAction', () => {
   it('ignores move onto a descendant', () => {
     expect(
       dropAction(
-        { kind: 'issue', id: 'src' },
-        { kind: 'issue', id: 'kid', placement: 'inner', isLeaf: true },
+        { kind: 'label', id: 'src' },
+        { kind: 'label', id: 'kid', placement: 'inner', isLeaf: true },
         null,
         ['kid'],
       ),
@@ -73,18 +73,18 @@ describe('allowDropHighlight', () => {
     expect(allowDropHighlight({ dragKind: '', isLeaf: true, isSelf: false, isDescendant: false })).toBe(true)
   })
 
-  it('keeps parent highlight while dragging an issue', () => {
-    expect(allowDropHighlight({ dragKind: 'issue', isLeaf: false, isSelf: false, isDescendant: false })).toBe(true)
-    expect(allowDropHighlight({ dragKind: 'issue', isLeaf: false, isSelf: true, isDescendant: false })).toBe(false)
-    expect(allowDropHighlight({ dragKind: 'issue', isLeaf: true, isSelf: false, isDescendant: true })).toBe(false)
+  it('keeps parent highlight while dragging a label', () => {
+    expect(allowDropHighlight({ dragKind: 'label', isLeaf: false, isSelf: false, isDescendant: false })).toBe(true)
+    expect(allowDropHighlight({ dragKind: 'label', isLeaf: false, isSelf: true, isDescendant: false })).toBe(false)
+    expect(allowDropHighlight({ dragKind: 'label', isLeaf: true, isSelf: false, isDescendant: true })).toBe(false)
   })
 })
 
 describe('showSiblingDropGuide', () => {
   it('shows before/after bars only while dragging a type', () => {
-    expect(showSiblingDropGuide('issue', 'before')).toBe(true)
-    expect(showSiblingDropGuide('issue', 'after')).toBe(true)
-    expect(showSiblingDropGuide('issue', 'inner')).toBe(false)
+    expect(showSiblingDropGuide('label', 'before')).toBe(true)
+    expect(showSiblingDropGuide('label', 'after')).toBe(true)
+    expect(showSiblingDropGuide('label', 'inner')).toBe(false)
     expect(showSiblingDropGuide('comment', 'before')).toBe(false)
     expect(showSiblingDropGuide('comment', 'after')).toBe(false)
     expect(showSiblingDropGuide('', 'before')).toBe(false)
@@ -104,8 +104,8 @@ describe('parseDragPayload', () => {
     expect(parseDragPayload('{"kind":"nope"}')).toBeNull()
   })
 
-  it('round-trips an issue payload for the groups panel', () => {
-    const raw = serializeDragPayload({ kind: 'issue', id: 't1' })
-    expect(parseDragPayload(raw)).toEqual({ kind: 'issue', id: 't1' })
+  it('round-trips a label payload for the labels panel', () => {
+    const raw = serializeDragPayload({ kind: 'label', id: 't1' })
+    expect(parseDragPayload(raw)).toEqual({ kind: 'label', id: 't1' })
   })
 })

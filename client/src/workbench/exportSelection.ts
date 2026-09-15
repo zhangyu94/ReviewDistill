@@ -2,7 +2,7 @@ import type { ExportFormat } from '../api/client.ts'
 import type { TaxonomyNode } from './taxonomyTree.ts'
 import { flattenForest } from './taxonomyTree.ts'
 
-export function allTypeIds(forest: TaxonomyNode[]): string[] {
+export function allLabelIds(forest: TaxonomyNode[]): string[] {
   return flattenForest(forest).map(({ node }) => node.id)
 }
 
@@ -14,7 +14,7 @@ export function toggleCheckedId(forest: TaxonomyNode[], ids: string[], id: strin
   else {
     selected.add(id)
   }
-  return allTypeIds(forest).filter((row) => selected.has(row))
+  return allLabelIds(forest).filter((row) => selected.has(row))
 }
 
 export function exportQuery(fmt: ExportFormat, ids: string[]): string {

@@ -63,7 +63,7 @@ def test_first_extract_inserts_comments(db, tmp_path: Path):
         assert all(row.raw_text for row in rows)
         assert all(row.context_text for row in rows)
         assert all(row.section for row in rows)
-        assert {row.fingerprint for row in rows} == {
+        assert {fingerprint_for(row.source_command, row.raw_text) for row in rows} == {
             fingerprint_for("myremark", "I don't think this follows."),
             fingerprint_for(
                 "myremark",
@@ -115,7 +115,7 @@ def test_revision_clears_verified_quality(db, tmp_path: Path):
     extract_project(repo)
     with get_session() as session:
         row = session.first(ProofreadingComment)
-        row.quality = "verified"
+        row.verified = True
         session.add(row)
         session.commit()
         original_id = row.id
@@ -125,7 +125,7 @@ def test_revision_clears_verified_quality(db, tmp_path: Path):
     with get_session() as session:
         row = session.first(ProofreadingComment)
         assert row.id == original_id
-        assert row.quality == "unreviewed"
+        assert row.verified is False
 
 
 def test_dissimilar_body_change_is_disappeared_and_new(db, tmp_path: Path):
@@ -163,7 +163,7 @@ def test_short_distinct_same_line_replacement_is_disappeared_and_new(db, tmp_pat
                 comment_id=old_id,
                 coder_type="human",
                 status="accepted",
-                issue_type_id="issue-1",
+                label_id="label-1",
             )
         )
         session.commit()
@@ -267,7 +267,7 @@ def test_verified_reappears_same_id(db, tmp_path: Path):
     with get_session() as session:
         row = session.first(ProofreadingComment)
         row.status = "pending_disappeared"
-        row.quality = "verified"
+        row.verified = True
         session.add(row)
         session.commit()
         kept_id = row.id
@@ -278,28 +278,27 @@ def test_verified_reappears_same_id(db, tmp_path: Path):
         assert len(rows) == 1
         assert rows[0].id == kept_id
         assert rows[0].status == "active"
-        assert rows[0].quality == "verified"
+        assert rows[0].verified
 
 
-def test_dropped_same_text_stays_same_id(db, tmp_path: Path):
+def test_deleted_comment_same_text_is_new_id(db, tmp_path: Path):
+    from reviewdistill.coding.validation import delete_comment
+
     repo = tmp_path / "paper"
     repo.mkdir()
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
     _write_tex(repo, "\\myremark{Keep me.}\n")
     extract_project(repo)
     with get_session() as session:
-        row = session.first(ProofreadingComment)
-        row.quality = "dropped"
-        session.add(row)
-        session.commit()
-        dropped_id = row.id
+        old_id = session.first(ProofreadingComment).id
+    delete_comment(old_id)
     extract_project(repo)
     with get_session() as session:
         rows = session.find(ProofreadingComment)
         assert len(rows) == 1
-        assert rows[0].id == dropped_id
-        assert rows[0].status == "active"
-        assert rows[0].quality == "dropped"
+        assert rows[0].id != old_id
+        assert rows[0].raw_text == "Keep me."
+        assert rows[0].verified is False
 
 
 def test_duplicate_texts_are_not_merged(db, tmp_path: Path):
@@ -341,7 +340,7 @@ def test_move_keeps_verified_quality(db, tmp_path: Path):
     extract_project(repo)
     with get_session() as session:
         row = session.first(ProofreadingComment)
-        row.quality = "verified"
+        row.verified = True
         session.add(row)
         session.commit()
         original_id = row.id
@@ -353,7 +352,7 @@ def test_move_keeps_verified_quality(db, tmp_path: Path):
         row = session.first(ProofreadingComment)
         assert row.id == original_id
         assert row.file_path == "other.tex"
-        assert row.quality == "verified"
+        assert row.verified
 
 
 def test_extract_records_git_remote_url(db, tmp_path: Path):
@@ -416,3 +415,36 @@ def test_extract_skips_ignored_directories(db, tmp_path: Path):
     with get_session() as session:
         texts = {row.raw_text for row in session.find(ProofreadingComment)}
         assert texts == {"Keep me."}
+
+
+def test_inline_comment_stores_paragraph(db, tmp_path: Path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["yzc"], cwd=repo)
+    _write_tex(
+        repo,
+        "\\section{Eval}\n"
+        "% – corpus\n"
+        "\n"
+        "We created the evaluation corpus. See \\cite{smith2020}. "
+        "\\yzc{Where are the tables?}\n",
+    )
+    extract_project(repo)
+    with get_session() as session:
+        row = session.first(ProofreadingComment)
+    assert "We created the evaluation corpus" in row.context_text
+    assert "\\cite{smith2020}" in row.context_text
+    assert "% – corpus" not in row.context_text
+    assert "Where are the tables" not in row.context_text
+
+
+def test_extracts_command_with_space_before_brace(db, tmp_path: Path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["yzc"], cwd=repo)
+    _write_tex(repo, "A sentence. \\yzc {Spaced remark.}\n")
+    extract_project(repo)
+    with get_session() as session:
+        row = session.first(ProofreadingComment)
+    assert row.raw_text == "Spaced remark."
+    assert row.context_text == "A sentence."

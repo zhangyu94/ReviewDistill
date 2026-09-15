@@ -5,15 +5,15 @@ from reviewdistill.db.session import get_session
 from reviewdistill.llm.mock import MockLLMProvider
 from reviewdistill.taxonomy.operations import (
     add_example,
-    create_issue_type,
-    deactivate_issue_type,
-    merge_issue_types,
-    rename_issue_type,
+    create_label,
+    deactivate_label,
+    merge_labels,
+    rename_label,
 )
 from reviewdistill.web.app import create_app
 
 
-def _add_comment(comment_id: str, text: str, *, issue_id: str | None = None):
+def _add_comment(comment_id: str, text: str, *, label_id: str | None = None):
     with get_session() as session:
         session.add(
             ProofreadingComment(
@@ -24,16 +24,15 @@ def _add_comment(comment_id: str, text: str, *, issue_id: str | None = None):
                 file_path="main.tex",
                 line_number=1,
                 raw_text=text,
-                fingerprint=f"fp-{comment_id}",
                 status="active",
             )
         )
-        if issue_id:
+        if label_id:
             session.add(
                 Coding(
                     id=f"k-{comment_id}",
                     comment_id=comment_id,
-                    issue_type_id=issue_id,
+                    label_id=label_id,
                     coder_type="human",
                     status="accepted",
                 )
@@ -42,10 +41,10 @@ def _add_comment(comment_id: str, text: str, *, issue_id: str | None = None):
 
 
 def test_taxonomy_returns_forest(db):
-    parent = create_issue_type(name="Parent", definition="")
-    create_issue_type(name="Child", definition="", parent_id=parent.id)
+    parent = create_label(name="Parent", definition="")
+    create_label(name="Child", definition="", parent_id=parent.id)
     client = TestClient(create_app())
-    response = client.get("/api/taxonomy")
+    response = client.get("/api/labels")
     assert response.status_code == 200
     forest = response.json()["forest"]
     assert forest[0]["name"] == "Parent"
@@ -53,13 +52,13 @@ def test_taxonomy_returns_forest(db):
 
 
 def test_issue_detail_shows_definition_examples_and_observations(db):
-    issue = create_issue_type(
+    label = create_label(
         name="Overclaiming",
         definition="A claim is stronger than the evidence supports.",
     )
-    add_example(issue.id, text="demonstrate → suggest")
+    add_example(label.id, text="demonstrate → suggest")
     client = TestClient(create_app())
-    response = client.get(f"/api/taxonomy/{issue.id}")
+    response = client.get(f"/api/labels/{label.id}")
     assert response.status_code == 200
     body = response.json()
     assert "A claim is stronger" in body["definition"]
@@ -68,20 +67,27 @@ def test_issue_detail_shows_definition_examples_and_observations(db):
     assert "notes" not in body
 
 
+def test_deactivate_is_not_an_http_route(db):
+    label = create_label(name="Overclaiming", definition="too strong")
+    client = TestClient(create_app())
+    response = client.post(f"/api/labels/{label.id}/deactivate")
+    assert response.status_code in {404, 405}
+
+
 def test_issue_detail_404s_for_inactive_types(db):
-    issue = create_issue_type(
+    label = create_label(
         name="Overclaiming",
         definition="too strong",
     )
-    deactivate_issue_type(issue.id)
+    deactivate_label(label.id)
     client = TestClient(create_app())
-    response = client.get(f"/api/taxonomy/{issue.id}")
+    response = client.get(f"/api/labels/{label.id}")
     assert response.status_code == 404
-    assert "Unknown issue type" in response.json()["detail"]
+    assert "Unknown label" in response.json()["detail"]
 
 
 def test_issue_comments_include_manuscript_context(db):
-    issue = create_issue_type(
+    label = create_label(
         name="Overclaiming",
         definition="too strong",
     )
@@ -97,7 +103,6 @@ def test_issue_comments_include_manuscript_context(db):
                 raw_text="too strong here",
                 context_text="The results prove X.\nlabel=fig:1",
                 section="Results",
-                fingerprint="fp-ctx",
                 status="active",
             )
         )
@@ -105,14 +110,14 @@ def test_issue_comments_include_manuscript_context(db):
             Coding(
                 id="coding-ctx",
                 comment_id="c-ctx",
-                issue_type_id=issue.id,
+                label_id=label.id,
                 coder_type="human",
                 status="accepted",
             )
         )
         session.commit()
     client = TestClient(create_app())
-    comment = client.get(f"/api/taxonomy/{issue.id}").json()["comments"][0]
+    comment = client.get(f"/api/labels/{label.id}").json()["comments"][0]
     assert comment["id"] == "c-ctx"
     assert comment["raw_text"] == "too strong here"
     assert comment["context_text"].startswith("The results prove X.")
@@ -124,11 +129,11 @@ def test_issue_comments_include_manuscript_context(db):
 
 
 def test_history_lists_rename_and_merge(db):
-    a = create_issue_type(name="Unsupported claim", definition="a")
-    b = create_issue_type(name="Overly strong claim", definition="b")
-    target = create_issue_type(name="Overclaiming", definition="c")
-    rename_issue_type(a.id, name="Unsupported claim (old)")
-    merge_issue_types(source_ids=[a.id, b.id], target_id=target.id)
+    a = create_label(name="Unsupported claim", definition="a")
+    b = create_label(name="Overly strong claim", definition="b")
+    target = create_label(name="Overclaiming", definition="c")
+    rename_label(a.id, name="Unsupported claim (old)")
+    merge_labels(source_ids=[a.id, b.id], target_id=target.id)
     client = TestClient(create_app())
     response = client.get("/api/history")
     assert response.status_code == 200
@@ -145,8 +150,8 @@ def test_history_lists_rename_and_merge(db):
 
 
 def test_merged_source_observations_appear_on_target_detail(db):
-    source = create_issue_type(name="Type A", definition="a")
-    target = create_issue_type(name="Type B", definition="b")
+    source = create_label(name="Type A", definition="a")
+    target = create_label(name="Type B", definition="b")
     with get_session() as session:
         session.add(
             ProofreadingComment(
@@ -157,7 +162,6 @@ def test_merged_source_observations_appear_on_target_detail(db):
                 file_path="main.tex",
                 line_number=1,
                 raw_text="observation from A",
-                fingerprint="fp-a",
                 status="active",
             )
         )
@@ -165,20 +169,20 @@ def test_merged_source_observations_appear_on_target_detail(db):
             Coding(
                 id="coding-a",
                 comment_id="c-a",
-                issue_type_id=source.id,
+                label_id=source.id,
                 coder_type="human",
                 status="accepted",
             )
         )
         session.commit()
-    merge_issue_types(source_ids=[source.id], target_id=target.id)
+    merge_labels(source_ids=[source.id], target_id=target.id)
     client = TestClient(create_app())
-    body = client.get(f"/api/taxonomy/{target.id}").json()
+    body = client.get(f"/api/labels/{target.id}").json()
     assert any(row["raw_text"] == "observation from A" for row in body["comments"])
 
 
-def test_taxonomy_omits_dropped_observations_and_counts(db):
-    issue = create_issue_type(
+def test_taxonomy_omits_comments_not_to_distill(db):
+    label = create_label(
         name="Overclaiming",
         definition="too strong",
     )
@@ -192,7 +196,6 @@ def test_taxonomy_omits_dropped_observations_and_counts(db):
                 file_path="main.tex",
                 line_number=1,
                 raw_text="too strong live",
-                fingerprint="fp-live",
                 status="active",
             )
         )
@@ -205,16 +208,14 @@ def test_taxonomy_omits_dropped_observations_and_counts(db):
                 file_path="main.tex",
                 line_number=2,
                 raw_text="too strong dropped",
-                fingerprint="fp-dropped",
-                status="active",
-                quality="dropped",
+                status="pending_disappeared",
             )
         )
         session.add(
             Coding(
                 id="coding-live",
                 comment_id="c-live",
-                issue_type_id=issue.id,
+                label_id=label.id,
                 coder_type="human",
                 status="accepted",
             )
@@ -223,41 +224,41 @@ def test_taxonomy_omits_dropped_observations_and_counts(db):
             Coding(
                 id="coding-dropped",
                 comment_id="c-dropped",
-                issue_type_id=issue.id,
+                label_id=label.id,
                 coder_type="human",
                 status="accepted",
             )
         )
         session.commit()
     client = TestClient(create_app())
-    listed = client.get("/api/taxonomy").json()
-    row = next(item for item in listed["forest"] if item["id"] == issue.id)
+    listed = client.get("/api/labels").json()
+    row = next(item for item in listed["forest"] if item["id"] == label.id)
     assert row["count"] == 1
-    detail = client.get(f"/api/taxonomy/{issue.id}").json()
+    detail = client.get(f"/api/labels/{label.id}").json()
     assert [comment["id"] for comment in detail["comments"]] == ["c-live"]
     assert all(comment["raw_text"] != "too strong dropped" for comment in detail["comments"])
 
 
 def test_rename_post_json(db):
-    issue = create_issue_type(name="Overclaiming", definition="x")
+    label = create_label(name="Overclaiming", definition="x")
     client = TestClient(create_app())
     response = client.post(
-        f"/api/taxonomy/{issue.id}/rename",
+        f"/api/labels/{label.id}/rename",
         json={"name": "Overclaiming (renamed)"},
     )
     assert response.status_code == 200
-    assert client.get(f"/api/taxonomy/{issue.id}").json()["name"] == "Overclaiming (renamed)"
+    assert client.get(f"/api/labels/{label.id}").json()["name"] == "Overclaiming (renamed)"
 
 
 def test_edit_post_json_has_no_notes(db):
-    issue = create_issue_type(name="Overclaiming", definition="old")
+    label = create_label(name="Overclaiming", definition="old")
     client = TestClient(create_app())
     response = client.post(
-        f"/api/taxonomy/{issue.id}/edit",
+        f"/api/labels/{label.id}/edit",
         json={"definition": "A claim exceeds the evidence."},
     )
     assert response.status_code == 200
-    body = client.get(f"/api/taxonomy/{issue.id}").json()
+    body = client.get(f"/api/labels/{label.id}").json()
     assert body["definition"] == "A claim exceeds the evidence."
     assert "notes" not in body
     edit = next(
@@ -268,39 +269,39 @@ def test_edit_post_json_has_no_notes(db):
 
 
 def test_move_post_nests_under_parent(db):
-    parent = create_issue_type(name="Parent", definition="p")
-    issue = create_issue_type(
+    parent = create_label(name="Parent", definition="p")
+    label = create_label(
         name="Overclaiming",
         definition="too strong",
     )
     client = TestClient(create_app())
     response = client.post(
-        f"/api/taxonomy/{issue.id}/move",
+        f"/api/labels/{label.id}/move",
         json={"parent_id": parent.id, "position": 0},
     )
     assert response.status_code == 200
-    body = client.get(f"/api/taxonomy/{issue.id}").json()
+    body = client.get(f"/api/labels/{label.id}").json()
     assert body["parent_id"] == parent.id
     assert body["definition"] == "too strong"
 
 
 def test_create_flatten_remove_http(db):
     client = TestClient(create_app())
-    created = client.post("/api/taxonomy", json={"parent_id": None})
+    created = client.post("/api/labels", json={"parent_id": None})
     assert created.status_code == 200
     parent_id = created.json()["id"]
-    child = client.post("/api/taxonomy", json={"parent_id": parent_id})
+    child = client.post("/api/labels", json={"parent_id": parent_id})
     assert child.status_code == 200
-    flattened = client.post(f"/api/taxonomy/{parent_id}/flatten")
+    flattened = client.post(f"/api/labels/{parent_id}/flatten")
     assert flattened.status_code == 200
-    removed = client.post(f"/api/taxonomy/{parent_id}/remove")
+    removed = client.post(f"/api/labels/{parent_id}/remove")
     assert removed.status_code == 200
-    assert client.get("/api/taxonomy").json()["forest"] == []
+    assert client.get("/api/labels").json()["forest"] == []
 
 
 def test_issue_comments_and_count_are_subtree(db):
-    parent = create_issue_type(name="Parent", definition="")
-    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
+    parent = create_label(name="Parent", definition="")
+    child = create_label(name="Child", definition="", parent_id=parent.id)
     with get_session() as session:
         session.add(
             ProofreadingComment(
@@ -311,7 +312,6 @@ def test_issue_comments_and_count_are_subtree(db):
                 file_path="main.tex",
                 line_number=1,
                 raw_text="child observation",
-                fingerprint="fp-child",
                 status="active",
             )
         )
@@ -319,20 +319,20 @@ def test_issue_comments_and_count_are_subtree(db):
             Coding(
                 id="coding-child",
                 comment_id="c-child",
-                issue_type_id=child.id,
+                label_id=child.id,
                 coder_type="human",
                 status="accepted",
             )
         )
         session.commit()
     client = TestClient(create_app())
-    listed = client.get("/api/taxonomy").json()
+    listed = client.get("/api/labels").json()
     row = next(item for item in listed["forest"] if item["id"] == parent.id)
     assert row["count"] == 1
     assert row["children"][0]["count"] == 1
-    detail = client.get(f"/api/taxonomy/{parent.id}").json()
+    detail = client.get(f"/api/labels/{parent.id}").json()
     assert [comment["id"] for comment in detail["comments"]] == ["c-child"]
-    assert detail["comments"][0]["issue"] == {
+    assert detail["comments"][0]["label"] == {
         "id": child.id,
         "name": "Child",
         "parent_id": parent.id,
@@ -341,53 +341,53 @@ def test_issue_comments_and_count_are_subtree(db):
 
 def test_move_unknown_issue_is_404(db):
     client = TestClient(create_app())
-    response = client.post("/api/taxonomy/missing/move", json={"parent_id": None, "position": 0})
+    response = client.post("/api/labels/missing/move", json={"parent_id": None, "position": 0})
     assert response.status_code == 404
 
 
 def test_inactive_issue_mutations_are_404(db):
-    issue = create_issue_type(name="Leaf", definition="")
-    other = create_issue_type(name="Target", definition="")
-    deactivate_issue_type(issue.id)
+    label = create_label(name="Leaf", definition="")
+    other = create_label(name="Target", definition="")
+    deactivate_label(label.id)
     client = TestClient(create_app())
-    assert client.post(f"/api/taxonomy/{issue.id}/flatten").status_code == 404
-    assert client.post(f"/api/taxonomy/{issue.id}/remove").status_code == 404
+    assert client.post(f"/api/labels/{label.id}/flatten").status_code == 404
+    assert client.post(f"/api/labels/{label.id}/remove").status_code == 404
     assert (
-        client.post(f"/api/taxonomy/{issue.id}/move", json={"parent_id": None, "position": 0}).status_code
+        client.post(f"/api/labels/{label.id}/move", json={"parent_id": None, "position": 0}).status_code
         == 404
     )
     assert (
-        client.post(f"/api/taxonomy/{issue.id}/split").status_code
+        client.post(f"/api/labels/{label.id}/split").status_code
         == 404
     )
     assert (
-        client.post("/api/taxonomy/merge", json={"source_ids": [issue.id], "target_id": other.id}).status_code
+        client.post("/api/labels/merge", json={"source_ids": [label.id], "target_id": other.id}).status_code
         == 404
     )
-    deactivate_issue_type(other.id)
-    live = create_issue_type(name="Source", definition="")
+    deactivate_label(other.id)
+    live = create_label(name="Source", definition="")
     assert (
-        client.post("/api/taxonomy/merge", json={"source_ids": [live.id], "target_id": other.id}).status_code
+        client.post("/api/labels/merge", json={"source_ids": [live.id], "target_id": other.id}).status_code
         == 404
     )
 
 
 def test_export_get_markdown(db):
-    create_issue_type(
+    create_label(
         name="Overclaiming",
         definition="too strong",
     )
     client = TestClient(create_app())
-    response = client.get("/api/taxonomy/export", params={"format": "md"})
+    response = client.get("/api/labels/export", params={"format": "md"})
     assert response.status_code == 200
     assert "Overclaiming" in response.text
 
 
 def test_export_get_selected_ids_only(db):
-    parent = create_issue_type(name="Parent", definition="p")
-    child = create_issue_type(name="Child", definition="c", parent_id=parent.id)
+    parent = create_label(name="Parent", definition="p")
+    child = create_label(name="Child", definition="c", parent_id=parent.id)
     client = TestClient(create_app())
-    response = client.get("/api/taxonomy/export", params=[("format", "md"), ("id", child.id)])
+    response = client.get("/api/labels/export", params=[("format", "md"), ("id", child.id)])
     assert response.status_code == 200
     assert "Child" in response.text
     assert "Parent" in response.text
@@ -396,28 +396,28 @@ def test_export_get_selected_ids_only(db):
 
 def test_export_unknown_format_is_400(db):
     client = TestClient(create_app())
-    response = client.get("/api/taxonomy/export", params={"format": "xlsx"})
+    response = client.get("/api/labels/export", params={"format": "xlsx"})
     assert response.status_code == 400
 
 
 def test_post_split_leaf_creates_children(db, monkeypatch):
-    source = create_issue_type(name="Overclaiming", definition="too strong")
-    _add_comment("c1", "Too strong.", issue_id=source.id)
-    _add_comment("c2", "Hedge this.", issue_id=source.id)
+    source = create_label(name="Overclaiming", definition="too strong")
+    _add_comment("c1", "Too strong.", label_id=source.id)
+    _add_comment("c2", "Hedge this.", label_id=source.id)
     monkeypatch.setenv("REVIEWDISTILL_LLM_PROVIDER", "mock")
     monkeypatch.setattr(
         "reviewdistill.llm.base.get_provider",
         lambda: MockLLMProvider(
-            '{"types":[{"name":"Evidence","definition":"a"},{"name":"Wording","definition":"b"}],'
-            '"assignments":[{"comment_id":"c1","type_index":0},{"comment_id":"c2","type_index":1}]}'
+            '{"labels":[{"name":"Evidence","definition":"a"},{"name":"Wording","definition":"b"}],'
+            '"assignments":[{"comment_id":"c1","label_index":0},{"comment_id":"c2","label_index":1}]}'
         ),
     )
     client = TestClient(create_app())
-    response = client.post(f"/api/taxonomy/{source.id}/split")
+    response = client.post(f"/api/labels/{source.id}/split")
     assert response.status_code == 200
     assert response.json()["ok"] is True
     assert "privacy_warning" in response.json()
-    listed = client.get("/api/taxonomy").json()
+    listed = client.get("/api/labels").json()
     node = next(item for item in listed["forest"] if item["id"] == source.id)
     assert {child["name"] for child in node["children"]} == {"Evidence", "Wording"}
 
@@ -429,20 +429,45 @@ def test_post_split_forest_creates_roots(db, monkeypatch):
     monkeypatch.setattr(
         "reviewdistill.llm.base.get_provider",
         lambda: MockLLMProvider(
-            '{"types":[{"name":"Evidence","definition":"a"},{"name":"Wording","definition":"b"}],'
-            '"assignments":[{"comment_id":"c1","type_index":0},{"comment_id":"c2","type_index":1}]}'
+            '{"labels":[{"name":"Evidence","definition":"a"},{"name":"Wording","definition":"b"}],'
+            '"assignments":[{"comment_id":"c1","label_index":0},{"comment_id":"c2","label_index":1}]}'
         ),
     )
     client = TestClient(create_app())
-    response = client.post("/api/taxonomy/split")
+    response = client.post("/api/labels/split")
     assert response.status_code == 200
     assert "privacy_warning" in response.json()
-    listed = client.get("/api/taxonomy").json()
+    listed = client.get("/api/labels").json()
     assert {node["name"] for node in listed["forest"]} == {"Evidence", "Wording"}
 
 
 def test_post_split_forest_rejects_existing_taxonomy(db):
-    create_issue_type(name="Already", definition="x")
+    create_label(name="Already", definition="x")
     client = TestClient(create_app())
-    response = client.post("/api/taxonomy/split")
+    response = client.post("/api/labels/split")
     assert response.status_code == 400
+
+
+def test_recycle_returns_new_id(db):
+    create_label(name="Existing", definition="")
+    _add_comment("c1", "too strong")
+    _add_comment("c2", "hedge this")
+    client = TestClient(create_app())
+    response = client.post("/api/labels/recycle")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["id"]
+    forest = client.get("/api/labels").json()["forest"]
+    names = [row["name"] for row in forest]
+    assert "ungrouped" in names
+    assert body["id"] in {row["id"] for row in forest}
+
+
+def test_recycle_400_when_forest_empty(db):
+    _add_comment("c1", "too strong")
+    _add_comment("c2", "hedge this")
+    client = TestClient(create_app())
+    response = client.post("/api/labels/recycle")
+    assert response.status_code == 400
+    assert "until a taxonomy exists" in response.json()["detail"]

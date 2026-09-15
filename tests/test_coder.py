@@ -8,7 +8,7 @@ from reviewdistill.db.models import Coding, ProofreadingComment
 from reviewdistill.db.session import get_session
 from reviewdistill.extraction.incremental import extract_project
 from reviewdistill.llm.mock import MockLLMProvider
-from reviewdistill.taxonomy.operations import add_example, create_issue_type
+from reviewdistill.taxonomy.operations import add_example, create_label
 
 
 def test_parse_existing_and_new_recommendations():
@@ -16,7 +16,7 @@ def test_parse_existing_and_new_recommendations():
         json.dumps(
             {
                 "recommendation": "existing",
-                "issue_type_id": "iss-1",
+                "label_id": "iss-1",
                 "confidence": 0.91,
                 "rationale": "Objects to demonstrate.",
                 "suggested_evidence": "demonstrate → suggest",
@@ -24,7 +24,7 @@ def test_parse_existing_and_new_recommendations():
         )
     )
     assert existing.recommendation == "existing"
-    assert existing.issue_type_id == "iss-1"
+    assert existing.label_id == "iss-1"
     assert existing.confidence == 0.91
 
     new = parse_model_output(
@@ -32,7 +32,7 @@ def test_parse_existing_and_new_recommendations():
             {
                 "recommendation": "new",
                 "issue_code": "METHJUST",
-                "issue_name": "Missing methodological justification",
+                "label_name": "Missing methodological justification",
                 "parent_id": None,
                 "definition": "A design decision is unexplained.",
                 "confidence": 0.78,
@@ -41,26 +41,26 @@ def test_parse_existing_and_new_recommendations():
         )
     )
     assert new.recommendation == "new"
-    assert new.issue_name.startswith("Missing")
+    assert new.label_name.startswith("Missing")
 
 
-def test_parse_model_output_reads_name_alias_as_issue_name():
+def test_parse_model_output_reads_name_alias_as_label_name():
     proposal = parse_model_output(
         json.dumps({"recommendation": "new", "name": "Unclear paragraph thesis", "rationale": "why"})
     )
-    assert proposal.issue_name == "Unclear paragraph thesis"
+    assert proposal.label_name == "Unclear paragraph thesis"
 
 
 def test_parse_model_output_reads_first_json_object():
     proposal = parse_model_output(
-        '{"recommendation":"new","issue_name":"X"} leftover {not json}'
+        '{"recommendation":"new","label_name":"X"} leftover {not json}'
     )
     assert proposal.recommendation == "new"
-    assert proposal.issue_name == "X"
+    assert proposal.label_name == "X"
 
 
 def test_build_prompt_separates_observation_from_interpretation():
-    issue = type(
+    label = type(
         "I",
         (),
         {
@@ -74,11 +74,12 @@ def test_build_prompt_separates_observation_from_interpretation():
         raw_text='I think "demonstrate" is too strong.',
         context_text="The experiment only shows a correlation.",
         section="Results",
-        candidates=[issue],
+        candidates=[label],
     )
     assert "Reviewer observation:" in prompt
     assert "do not modify the taxonomy" in prompt.lower()
-    assert "issue_name" in prompt
+    assert "Existing labels:" in prompt
+    assert "label_name" in prompt
     assert "required" in prompt
     assert "Overclaiming" in prompt
     assert "demonstrate" in prompt
@@ -90,7 +91,7 @@ def test_code_uncoded_comments_writes_proposed_coding(db, tmp_path):
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
     (repo / "main.tex").write_text('\\myremark{I think "demonstrate" is too strong here.}\n')
     extract_project(repo)
-    issue = create_issue_type(
+    label = create_label(
         name="Overclaiming",
         definition="A claim is stronger than the evidence supports.",
     )
@@ -98,7 +99,7 @@ def test_code_uncoded_comments_writes_proposed_coding(db, tmp_path):
         scripted_response=json.dumps(
             {
                 "recommendation": "existing",
-                "issue_type_id": issue.id,
+                "label_id": label.id,
                 "confidence": 0.91,
                 "rationale": "The reviewer objects to demonstrate.",
                 "suggested_evidence": "demonstrate → suggest",
@@ -114,11 +115,11 @@ def test_code_uncoded_comments_writes_proposed_coding(db, tmp_path):
         assert coding.comment_id == comment.id
         assert coding.coder_type == "ai"
         assert coding.status == "proposed"
-        assert coding.issue_type_id == issue.id
+        assert coding.label_id == label.id
         assert coding.confidence == 0.91
 
 
-def test_code_skips_new_recommendation_without_issue_name(db, tmp_path):
+def test_code_skips_new_recommendation_without_label_name(db, tmp_path):
     from reviewdistill.coding.coder import uncoded_comments
 
     repo = tmp_path / "paper"
@@ -157,7 +158,7 @@ def test_uncoded_includes_incomplete_new_proposal(db, tmp_path):
             Coding(
                 id="incomplete",
                 comment_id=comment.id,
-                issue_type_id=None,
+                label_id=None,
                 coder_type="ai",
                 status="proposed",
                 rationale="No existing type fits.",
@@ -169,27 +170,27 @@ def test_uncoded_includes_incomplete_new_proposal(db, tmp_path):
 
 def test_uncoded_includes_accepted_label_on_inactive_type(db, tmp_path):
     from reviewdistill.coding.coder import uncoded_comments
-    from reviewdistill.db.models import ISSUE_INACTIVE, IssueType
+    from reviewdistill.db.models import LABEL_INACTIVE, Label
 
     repo = tmp_path / "paper"
     repo.mkdir()
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
     (repo / "main.tex").write_text("\\myremark{Smooth this paragraph.}\n")
     extract_project(repo)
-    issue = create_issue_type(name="Mock issue", definition="x")
+    label = create_label(name="Mock label", definition="x")
     with get_session() as session:
         comment = session.first(ProofreadingComment)
         session.add(
             Coding(
                 id="accepted-inactive",
                 comment_id=comment.id,
-                issue_type_id=issue.id,
+                label_id=label.id,
                 coder_type="ai",
                 status="accepted",
             )
         )
-        row = session.get(IssueType, issue.id)
-        row.status = ISSUE_INACTIVE
+        row = session.get(Label, label.id)
+        row.status = LABEL_INACTIVE
         session.add(row)
         session.commit()
         comment_id = comment.id
@@ -225,7 +226,7 @@ def test_code_replaces_placeholder_mock_proposal(db, tmp_path):
                 comment_id=comment.id,
                 coder_type="ai",
                 status="proposed",
-                proposed_issue_name="Mock issue",
+                proposed_label_name="Mock label",
                 rationale="Mock provider used in tests.",
                 confidence=0.5,
             )
@@ -239,7 +240,7 @@ def test_code_replaces_placeholder_mock_proposal(db, tmp_path):
             return json.dumps(
                 {
                     "recommendation": "new",
-                    "issue_name": "Unclear thesis",
+                    "label_name": "Unclear thesis",
                     "issue_code": "UNCLEAR",
                     "parent_id": None,
                     "definition": "The paragraph thesis is not clear.",
@@ -254,26 +255,26 @@ def test_code_replaces_placeholder_mock_proposal(db, tmp_path):
         rows = session.find(Coding, comment_id=comment_id)
         assert session.get(Coding, "mock-proposed") is None
         assert len(rows) == 1
-        assert rows[0].proposed_issue_name == "Unclear thesis"
+        assert rows[0].proposed_label_name == "Unclear thesis"
 
 
-def test_unknown_issue_type_id_does_not_fall_back_to_top_candidate(db, tmp_path):
+def test_unknown_label_id_does_not_fall_back_to_top_candidate(db, tmp_path):
     repo = tmp_path / "paper"
     repo.mkdir()
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
     (repo / "main.tex").write_text('\\myremark{I think "demonstrate" is too strong here.}\n')
     extract_project(repo)
-    issue = create_issue_type(
+    label = create_label(
         name="Overclaiming",
         definition="A claim is stronger than the evidence supports.",
     )
-    add_example(issue.id, text='I think "demonstrate" is too strong here.')
+    add_example(label.id, text='I think "demonstrate" is too strong here.')
     provider = MockLLMProvider(
         scripted_response=json.dumps(
             {
                 "recommendation": "existing",
-                "issue_type_id": "not-a-real-issue",
-                "issue_name": "Overclaiming (proposed)",
+                "label_id": "not-a-real-label",
+                "label_name": "Overclaiming (proposed)",
                 "issue_code": "OVERCLAIM2",
                 "parent_id": None,
                 "definition": "A claim exceeds the evidence.",
@@ -285,9 +286,9 @@ def test_unknown_issue_type_id_does_not_fall_back_to_top_candidate(db, tmp_path)
     code_uncoded_comments(provider=provider)
     with get_session() as session:
         coding = session.first(Coding)
-        assert coding.issue_type_id is None
-        assert coding.proposed_issue_name == "Overclaiming (proposed)"
-        assert coding.issue_type_id != issue.id
+        assert coding.label_id is None
+        assert coding.proposed_label_name == "Overclaiming (proposed)"
+        assert coding.label_id != label.id
 
 
 def test_code_continues_after_one_unparseable_response(db, tmp_path):
@@ -296,7 +297,7 @@ def test_code_continues_after_one_unparseable_response(db, tmp_path):
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
     (repo / "main.tex").write_text("\\myremark{First comment.}\n\\myremark{Second comment.}\n")
     extract_project(repo)
-    responses = iter(["not json", json.dumps({"recommendation": "new", "issue_name": "Second"})])
+    responses = iter(["not json", json.dumps({"recommendation": "new", "label_name": "Second"})])
 
     class _Stub:
         name = "openai"
@@ -308,7 +309,7 @@ def test_code_continues_after_one_unparseable_response(db, tmp_path):
     assert summary.coded == 1
     assert summary.skipped >= 1
     with get_session() as session:
-        names = {row.proposed_issue_name for row in session.find(Coding)}
+        names = {row.proposed_label_name for row in session.find(Coding)}
         assert "Second" in names
 
 
@@ -318,7 +319,7 @@ def test_code_uncoded_comments_ranks_all_comments_without_reloading_store(db, tm
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
     (repo / "main.tex").write_text("\\myremark{First comment.}\n\\myremark{Second comment.}\n")
     extract_project(repo)
-    create_issue_type(
+    create_label(
         name="Overclaiming",
         definition="A claim is stronger than the evidence supports.",
     )

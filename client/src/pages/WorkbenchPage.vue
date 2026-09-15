@@ -9,21 +9,22 @@ import { useRoute, useRouter } from 'vue-router'
 import withProgressBar from 'with-progress-bar'
 import {
   changeInbox,
-  createIssue,
-  flattenIssue,
-  mergeIssues,
-  moveIssue,
+  createLabel,
+  flattenLabel,
+  mergeLabels,
+  moveLabel,
   postInbox,
   postInboxCode,
-  removeIssue,
+  recycleUngrouped,
+  removeLabel,
   revealInboxFile,
-  splitIssue,
-  splitTaxonomy,
+  splitForest,
+  splitLabel,
 } from '../api/client.ts'
 import CommentInspector from '../components/workbench/CommentInspector.vue'
 import EntriesPanel from '../components/workbench/EntriesPanel.vue'
-import GroupsPanel from '../components/workbench/GroupsPanel.vue'
-import IssueInspector from '../components/workbench/IssueInspector.vue'
+import LabelInspector from '../components/workbench/LabelInspector.vue'
+import LabelsPanel from '../components/workbench/LabelsPanel.vue'
 import ProgressBar from '../components/workbench/ProgressBar.vue'
 import SelectorsBar from '../components/workbench/SelectorsBar.vue'
 import { inboxLocationRows, safeHttpHref } from '../inboxLocation.ts'
@@ -32,24 +33,28 @@ import { selectedIdAfterAction } from '../select.ts'
 import {
   applyCommentSelectors,
   commentsEmptyCopy,
+  labelChipVisible,
   mergeCommentPool,
   parseUnlabeledQuery,
   staleCommentQuery,
-  typeChipVisible,
   workbenchHref,
 } from '../workbench/commentSelectors.ts'
-import { splitContextText } from '../workbench/contextParts.ts'
 import { dropAction } from '../workbench/dropAction.ts'
-import { afterSplitHref, canHeaderSplitFromState } from '../workbench/splitControls.ts'
+import {
+  afterRecycleHref,
+  afterSplitHref,
+  canHeaderRecycleFromState,
+  canHeaderSplitFromState,
+} from '../workbench/splitControls.ts'
 import { descendantIds, findNode, moveBody } from '../workbench/taxonomyTree.ts'
 import {
+  afterLabelTreeChangeParts,
   afterMergeNavigation,
-  afterTypeTreeChangeParts,
   allowChangeDrop,
-  issueIdAfterLeave,
-  labeledTypeIdForComment,
+  labeledLabelIdForComment,
+  labelIdAfterLeave,
+  labelRouteAfterRemove,
   selectGroupHref,
-  typeRouteAfterRemove,
 } from '../workbench/workbenchMode.ts'
 import { useWorkbenchStore } from '../workbench/workbenchStore.ts'
 
@@ -59,27 +64,27 @@ function queryStr(value: unknown): string {
 
 const route = useRoute()
 const router = useRouter()
-const paramsIssueId = computed(() => (typeof route.params.id === 'string' ? route.params.id : ''))
-const detailsId = paramsIssueId
-const groupId = detailsId
+const paramsLabelId = computed(() => (typeof route.params.id === 'string' ? route.params.id : ''))
+const detailsId = paramsLabelId
+const labelId = detailsId
 const unlabeledOn = computed(() => parseUnlabeledQuery(route.query.unlabeled))
-const typeOn = computed(() => typeChipVisible(detailsId.value, route.query.typechip))
+const labelOn = computed(() => labelChipVisible(detailsId.value, route.query.labelchip))
 const commentIdQuery = computed(() => queryStr(route.query.id))
 
 const store = useWorkbenchStore()
-const { inbox, taxonomy, issue, missing, error, loading } = storeToRefs(store)
+const { inbox, labels, label, missing, error, loading } = storeToRefs(store)
 const { loadInbox, openSettings } = store
 
-async function loadIssue() {
-  await store.loadIssue(groupId.value)
+async function loadLabel() {
+  await store.loadLabel(labelId.value)
 }
 
 async function loadAll() {
-  await store.loadAll(groupId.value)
+  await store.loadAll(labelId.value)
 }
 
-async function invalidate(parts: InvalidateParts, issueId = groupId.value) {
-  await store.invalidate(parts, issueId)
+async function invalidate(parts: InvalidateParts, id = labelId.value) {
+  await store.invalidate(parts, id)
 }
 const labeling = ref(false)
 const revealing = ref(false)
@@ -87,32 +92,32 @@ const notice = ref('')
 
 const commentsLayout = ref<CommentsLayout>('one')
 
-function typeRow(id: string) {
+function labelRow(id: string) {
   if (!id) { return undefined }
-  return findNode(taxonomy.value?.forest ?? [], id) ?? undefined
+  return findNode(labels.value?.forest ?? [], id) ?? undefined
 }
 
-const selectedCount = computed(() => typeRow(groupId.value)?.count ?? 0)
-const typeChipLabel = computed(() => {
-  const name = typeRow(detailsId.value)?.name ?? issue.value?.name ?? ''
+const selectedCount = computed(() => labelRow(labelId.value)?.count ?? 0)
+const labelChipLabel = computed(() => {
+  const name = labelRow(detailsId.value)?.name ?? label.value?.name ?? ''
   if (!name) { return '' }
-  return `${name} (${typeRow(detailsId.value)?.count ?? selectedCount.value})`
+  return `${name} (${labelRow(detailsId.value)?.count ?? selectedCount.value})`
 })
-const typeChipTitle = computed(() => typeRow(detailsId.value)?.name ?? issue.value?.name ?? '')
+const labelChipTitle = computed(() => labelRow(detailsId.value)?.name ?? label.value?.name ?? '')
 
 const pool = computed(() =>
   mergeCommentPool(inbox.value?.working_items ?? [], inbox.value?.items ?? []),
 )
 const inboxIds = computed(() => new Set((inbox.value?.items ?? []).map((row) => row.comment.id)))
-const typeSubtreeIds = computed(() => {
-  if (!typeOn.value) { return [] as string[] }
-  const node = findNode(taxonomy.value?.forest ?? [], detailsId.value)
+const labelSubtreeIds = computed(() => {
+  if (!labelOn.value) { return [] as string[] }
+  const node = findNode(labels.value?.forest ?? [], detailsId.value)
   if (!node) { return detailsId.value ? [detailsId.value] : [] }
   return [node.id, ...descendantIds(node)]
 })
 const matchedItems = computed(() => applyCommentSelectors(pool.value, inboxIds.value, {
   unlabeled: unlabeledOn.value,
-  typeSubtreeIds: typeSubtreeIds.value,
+  labelSubtreeIds: labelSubtreeIds.value,
 }))
 
 const selectedCommentId = computed(() => {
@@ -139,13 +144,13 @@ const toDistillCount = computed(() => inbox.value?.progress.working_set ?? 0)
 
 const emptyCopy = computed(() => commentsEmptyCopy({
   unlabeled: unlabeledOn.value,
-  typeOn: typeOn.value,
+  labelOn: labelOn.value,
 }))
 
 function commentHref(commentId?: string): string {
   return workbenchHref(detailsId.value, {
     unlabeled: unlabeledOn.value,
-    typeChipOff: !typeOn.value,
+    labelChipOff: !labelOn.value,
     commentId,
   })
 }
@@ -170,22 +175,25 @@ const locationRows = computed(() => {
   })
 })
 
-const contextParts = computed(() => splitContextText(inspectorItem.value?.comment.context_text ?? ''))
-
 const canLabelWithAi = computed(() =>
   Boolean(inbox.value?.llm_provider && inbox.value.pending_code_count),
 )
 
 const headerSplitEnabled = computed(() => canHeaderSplitFromState({
-  forest: taxonomy.value?.forest,
+  forest: labels.value?.forest,
   unlabeledWorkingCount: inbox.value?.progress.unlabeled ?? 0,
   llmConfigured: Boolean(inbox.value?.llm_provider),
+}))
+
+const headerRecycleEnabled = computed(() => canHeaderRecycleFromState({
+  forest: labels.value?.forest,
+  unlabeledWorkingCount: inbox.value?.progress.unlabeled ?? 0,
 }))
 
 function labelWithAiTitle(): string {
   if (!inbox.value?.llm_provider) { return 'Configure the assistant in Settings first' }
   if (!inbox.value.pending_code_count) { return 'No unlabeled comments need suggestions' }
-  return 'Ask the LLM to propose issue types for every unlabeled comment'
+  return 'Ask the LLM to propose a label assignment for every unlabeled comment'
 }
 
 function selectComment(id: string) {
@@ -204,7 +212,7 @@ function onSelectEntry(id: string) {
 const runLabelWithAi = withProgressBar(async () => {
   const result = await postInboxCode()
   notice.value = privacyNoticeText(result.privacy_warning)
-  await invalidate({ inbox: true, taxonomy: true })
+  await invalidate({ inbox: true, labels: true })
 })
 
 async function labelWithAi() {
@@ -224,13 +232,13 @@ async function labelWithAi() {
 }
 
 const runSplit = withProgressBar(async (id: string | null) => {
-  const result = id ? await splitIssue(id) : await splitTaxonomy()
+  const result = id ? await splitLabel(id) : await splitForest()
   notice.value = privacyNoticeText(result.privacy_warning)
-  await invalidate({ inbox: true, taxonomy: true, issue: true })
+  await invalidate({ inbox: true, labels: true, label: true })
   await router.push(afterSplitHref(id))
 })
 
-async function onSplitType(id: string | null) {
+async function onSplitLabel(id: string | null) {
   if (labeling.value) { return }
   labeling.value = true
   error.value = ''
@@ -254,7 +262,7 @@ function afterCommentAction(next?: string) {
   void router.replace(commentHref(next))
 }
 
-async function act(action: 'accept' | 'verify' | 'drop') {
+async function act(action: 'accept' | 'verify' | 'delete') {
   const current = inspectorItem.value
   if (!current) { return }
   error.value = ''
@@ -262,8 +270,13 @@ async function act(action: 'accept' | 'verify' | 'drop') {
   const idsBefore = commentQueueIds()
   try {
     await postInbox(actedId, action)
-    await invalidate({ inbox: true, taxonomy: true, issue: true })
-    afterCommentAction(selectedIdAfterAction(idsBefore, actedId, commentQueueIds()))
+    await invalidate({ inbox: true, labels: true, label: true })
+    if (action === 'verify') {
+      afterCommentAction(actedId)
+    }
+    else {
+      afterCommentAction(selectedIdAfterAction(idsBefore, actedId, commentQueueIds()))
+    }
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -286,15 +299,15 @@ async function revealFile() {
   }
 }
 
-async function change(issueTypeId: string) {
+async function change(nextLabelId: string) {
   const current = inspectorItem.value
-  if (!current || !issueTypeId) { return }
+  if (!current || !nextLabelId) { return }
   error.value = ''
   const actedId = current.comment.id
   const idsBefore = commentQueueIds()
   try {
-    await changeInbox(actedId, issueTypeId)
-    await invalidate({ inbox: true, taxonomy: true, issue: true })
+    await changeInbox(actedId, nextLabelId)
+    await invalidate({ inbox: true, labels: true, label: true })
     afterCommentAction(selectedIdAfterAction(idsBefore, actedId, commentQueueIds()))
   }
   catch (err) {
@@ -307,10 +320,10 @@ async function onDrop(payload: DragPayload, target: DropTarget) {
     ? pool.value.find((row) => row.comment.id === payload.id)
     : null
   const labeledTypeId = payload.kind === 'comment'
-    ? labeledTypeIdForComment(pool.value, payload.id)
+    ? labeledLabelIdForComment(pool.value, payload.id)
     : null
-  const source = payload.kind === 'issue'
-    ? findNode(taxonomy.value?.forest ?? [], payload.id)
+  const source = payload.kind === 'label'
+    ? findNode(labels.value?.forest ?? [], payload.id)
     : null
   const action = dropAction(payload, target, labeledTypeId, source ? descendantIds(source) : [])
   if (action.type === 'ignore' || !allowChangeDrop(Boolean(dragged?.labeled), action.type)) { return }
@@ -319,30 +332,30 @@ async function onDrop(payload: DragPayload, target: DropTarget) {
     if (action.type === 'change') {
       const actedId = action.commentId
       const idsBefore = matchedItems.value.map((item) => item.comment.id)
-      await changeInbox(actedId, action.issueTypeId)
-      await invalidate({ inbox: true, taxonomy: true, issue: true })
+      await changeInbox(actedId, action.labelId)
+      await invalidate({ inbox: true, labels: true, label: true })
       await router.replace(commentHref(selectedIdAfterAction(idsBefore, actedId, commentQueueIds())))
       return
     }
     if (action.type === 'merge') {
-      await mergeIssues([action.sourceId], action.targetId)
+      await mergeLabels([action.sourceId], action.targetId)
       const next = afterMergeNavigation(
         { unlabeled: unlabeledOn.value, detailsId: detailsId.value },
         action.targetId,
         selectedCommentId.value ?? '',
-        groupId.value,
+        labelId.value,
         action.sourceId,
       )
       if (next.replace) { await router.replace(next.href) }
       else { await router.push(next.href) }
-      await invalidate({ inbox: true, taxonomy: true, issue: true }, next.issueId)
+      await invalidate({ inbox: true, labels: true, label: true }, next.labelId)
       return
     }
     if (action.type === 'move') {
-      const body = moveBody(taxonomy.value?.forest ?? [], action.issueTypeId, action.targetId, action.placement)
+      const body = moveBody(labels.value?.forest ?? [], action.labelId, action.targetId, action.placement)
       if (!body) { return }
-      await moveIssue(action.issueTypeId, body.parent_id, body.position)
-      await invalidate(afterTypeTreeChangeParts())
+      await moveLabel(action.labelId, body.parent_id, body.position)
+      await invalidate(afterLabelTreeChangeParts())
     }
   }
   catch (err) {
@@ -350,11 +363,11 @@ async function onDrop(payload: DragPayload, target: DropTarget) {
   }
 }
 
-async function onCreateType(parentId: string | null) {
+async function onCreateLabel(parentId: string | null) {
   error.value = ''
   try {
-    const created = await createIssue(parentId)
-    await invalidate(afterTypeTreeChangeParts())
+    const created = await createLabel(parentId)
+    await invalidate(afterLabelTreeChangeParts())
     await router.push(selectGroupHref(created.id, unlabeledOn.value))
   }
   catch (err) {
@@ -362,40 +375,52 @@ async function onCreateType(parentId: string | null) {
   }
 }
 
-async function onFlattenType(id: string) {
+async function onRecycleUngrouped() {
   error.value = ''
-  const viewing = groupId.value
-  const node = findNode(taxonomy.value?.forest ?? [], id)
-  const href = typeRouteAfterRemove(viewing, node ? descendantIds(node) : [])
   try {
-    await flattenIssue(id)
-    if (href) { await router.replace(href) }
-    await invalidate({ taxonomy: true, inbox: true, issue: true }, issueIdAfterLeave(href, viewing))
+    const created = await recycleUngrouped()
+    await invalidate(afterLabelTreeChangeParts())
+    await router.push(afterRecycleHref(created.id))
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
 }
 
-async function onRemoveType(id: string) {
+async function onFlattenLabel(id: string) {
   error.value = ''
-  const viewing = groupId.value
-  const node = findNode(taxonomy.value?.forest ?? [], id)
+  const viewing = labelId.value
+  const node = findNode(labels.value?.forest ?? [], id)
+  const href = labelRouteAfterRemove(viewing, node ? descendantIds(node) : [])
+  try {
+    await flattenLabel(id)
+    if (href) { await router.replace(href) }
+    await invalidate({ labels: true, inbox: true, label: true }, labelIdAfterLeave(href, viewing))
+  }
+  catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function onRemoveLabel(id: string) {
+  error.value = ''
+  const viewing = labelId.value
+  const node = findNode(labels.value?.forest ?? [], id)
   const deletedIds = node ? [id, ...descendantIds(node)] : [id]
-  const href = typeRouteAfterRemove(viewing, deletedIds)
+  const href = labelRouteAfterRemove(viewing, deletedIds)
   try {
-    await removeIssue(id)
+    await removeLabel(id)
     if (href) { await router.replace(href) }
-    await invalidate({ taxonomy: true, inbox: true, issue: true }, issueIdAfterLeave(href, viewing))
+    await invalidate({ labels: true, inbox: true, label: true }, labelIdAfterLeave(href, viewing))
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
 }
 
-async function onIssueUpdated() {
+async function onLabelUpdated() {
   error.value = ''
-  await invalidate({ taxonomy: true, issue: true })
+  await invalidate({ labels: true, label: true })
 }
 
 function onCommentsLayout(layout: CommentsLayout) {
@@ -425,7 +450,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
 })
 watch(() => route.name, () => { void loadInbox() })
-watch(groupId, () => { void loadIssue() })
+watch(labelId, () => { void loadLabel() })
 watch(
   () => [commentIdQuery.value, matchedItems.value.map((item) => item.comment.id)] as const,
   ([queryId, ids]) => {
@@ -439,36 +464,38 @@ watch(
   <div class="flex h-full min-h-0 flex-col">
     <SelectorsBar
       :unlabeled-on="unlabeledOn"
-      :dismiss-unlabeled-href="workbenchHref(detailsId, { unlabeled: false, typeChipOff: !typeOn, commentId: selectedCommentId })"
-      :toggle-unlabeled-href="workbenchHref(detailsId, { unlabeled: !unlabeledOn, typeChipOff: !typeOn, commentId: selectedCommentId })"
-      :type-chip="typeOn && typeChipLabel ? {
-        label: typeChipLabel,
-        title: typeChipTitle,
-        dismissHref: workbenchHref(detailsId, { unlabeled: unlabeledOn, typeChipOff: true, commentId: selectedCommentId }),
+      :dismiss-unlabeled-href="workbenchHref(detailsId, { unlabeled: false, labelChipOff: !labelOn, commentId: selectedCommentId })"
+      :toggle-unlabeled-href="workbenchHref(detailsId, { unlabeled: !unlabeledOn, labelChipOff: !labelOn, commentId: selectedCommentId })"
+      :label-chip="labelOn && labelChipLabel ? {
+        label: labelChipLabel,
+        title: labelChipTitle,
+        dismissHref: workbenchHref(detailsId, { unlabeled: unlabeledOn, labelChipOff: true, commentId: selectedCommentId }),
       } : null"
     />
-    <!-- Issues (taxonomy over details) | Comments share the row equally. Selectors and Progress stay full-width. -->
+    <!-- Label Taxonomy over Label Details | Comments share the row equally. Selectors and Progress stay full-width. -->
     <div class="flex min-h-0 flex-1 gap-2 p-2">
       <div class="ch-workbench-card flex-col">
-        <GroupsPanel
-          :list="taxonomy"
-          :selected-id="groupId"
+        <LabelsPanel
+          :list="labels"
+          :selected-id="labelId"
           :header-split-enabled="headerSplitEnabled"
+          :header-recycle-enabled="headerRecycleEnabled"
           :llm-configured="Boolean(inbox?.llm_provider)"
           :splitting="labeling"
           @select="onSelectGroup"
           @drop="onDrop"
-          @create="onCreateType"
-          @flatten="onFlattenType"
-          @remove="onRemoveType"
-          @split="onSplitType"
+          @create="onCreateLabel"
+          @recycle="onRecycleUngrouped"
+          @flatten="onFlattenLabel"
+          @remove="onRemoveLabel"
+          @split="onSplitLabel"
         />
-        <IssueInspector
-          :issue="issue"
-          :selected-id="groupId"
+        <LabelInspector
+          :label="label"
+          :selected-id="labelId"
           :missing="missing"
           :error="error"
-          @updated="onIssueUpdated"
+          @updated="onLabelUpdated"
         />
       </div>
       <div class="ch-workbench-card flex-col">
@@ -476,11 +503,11 @@ watch(
           :layout="commentsLayout"
           :items="matchedItems"
           :selected-id="listSelectedId"
-          :forest="taxonomy?.forest ?? []"
+          :forest="labels?.forest ?? []"
           :total-count="commentTotal"
           :to-distill-count="toDistillCount"
           :unlabeled="unlabeledOn"
-          :type-on="typeOn"
+          :label-on="labelOn"
           :loading="loading"
           :empty-copy="emptyCopy"
           :error="error"
@@ -493,12 +520,6 @@ watch(
           @update:layout="onCommentsLayout"
           @label-with-ai="labelWithAi"
         >
-          <p v-if="error" class="ch-error-text mb-3">
-            {{ error }}
-          </p>
-          <p v-if="notice" class="ch-muted-text mb-3">
-            {{ notice }}
-          </p>
           <CommentInspector
             v-if="inspectorItem"
             :view="inspectorView"
@@ -506,12 +527,11 @@ watch(
             :data="inbox"
             error=""
             :location-rows="locationRows"
-            :context-parts="contextParts"
-            :forest="taxonomy?.forest ?? []"
+            :forest="labels?.forest ?? []"
             @accept="act('accept')"
             @assign="change"
             @verify="act('verify')"
-            @drop="act('drop')"
+            @delete="act('delete')"
             @reveal="revealFile"
             @configure-llm="openSettings"
           />

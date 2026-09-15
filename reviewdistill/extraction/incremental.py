@@ -6,8 +6,8 @@ Per stable ``.tex`` file: pair exact fingerprints in file order, then
 ``difflib.SequenceMatcher`` on leftovers (revision if similar and same command,
 else absent + new). Then cross-file exact-fingerprint moves, then resurrect
 absent rows, then new vs absent. Unclosed comment braces skip
-that file only. Never deletes rows; never Verify/Drops (except a wording
-revision clears ``verified`` to ``unreviewed``); never AI-labels.
+that file only. Never deletes rows; never Verify (except a wording
+revision clears ``verified`` to false); never AI-labels.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from reviewdistill.config import load_project_config
 from reviewdistill.context.manuscript import extract_context
-from reviewdistill.db.models import GitCommitRecord, Project, ProofreadingComment, comment_quality
+from reviewdistill.db.models import Project, ProofreadingComment
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.extraction.base import ExtractedComment
 from reviewdistill.extraction.latex import LatexCommandExtractor
@@ -149,23 +149,6 @@ def extract_project(root: Path) -> ExtractSummary:
             project.root_path = str(root)
             project.name = config.name
 
-        if git.repository and git.commit_hash:
-            exists = session.first(
-                GitCommitRecord,
-                project_id=config.id,
-                commit_hash=git.commit_hash,
-            )
-            if exists is None:
-                session.add(
-                    GitCommitRecord(
-                        id=str(uuid4()),
-                        project_id=config.id,
-                        repository=git.repository,
-                        commit_hash=git.commit_hash,
-                        remote_url=git.remote_url,
-                    )
-                )
-
         existing = session.find(ProofreadingComment, project_id=config.id)
         present = [
             row
@@ -181,15 +164,17 @@ def extract_project(root: Path) -> ExtractSummary:
             e_rows = list(by_file.get(path, []))
             paired, d_left, e_left = _pair_exact_fingerprints(d_rows, e_rows)
             for row, pending in paired:
-                _apply_source(row, pending, root, git, update_text=False)
+                _apply_source(row, pending, root, git, config.latex_commands, update_text=False)
                 summary.unchanged += 1
-            d_unmatched, e_unmatched = _pass_b(d_left, e_left, root, git, summary)
+            d_unmatched, e_unmatched = _pass_b(
+                d_left, e_left, root, git, summary, config.latex_commands
+            )
             leftover_db.extend(d_unmatched)
             leftover_ex.extend(e_unmatched)
 
         moved, leftover_db, leftover_ex = _pair_cross_file(leftover_db, leftover_ex)
         for row, pending in moved:
-            _apply_source(row, pending, root, git, update_text=False)
+            _apply_source(row, pending, root, git, config.latex_commands, update_text=False)
             summary.moved += 1
 
         still_ex: list[_Pending] = []
@@ -200,12 +185,12 @@ def extract_project(root: Path) -> ExtractSummary:
                 still_ex.append(pending)
                 continue
             candidate.status = "active"
-            _apply_source(candidate, pending, root, git, update_text=True)
+            _apply_source(candidate, pending, root, git, config.latex_commands, update_text=True)
             resurrected_ids.add(candidate.id)
             summary.resurrected += 1
 
         for pending in still_ex:
-            session.add(_to_row(config.id, pending, root, git))
+            session.add(_to_row(config.id, pending, root, git, config.latex_commands))
             summary.added += 1
 
         for row in leftover_db:
@@ -247,40 +232,39 @@ def _pending_from(comment: ExtractedComment) -> _Pending:
     )
 
 
-def _context_fields(root: Path, pending: _Pending) -> tuple[str, str | None]:
+def _context_fields(root: Path, pending: _Pending, commands: list[str]) -> tuple[str, str | None]:
     source = (root / pending.file_path).read_text(errors="replace")
-    ctx = extract_context(source, pending.line_number, command=pending.source_command)
-    extra = []
-    if ctx.citations:
-        extra.append("Citations: " + ", ".join(ctx.citations))
-    if ctx.figure_table_refs:
-        extra.append("Refs: " + ", ".join(ctx.figure_table_refs))
-    context_text = ctx.context_text
-    if extra:
-        context_text = context_text + "\n" + " | ".join(extra)
-    return context_text, ctx.section
+    ctx = extract_context(source, pending.line_number, commands=commands)
+    return ctx.context_text, ctx.section
 
 
 def _apply_source(
-    row: ProofreadingComment, pending: _Pending, root: Path, git: GitMetadata, *, update_text: bool
+    row: ProofreadingComment,
+    pending: _Pending,
+    root: Path,
+    git: GitMetadata,
+    commands: list[str],
+    *,
+    update_text: bool,
 ) -> None:
     row.file_path = pending.file_path
     row.line_number = pending.line_number
     row.git_commit = git.commit_hash
     row.git_url = git.remote_url
-    row.context_text, row.section = _context_fields(root, pending)
+    row.context_text, row.section = _context_fields(root, pending, commands)
     if update_text:
-        text_changed = row.fingerprint != pending.fingerprint
+        text_changed = fingerprint_for(row.source_command, row.raw_text) != pending.fingerprint
         row.raw_text = pending.raw_text
-        row.fingerprint = pending.fingerprint
         row.source_command = pending.source_command
         row.source_type = pending.source_type
-        if text_changed and comment_quality(row) == "verified":
-            row.quality = "unreviewed"
+        if text_changed and row.verified:
+            row.verified = False
 
 
-def _to_row(project_id: str, comment: _Pending, root: Path, git: GitMetadata) -> ProofreadingComment:
-    context_text, section = _context_fields(root, comment)
+def _to_row(
+    project_id: str, comment: _Pending, root: Path, git: GitMetadata, commands: list[str]
+) -> ProofreadingComment:
+    context_text, section = _context_fields(root, comment, commands)
     return ProofreadingComment(
         id=str(uuid4()),
         project_id=project_id,
@@ -293,9 +277,8 @@ def _to_row(project_id: str, comment: _Pending, root: Path, git: GitMetadata) ->
         section=section,
         git_commit=git.commit_hash,
         git_url=git.remote_url,
-        fingerprint=comment.fingerprint,
         status="active",
-        quality="unreviewed",
+        verified=False,
     )
 
 
@@ -304,7 +287,7 @@ def _pair_exact_fingerprints(
 ) -> tuple[list[tuple[ProofreadingComment, _Pending]], list[ProofreadingComment], list[_Pending]]:
     db_by: dict[str, list[ProofreadingComment]] = defaultdict(list)
     for row in db_rows:
-        db_by[row.fingerprint].append(row)
+        db_by[fingerprint_for(row.source_command, row.raw_text)].append(row)
     ex_by: dict[str, list[_Pending]] = defaultdict(list)
     for pending in ex_rows:
         ex_by[pending.fingerprint].append(pending)
@@ -330,6 +313,7 @@ def _pass_b(
     root: Path,
     git: GitMetadata,
     summary: ExtractSummary,
+    commands: list[str],
 ) -> tuple[list[ProofreadingComment], list[_Pending]]:
     unmatched_d: list[ProofreadingComment] = []
     unmatched_e: list[_Pending] = []
@@ -347,7 +331,7 @@ def _pass_b(
                 row = d_left[i1 + k]
                 pending = e_left[j1 + k]
                 if row.source_command == pending.source_command and similar_text(row.raw_text, pending.raw_text):
-                    _apply_source(row, pending, root, git, update_text=True)
+                    _apply_source(row, pending, root, git, commands, update_text=True)
                     summary.revised += 1
                 else:
                     unmatched_d.append(row)
@@ -366,7 +350,10 @@ def _pass_b(
 def _pair_cross_file(
     leftover_db: list[ProofreadingComment], leftover_ex: list[_Pending]
 ) -> tuple[list[tuple[ProofreadingComment, _Pending]], list[ProofreadingComment], list[_Pending]]:
-    leftover_db = sorted(leftover_db, key=lambda row: (row.fingerprint, row.file_path, row.line_number, row.id))
+    leftover_db = sorted(
+        leftover_db,
+        key=lambda row: (fingerprint_for(row.source_command, row.raw_text), row.file_path, row.line_number, row.id),
+    )
     leftover_ex = sorted(
         leftover_ex, key=lambda pending: (pending.fingerprint, pending.file_path, pending.line_number, pending.source_command)
     )
@@ -379,7 +366,7 @@ def _resurrect_candidate(
     candidates = [
         row
         for row in existing
-        if row.fingerprint == fingerprint
+        if fingerprint_for(row.source_command, row.raw_text) == fingerprint
         and row.status != "active"
         and row.id not in used_ids
     ]

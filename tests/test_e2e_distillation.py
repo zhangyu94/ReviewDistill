@@ -7,7 +7,7 @@ from reviewdistill.coding.validation import accept_coding, inbox_items
 from reviewdistill.extraction.incremental import extract_project
 from reviewdistill.llm.mock import MockLLMProvider
 from reviewdistill.taxonomy.export import export_rubric
-from reviewdistill.taxonomy.operations import list_active_issue_types
+from reviewdistill.taxonomy.operations import list_active_labels
 
 
 def test_second_paper_reuses_accepted_taxonomy(db, tmp_path):
@@ -22,7 +22,7 @@ def test_second_paper_reuses_accepted_taxonomy(db, tmp_path):
             {
                 "recommendation": "new",
                 "issue_code": "OVERCLAIM",
-                "issue_name": "Overclaiming",
+                "label_name": "Overclaiming",
                 "parent_id": None,
                 "definition": "A claim is stronger than the evidence supports.",
                 "confidence": 0.9,
@@ -34,9 +34,9 @@ def test_second_paper_reuses_accepted_taxonomy(db, tmp_path):
     for item in inbox_items():
         accept_coding(item.comment.id)
 
-    types = list_active_issue_types()
-    assert any(issue.name == "Overclaiming" for issue in types)
-    overclaim = next(issue for issue in types if issue.name == "Overclaiming")
+    types = list_active_labels()
+    assert any(label.name == "Overclaiming" for label in types)
+    overclaim = next(label for label in types if label.name == "Overclaiming")
 
     paper2 = tmp_path / "paper-02"
     paper2.mkdir()
@@ -48,7 +48,7 @@ def test_second_paper_reuses_accepted_taxonomy(db, tmp_path):
             scripted_response=json.dumps(
                 {
                     "recommendation": "existing",
-                    "issue_type_id": overclaim.id,
+                    "label_id": overclaim.id,
                     "confidence": 0.88,
                     "rationale": "Causal overclaim.",
                 }
@@ -57,7 +57,7 @@ def test_second_paper_reuses_accepted_taxonomy(db, tmp_path):
     )
     items = inbox_items()
     assert len(items) == 1
-    assert items[0].coding.issue_type_id == overclaim.id
+    assert items[0].coding.label_id == overclaim.id
     accept_coding(items[0].comment.id)
 
     rubric = export_rubric("md")

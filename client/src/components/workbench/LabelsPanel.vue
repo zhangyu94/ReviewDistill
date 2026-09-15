@@ -18,6 +18,7 @@ const props = defineProps<{
   list: TaxonomyListResponse | null
   selectedId: string
   headerSplitEnabled: boolean
+  headerRecycleEnabled: boolean
   llmConfigured: boolean
   splitting: boolean
 }>()
@@ -29,12 +30,13 @@ const emit = defineEmits<{
   flatten: [id: string]
   remove: [id: string]
   split: [id: string | null]
+  recycle: []
 }>()
 
 let dragging = false
 const collapsed = ref(new Set<string>())
 const hoverId = ref('')
-const dragKind = ref<'comment' | 'issue' | ''>('')
+const dragKind = ref<'comment' | 'label' | ''>('')
 const dragId = ref('')
 const overId = ref('')
 const overPlacement = ref<DropPlacement>('inner')
@@ -63,16 +65,16 @@ function visibleRows() {
 
 const shown = computed(() => visibleRows())
 
-function onIssueDragStart(event: DragEvent, id: string) {
+function onLabelDragStart(event: DragEvent, id: string) {
   if (!event.dataTransfer) { return }
   dragging = true
-  dragKind.value = 'issue'
+  dragKind.value = 'label'
   dragId.value = id
-  event.dataTransfer.setData(DRAG_MIME, serializeDragPayload({ kind: 'issue', id }))
+  event.dataTransfer.setData(DRAG_MIME, serializeDragPayload({ kind: 'label', id }))
   event.dataTransfer.effectAllowed = 'move'
 }
 
-function onIssueDragEnd() {
+function onLabelDragEnd() {
   dragging = false
   dragKind.value = ''
   dragId.value = ''
@@ -85,7 +87,7 @@ function isDescendantTarget(node: TaxonomyNode): boolean {
   return Boolean(source && descendantIds(source).includes(node.id))
 }
 
-function onIssueClick(id: string) {
+function onLabelClick(id: string) {
   if (dragging) {
     dragging = false
     return
@@ -130,7 +132,7 @@ function emitDrop(event: DragEvent, node: TaxonomyNode) {
   overId.value = ''
   dragKind.value = ''
   if (payload) {
-    emit('drop', payload, { kind: 'issue', id: node.id, placement, isLeaf: isLeaf(node) })
+    emit('drop', payload, { kind: 'label', id: node.id, placement, isLeaf: isLeaf(node) })
   }
 }
 
@@ -149,25 +151,35 @@ function rowClass(node: TaxonomyNode) {
 <template>
   <div class="flex min-h-0 flex-1 flex-col border-b border-[var(--ch-color-border)] bg-[var(--ch-color-background)]">
     <div class="flex h-9 shrink-0 items-center justify-between border-b border-[var(--ch-color-border)] px-2">
-      <span class="text-xs font-medium">Issue Taxonomy</span>
+      <span class="text-xs font-medium">Label Taxonomy</span>
       <div class="flex items-center gap-0.5">
+        <!-- Header order: fork, plus, recycle. Tree remove uses trash, not comment Delete's trash-can. -->
         <button
           type="button"
           class="inline-flex h-5 w-5 items-center justify-center rounded-[3px] text-[var(--ch-color-muted-foreground)] hover:bg-[var(--ch-color-background-muted)] hover:text-[var(--ch-color-foreground)] disabled:pointer-events-none disabled:opacity-50"
-          title="Split unlabeled comments into types with AI"
+          title="Split unlabeled comments into labels with AI"
           :disabled="splitting || !headerSplitEnabled"
           @click="emit('split', null)"
         >
-          <span class="i-fa6-solid:code-fork h-3 w-3" />
+          <span class="i-fa6-solid:code-fork h-3 w-3" aria-hidden="true" />
         </button>
         <button
           type="button"
-          class="inline-flex h-5 w-5 items-center justify-center rounded-[3px] text-sm leading-none text-[var(--ch-color-muted-foreground)] hover:bg-[var(--ch-color-background-muted)] hover:text-[var(--ch-color-foreground)]"
-          title="Add a new root type"
+          class="inline-flex h-5 w-5 items-center justify-center rounded-[3px] text-[var(--ch-color-muted-foreground)] hover:bg-[var(--ch-color-background-muted)] hover:text-[var(--ch-color-foreground)] disabled:pointer-events-none disabled:opacity-50"
+          title="Add a new root label"
           :disabled="splitting"
           @click="emit('create', null)"
         >
-          +
+          <span class="i-fa6-solid:plus h-3 w-3" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="inline-flex h-5 w-5 items-center justify-center rounded-[3px] text-[var(--ch-color-muted-foreground)] hover:bg-[var(--ch-color-background-muted)] hover:text-[var(--ch-color-foreground)] disabled:pointer-events-none disabled:opacity-50"
+          title="Group unlabeled comments into a new label"
+          :disabled="splitting || !headerRecycleEnabled"
+          @click="emit('recycle')"
+        >
+          <span class="i-fa6-solid:recycle h-3 w-3" aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -193,8 +205,8 @@ function rowClass(node: TaxonomyNode) {
           draggable="true"
           @mouseenter="hoverId = node.id"
           @mouseleave="hoverId = ''"
-          @dragstart="onIssueDragStart($event, node.id)"
-          @dragend="onIssueDragEnd"
+          @dragstart="onLabelDragStart($event, node.id)"
+          @dragend="onLabelDragEnd"
           @dragover="onDragOver($event, node)"
           @drop="emitDrop($event, node)"
         >
@@ -211,10 +223,10 @@ function rowClass(node: TaxonomyNode) {
           <span
             class="min-w-0 flex-1 cursor-pointer truncate leading-4"
             :title="`Show details for ${node.name}`"
-            @click="onIssueClick(node.id)"
+            @click="onLabelClick(node.id)"
           >{{ node.name }}</span>
           <div
-            v-if="isLeaf(node) && dragKind === 'issue' && overId === node.id && (overPlacement === 'inner' || overPlacement === 'merge')"
+            v-if="isLeaf(node) && dragKind === 'label' && overId === node.id && (overPlacement === 'inner' || overPlacement === 'merge')"
             data-merge-zone
             class="shrink-0 rounded-[2px] border px-1 leading-4 text-[var(--ch-color-muted-foreground)]"
             :class="overPlacement === 'merge' ? 'border-[var(--ch-color-foreground)]' : 'border-[var(--ch-color-border)]'"
@@ -226,39 +238,39 @@ function rowClass(node: TaxonomyNode) {
               v-if="canLeafSplit({ isLeaf: isLeaf(node), count: node.count, llmConfigured })"
               type="button"
               class="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[var(--ch-color-muted-foreground)] hover:text-[var(--ch-color-foreground)] disabled:pointer-events-none disabled:opacity-50"
-              title="Split this type into more specific types with AI"
+              title="Split this label into more specific labels with AI"
               :disabled="splitting"
               @click.stop="emit('split', node.id)"
             >
-              <span class="i-fa6-solid:code-fork h-3 w-3" />
+              <span class="i-fa6-solid:code-fork h-3 w-3" aria-hidden="true" />
             </button>
             <button
               type="button"
-              class="shrink-0 text-[var(--ch-color-muted-foreground)] hover:text-[var(--ch-color-foreground)]"
-              title="Add a child type"
+              class="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[var(--ch-color-muted-foreground)] hover:text-[var(--ch-color-foreground)] disabled:pointer-events-none disabled:opacity-50"
+              title="Add a child label"
               :disabled="splitting"
               @click.stop="emit('create', node.id)"
             >
-              +
+              <span class="i-fa6-solid:plus h-3 w-3" aria-hidden="true" />
             </button>
             <button
               v-if="node.children.length"
               type="button"
-              class="shrink-0 text-[var(--ch-color-muted-foreground)] hover:text-[var(--ch-color-foreground)]"
-              title="Flatten descendants into this type"
+              class="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[var(--ch-color-muted-foreground)] hover:text-[var(--ch-color-foreground)] disabled:pointer-events-none disabled:opacity-50"
+              title="Flatten descendants into this label"
               :disabled="splitting"
               @click.stop="emit('flatten', node.id)"
             >
-              ⊃
+              <span class="i-fa6-solid:code-merge h-3 w-3" aria-hidden="true" />
             </button>
             <button
               type="button"
-              class="shrink-0 text-[var(--ch-color-muted-foreground)] hover:text-[var(--ch-color-foreground)]"
-              title="Remove this type and its descendants"
+              class="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[var(--ch-color-muted-foreground)] hover:text-[var(--ch-color-foreground)] disabled:pointer-events-none disabled:opacity-50"
+              title="Remove this label and its descendants"
               :disabled="splitting"
               @click.stop="emit('remove', node.id)"
             >
-              ×
+              <span class="i-fa6-solid:trash h-3 w-3" aria-hidden="true" />
             </button>
           </template>
           <span
@@ -268,7 +280,7 @@ function rowClass(node: TaxonomyNode) {
         </div>
       </div>
       <p v-if="!list || rows.length === 0" class="ch-muted-text px-1.5 py-1">
-        No issue types yet.
+        No labels yet.
       </p>
     </div>
   </div>

@@ -11,7 +11,7 @@ from reviewdistill.db.models import Coding, ProofreadingComment
 from reviewdistill.db.session import get_session
 from reviewdistill.extraction.incremental import extract_project
 from reviewdistill.llm.mock import MockLLMProvider
-from reviewdistill.taxonomy.operations import create_issue_type
+from reviewdistill.taxonomy.operations import create_label
 from reviewdistill.web.app import create_app
 
 
@@ -21,7 +21,7 @@ def _seed(tmp_path):
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
     (repo / "main.tex").write_text("\\myremark{This seems too strong given the experiment.}\n")
     extract_project(repo)
-    issue = create_issue_type(
+    label = create_label(
         name="Overclaiming",
         definition="too strong",
     )
@@ -30,14 +30,14 @@ def _seed(tmp_path):
             scripted_response=json.dumps(
                 {
                     "recommendation": "existing",
-                    "issue_type_id": issue.id,
+                    "label_id": label.id,
                     "confidence": 0.91,
                     "rationale": "Objects to claim strength.",
                 }
             )
         )
     )
-    return issue
+    return label
 
 
 def _count_store_loads(monkeypatch):
@@ -69,7 +69,7 @@ def test_inbox_lists_proposed_comments(db, tmp_path):
     assert progress["labeled"] == 0
     assert progress["unreviewed"] == 1
     assert progress["verified"] == 0
-    assert progress["dropped"] == 0
+    assert "dropped" not in progress
     assert "absent" not in progress
     assert progress["unlabeled"] + progress["labeled"] == progress["working_set"]
     assert body["items"][0]["comment"]["id"] == comment.id
@@ -79,9 +79,10 @@ def test_inbox_lists_proposed_comments(db, tmp_path):
     assert body["items"][0]["comment"]["source_command"] == comment.source_command
     assert body["items"][0]["comment"]["source_type"] == comment.source_type
     assert body["items"][0]["comment"]["status"] == comment.status
-    assert body["items"][0]["comment"]["quality"] == "unreviewed"
+    assert body["items"][0]["comment"]["verified"] is False
+    assert "quality" not in body["items"][0]["comment"]
+    assert "fingerprint" not in body["items"][0]["comment"]
     assert body["items"][0]["in_manuscript"] is True
-    assert body["items"][0]["comment"]["fingerprint"] == comment.fingerprint
     assert body["items"][0]["project_name"] == "paper-01"
     assert body["items"][0]["local_file"] is True
     assert "root_path" not in body["items"][0]
@@ -91,12 +92,12 @@ def test_inbox_lists_proposed_comments(db, tmp_path):
     assert body["items"][0]["coding"]["kind"] == "existing"
     assert body["items"][0]["coding"]["confidence"] == 0.91
     assert body["items"][0]["labeled"] is False
-    assert body["items"][0]["issue"] is None
+    assert body["items"][0]["label"] is None
     assert "working_items" in body
     assert body["items"][0]["in_working_set"] is True
     working_ids = {row["comment"]["id"] for row in body["working_items"]}
     assert comment.id in working_ids
-    assert any(row["name"] == "Overclaiming" for row in body["issues"])
+    assert any(row["name"] == "Overclaiming" for row in body["labels"])
     assert "view" not in body
 
 
@@ -112,7 +113,7 @@ def test_inbox_local_file_false_when_tex_missing(db, tmp_path):
 
 
 def test_inbox_working_items_include_labeled_working_set(db, tmp_path):
-    issue = _seed(tmp_path)
+    label = _seed(tmp_path)
     comment_id = inbox_items()[0].comment.id
     accept_coding(comment_id)
     client = TestClient(create_app())
@@ -124,7 +125,7 @@ def test_inbox_working_items_include_labeled_working_set(db, tmp_path):
     assert row["local_file"] is True
     assert row["labeled"] is True
     assert row["in_working_set"] is True
-    assert row["issue"]["id"] == issue.id
+    assert row["label"]["id"] == label.id
 
 
 def test_accept_post_leaves_inbox(db, tmp_path):
@@ -139,16 +140,16 @@ def test_accept_post_leaves_inbox(db, tmp_path):
 
 
 def test_inbox_treats_label_on_inactive_type_as_unlabeled(db, tmp_path):
-    from reviewdistill.db.models import ISSUE_INACTIVE, IssueType
+    from reviewdistill.db.models import LABEL_INACTIVE, Label
 
-    issue = _seed(tmp_path)
+    label = _seed(tmp_path)
     comment_id = inbox_items()[0].comment.id
     accept_coding(comment_id)
     client = TestClient(create_app())
     assert client.get("/api/inbox").json()["unlabeled_count"] == 0
     with get_session() as session:
-        row = session.get(IssueType, issue.id)
-        row.status = ISSUE_INACTIVE
+        row = session.get(Label, label.id)
+        row.status = LABEL_INACTIVE
         session.add(row)
         session.commit()
     body = client.get("/api/inbox").json()
@@ -156,7 +157,7 @@ def test_inbox_treats_label_on_inactive_type_as_unlabeled(db, tmp_path):
     assert body["pending_code_count"] == 1
     assert body["items"][0]["comment"]["id"] == comment_id
     assert body["items"][0]["labeled"] is False
-    assert body["items"][0]["issue"] is None
+    assert body["items"][0]["label"] is None
     progress = body["progress"]
     assert progress["working_set"] == 1
     assert progress["unlabeled"] == 1
@@ -164,7 +165,7 @@ def test_inbox_treats_label_on_inactive_type_as_unlabeled(db, tmp_path):
 
 
 def test_inbox_json_marks_labeled_absent_unreviewed(db, tmp_path):
-    issue = _seed(tmp_path)
+    label = _seed(tmp_path)
     comment_id = inbox_items()[0].comment.id
     accept_coding(comment_id)
     (tmp_path / "paper" / "main.tex").write_text("no comments\n")
@@ -180,12 +181,12 @@ def test_inbox_json_marks_labeled_absent_unreviewed(db, tmp_path):
     item = body["items"][0]
     assert item["comment"]["id"] == comment_id
     assert item["comment"]["status"] == "pending_disappeared"
-    assert item["comment"]["quality"] == "unreviewed"
+    assert item["comment"]["verified"] is False
     assert item["in_manuscript"] is False
     assert item["labeled"] is True
-    assert item["issue"]["id"] == issue.id
-    assert item["issue"]["name"] == "Overclaiming"
-    assert item["issue"]["name"] == "Overclaiming"
+    assert item["label"]["id"] == label.id
+    assert item["label"]["name"] == "Overclaiming"
+    assert item["label"]["name"] == "Overclaiming"
 
 
 def test_absent_comment_verify_post(db, tmp_path):
@@ -208,9 +209,41 @@ def test_absent_comment_verify_post(db, tmp_path):
     verified = client.post(f"/api/inbox/{item.comment.id}/verify")
     assert verified.status_code == 200
     with get_session() as session:
-        assert session.get(ProofreadingComment, item.comment.id).quality == "verified"
+        assert session.get(ProofreadingComment, item.comment.id).verified
     unlabeled = client.get("/api/inbox").json()
     assert unlabeled["unlabeled_count"] == 1
+
+
+def test_verify_post_toggles_off(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Keep me.}\n")
+    extract_project(repo)
+    with get_session() as session:
+        comment_id = session.first(ProofreadingComment).id
+    client = TestClient(create_app())
+    assert client.post(f"/api/inbox/{comment_id}/verify").status_code == 200
+    assert client.post(f"/api/inbox/{comment_id}/verify").status_code == 200
+    with get_session() as session:
+        assert session.get(ProofreadingComment, comment_id).verified is False
+
+
+def test_delete_post_refuses_verified(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Keep me.}\n")
+    extract_project(repo)
+    with get_session() as session:
+        comment_id = session.first(ProofreadingComment).id
+    client = TestClient(create_app())
+    assert client.post(f"/api/inbox/{comment_id}/verify").status_code == 200
+    refused = client.post(f"/api/inbox/{comment_id}/delete")
+    assert refused.status_code == 400
+    assert "Unverify before deleting" in refused.json()["detail"]
+    with get_session() as session:
+        assert session.get(ProofreadingComment, comment_id) is not None
 
 
 def test_inbox_rejects_unknown_quality(db, tmp_path, rd_home):
@@ -221,21 +254,23 @@ def test_inbox_rejects_unknown_quality(db, tmp_path, rd_home):
     extract_project(repo)
     with get_session() as session:
         comment_id = session.first(ProofreadingComment).id
-    issue = create_issue_type(
+    label = create_label(
         name="Overclaiming",
         definition="too strong",
     )
     path = rd_home / "comments.jsonl"
-    text = path.read_text(encoding="utf-8")
-    path.write_text(text.replace('"unreviewed"', '"kept"', 1), encoding="utf-8")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data.pop("verified", None)
+    data["quality"] = "kept"
+    path.write_text(json.dumps(data, ensure_ascii=False) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="Unknown comment quality"):
         inbox_items()
     client = TestClient(create_app(), raise_server_exceptions=False)
     requests = [
         ("GET", "/api/inbox"),
-        ("GET", "/api/taxonomy"),
-        ("GET", f"/api/taxonomy/{issue.id}"),
-        ("GET", "/api/taxonomy/export"),
+        ("GET", "/api/labels"),
+        ("GET", f"/api/labels/{label.id}"),
+        ("GET", "/api/labels/export"),
         ("GET", "/api/history"),
         ("POST", f"/api/inbox/{comment_id}/verify"),
     ]
@@ -299,7 +334,7 @@ def test_reveal_file_manager_error_is_400(db, tmp_path, monkeypatch):
     assert "Could not show this file" in response.json()["detail"]
 
 
-def test_drop_post_excludes_from_unlabeled(db, tmp_path):
+def test_delete_post_removes_from_inbox(db, tmp_path):
     repo = tmp_path / "paper"
     repo.mkdir()
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
@@ -309,9 +344,15 @@ def test_drop_post_excludes_from_unlabeled(db, tmp_path):
     extract_project(repo)
     item = inbox_items()[0]
     client = TestClient(create_app())
-    client.post(f"/api/inbox/{item.comment.id}/drop")
+    deleted = client.post(f"/api/inbox/{item.comment.id}/delete")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True}
     unlabeled = client.get("/api/inbox").json()
     assert unlabeled["unlabeled_count"] == 0
+    assert "dropped" not in unlabeled["progress"]
+    assert client.post(f"/api/inbox/{item.comment.id}/delete").status_code == 404
+    dropped = client.post(f"/api/inbox/{item.comment.id}/drop")
+    assert dropped.status_code in {404, 405}
 
 
 def test_inbox_unknown_llm_provider_is_null_not_500(db, tmp_path):
@@ -343,7 +384,7 @@ def test_inbox_hides_mock_proposal_and_counts_it_as_pending(db, tmp_path):
                 comment_id=comment_id,
                 coder_type="ai",
                 status="proposed",
-                proposed_issue_name="Mock issue",
+                proposed_label_name="Mock label",
                 rationale="Mock provider used in tests.",
                 confidence=0.5,
             )

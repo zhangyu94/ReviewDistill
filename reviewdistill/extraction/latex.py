@@ -1,6 +1,42 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from reviewdistill.extraction.base import ExtractedComment
+
+
+@dataclass(frozen=True)
+class MacroMatch:
+    command: str
+    start: int
+    end: int
+    body: str
+    in_comment: bool = False
+
+
+def scan_macros(source: str, commands: list[str]) -> tuple[list[MacroMatch], bool]:
+    """Harvest-buffer scan. ``True`` if a live configured command is unclosed."""
+    matches: list[MacroMatch] = []
+    for command in commands:
+        pos = 0
+        while True:
+            found = find_command_brace(source, command, pos, commands=commands)
+            if found is None:
+                break
+            idx, brace = found
+            commented = _in_tex_comment(source, idx, commands)
+            body, end = _read_braced(source, brace)
+            if body is None:
+                if commented:
+                    nxt = _next_macro_start(source, idx + 1, commands)
+                    end = len(source) if nxt is None else nxt
+                    matches.append(MacroMatch(command, idx, end, "", True))
+                    pos = end
+                    continue
+                return [], True
+            matches.append(MacroMatch(command, idx, end, body, commented))
+            pos = end
+    return matches, False
 
 
 class LatexCommandExtractor:
@@ -13,47 +49,99 @@ class LatexCommandExtractor:
 
     def extract_with_status(self, source: str, file_path: str) -> tuple[list[ExtractedComment], bool]:
         """Return comments, or ([], True) if a configured command is unclosed (unstable file)."""
-        comments: list[ExtractedComment] = []
-        for command in self.commands:
-            needle = "\\" + command + "{"
-            start = 0
-            while True:
-                idx = source.find(needle, start)
-                if idx < 0:
-                    break
-                if idx > 0 and source[idx - 1].isalpha():
-                    start = idx + 1
-                    continue
-                if _in_tex_comment(source, idx):
-                    start = idx + 1
-                    continue
-                body, end = _read_braced(source, idx + len(needle) - 1)
-                if body is None:
-                    return [], True
-                line_number = source.count("\n", 0, idx) + 1
-                comments.append(
-                    ExtractedComment(
-                        source_type="latex_command",
-                        source_command=command,
-                        file_path=file_path,
-                        line_number=line_number,
-                        raw_text=_normalize_comment_text(body),
-                    )
-                )
-                start = end
-        comments.sort(key=lambda c: (c.line_number, c.source_command))
+        matches, unstable = scan_macros(source, self.commands)
+        if unstable:
+            return [], True
+        comments = [
+            ExtractedComment(
+                source_type="latex_command",
+                source_command=match.command,
+                file_path=file_path,
+                line_number=source.count("\n", 0, match.start) + 1,
+                raw_text=_normalize_comment_text(match.body),
+            )
+            for match in sorted(matches, key=lambda match: match.start)
+            if not match.in_comment
+        ]
         return comments, False
 
 
-def _in_tex_comment(source: str, idx: int) -> bool:
-    line_start = source.rfind("\n", 0, idx) + 1
-    i = line_start
+def find_command_brace(
+    source: str,
+    command: str,
+    start: int = 0,
+    *,
+    commands: list[str] | None = None,
+) -> tuple[int, int] | None:
+    """Return (backslash index, opening-brace index), or None."""
+    needle = "\\" + command
+    idx = start
+    while True:
+        idx = source.find(needle, idx)
+        if idx < 0:
+            return None
+        j = idx + len(needle)
+        while j < len(source) and source[j] in " \t":
+            j += 1
+        if j < len(source) and source[j] == "{":
+            return idx, j
+        idx += 1
+
+
+def _opens_configured_command(source: str, brace: int, commands: list[str]) -> bool:
+    """True when ``source[brace]`` is ``{`` of a configured ``\\command`` / ``\\command {``."""
+    j = brace
+    while j > 0 and source[j - 1] in " \t":
+        j -= 1
+    for command in commands:
+        needle = "\\" + command
+        start = j - len(needle)
+        if start < 0 or source[start:j] != needle:
+            continue
+        return True
+    return False
+
+
+def _next_macro_start(source: str, start: int, commands: list[str]) -> int | None:
+    best: int | None = None
+    for command in commands:
+        found = find_command_brace(source, command, start, commands=commands)
+        if found is None:
+            continue
+        idx = found[0]
+        if best is None or idx < best:
+            best = idx
+    return best
+
+
+def _in_tex_comment(source: str, idx: int, commands: list[str]) -> bool:
+    """True when ``idx`` sits after a ``%`` that is not inside a configured argument.
+
+    ``%`` inside ``\\yzc{...}`` does not hide a later command, including when the
+    argument spans lines and the ``%`` sits on the closer line. ``%`` inside
+    ``\\caption{...}`` still comments out ``\\note{old}``.
+    """
+    i = 0
+    stack: list[bool] = []
     while i < idx:
-        if source[i] == "\\" and i + 1 < idx:
+        ch = source[i]
+        if ch == "\\" and i + 1 < idx:
             i += 2
             continue
-        if source[i] == "%":
-            return True
+        if ch == "{":
+            stack.append(_opens_configured_command(source, i, commands))
+            i += 1
+            continue
+        if ch == "}" and stack:
+            stack.pop()
+            i += 1
+            continue
+        if ch == "%" and not any(stack):
+            nl = source.find("\n", i)
+            if nl < 0 or nl >= idx:
+                return True
+            i = nl + 1
+            continue
         i += 1
     return False
 

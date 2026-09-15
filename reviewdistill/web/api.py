@@ -10,7 +10,7 @@ from reviewdistill.coding.split import run_header_split, run_leaf_split
 from reviewdistill.coding.validation import (
     accept_coding,
     change_coding,
-    drop_comment,
+    delete_comment,
     verify_comment,
 )
 from reviewdistill.config import (
@@ -37,17 +37,16 @@ from reviewdistill.paths import (
 )
 from reviewdistill.taxonomy.export import export_rubric
 from reviewdistill.taxonomy.operations import (
-    add_counterexample,
-    create_empty_issue_type,
-    deactivate_issue_type,
-    edit_issue_type,
-    flatten_issue_type,
-    merge_issue_types,
-    move_issue_type,
-    remove_issue_type,
-    rename_issue_type,
+    create_empty_label,
+    edit_label,
+    flatten_label,
+    merge_labels,
+    move_label,
+    recycle_ungrouped,
+    remove_label,
+    rename_label,
 )
-from reviewdistill.views import inbox_payload, issue_payload, reveal_comment_file, taxonomy_payload
+from reviewdistill.views import inbox_payload, label_payload, reveal_comment_file, labels_payload
 
 router = APIRouter()
 
@@ -84,7 +83,7 @@ def _mutate(fn):
 
 
 class ChangeBody(BaseModel):
-    issue_type_id: str
+    label_id: str
 
 
 _LLM_FAILED = "LLM request failed"
@@ -92,7 +91,7 @@ _LLM_FAILED = "LLM request failed"
 
 @router.post("/inbox/code")
 def post_code():
-    """Propose issue types for every unlabeled comment to distill. There is no CLI ``code`` command."""
+    """Propose labels for every unlabeled comment to distill. There is no CLI ``code`` command."""
     try:
         summary = code_uncoded_comments()
     except httpx.HTTPError as exc:
@@ -119,7 +118,7 @@ def post_accept(comment_id: str):
 
 @router.post("/inbox/{comment_id}/change")
 def post_change(comment_id: str, body: ChangeBody):
-    return _mutate(lambda: change_coding(comment_id, issue_type_id=body.issue_type_id))
+    return _mutate(lambda: change_coding(comment_id, label_id=body.label_id))
 
 
 @router.post("/inbox/{comment_id}/verify")
@@ -127,9 +126,9 @@ def post_verify(comment_id: str):
     return _mutate(lambda: verify_comment(comment_id))
 
 
-@router.post("/inbox/{comment_id}/drop")
-def post_drop(comment_id: str):
-    return _mutate(lambda: drop_comment(comment_id))
+@router.post("/inbox/{comment_id}/delete")
+def post_delete(comment_id: str):
+    return _mutate(lambda: delete_comment(comment_id))
 
 
 @router.post("/inbox/{comment_id}/reveal")
@@ -165,10 +164,6 @@ class CreateBody(BaseModel):
     parent_id: str | None = None
 
 
-class CounterexampleBody(BaseModel):
-    text: str
-
-
 class MergeBody(BaseModel):
     source_ids: list[str]
     target_id: str
@@ -187,39 +182,49 @@ def _llm_mutate(fn):
     return {"ok": True, "privacy_warning": warning}
 
 
-@router.get("/taxonomy")
-def get_taxonomy():
+@router.get("/labels")
+def get_labels():
     try:
-        return taxonomy_payload()
+        return labels_payload()
     except ValueError as exc:
         raise _domain_http(exc, mutate=False) from exc
 
 
-@router.post("/taxonomy")
+@router.post("/labels")
 def post_create(body: CreateBody):
     try:
-        issue = create_empty_issue_type(parent_id=body.parent_id)
+        label = create_empty_label(parent_id=body.parent_id)
     except ValueError as exc:
         raise _domain_http(exc, mutate=True) from exc
-    return {"ok": True, "id": issue.id}
+    return {"ok": True, "id": label.id}
 
 
-@router.post("/taxonomy/merge")
+@router.post("/labels/merge")
 def post_merge(body: MergeBody):
-    return _mutate(lambda: merge_issue_types(source_ids=body.source_ids, target_id=body.target_id))
+    return _mutate(lambda: merge_labels(source_ids=body.source_ids, target_id=body.target_id))
 
 
-@router.post("/taxonomy/split")
+@router.post("/labels/split")
 def post_split_forest():
     """Header bootstrap. Registered next to merge so ``split`` is not parsed as an id."""
     return _llm_mutate(run_header_split)
 
 
-@router.get("/taxonomy/export")
-def get_export(format: str = "md", id: list[str] | None = Query(None)):
-    """Rubric for active types. ``id`` (repeatable) keeps only those types; omit for all. Does not change labels in the UI."""
+@router.post("/labels/recycle")
+def post_recycle():
+    """Park unlabeled working-set comments on a new ungrouped root. Registered next to merge so ``recycle`` is not parsed as an id."""
     try:
-        text = export_rubric(fmt=format, issue_ids=id)
+        label = recycle_ungrouped()
+    except ValueError as exc:
+        raise _domain_http(exc, mutate=True) from exc
+    return {"ok": True, "id": label.id}
+
+
+@router.get("/labels/export")
+def get_export(format: str = "md", id: list[str] | None = Query(None)):
+    """Rubric for active labels. ``id`` (repeatable) keeps only those labels; omit for all. Does not change labels in the UI."""
+    try:
+        text = export_rubric(fmt=format, label_ids=id)
     except ValueError as exc:
         raise _domain_http(exc, mutate=False) from exc
     media = "text/markdown; charset=utf-8"
@@ -320,57 +325,47 @@ def post_llm_settings(body: LlmSettingsBody):
     return {"ok": True, "key_set": home_key_set(provider)}
 
 
-@router.get("/taxonomy/{issue_id}")
-def get_issue(issue_id: str):
+@router.get("/labels/{label_id}")
+def get_label_detail(label_id: str):
     try:
-        return issue_payload(issue_id)
+        return label_payload(label_id)
     except ValueError as exc:
         raise _domain_http(exc, mutate=False) from exc
 
 
-@router.post("/taxonomy/{issue_id}/rename")
-def post_rename(issue_id: str, body: RenameBody):
-    return _mutate(lambda: rename_issue_type(issue_id, name=body.name))
+@router.post("/labels/{label_id}/rename")
+def post_rename(label_id: str, body: RenameBody):
+    return _mutate(lambda: rename_label(label_id, name=body.name))
 
 
-@router.post("/taxonomy/{issue_id}/edit")
-def post_edit(issue_id: str, body: EditBody):
+@router.post("/labels/{label_id}/edit")
+def post_edit(label_id: str, body: EditBody):
     return _mutate(
-        lambda: edit_issue_type(
-            issue_id,
+        lambda: edit_label(
+            label_id,
             definition=body.definition,
         )
     )
 
 
-@router.post("/taxonomy/{issue_id}/move")
-def post_move(issue_id: str, body: MoveBody):
-    return _mutate(lambda: move_issue_type(issue_id, parent_id=body.parent_id, position=body.position))
+@router.post("/labels/{label_id}/move")
+def post_move(label_id: str, body: MoveBody):
+    return _mutate(lambda: move_label(label_id, parent_id=body.parent_id, position=body.position))
 
 
-@router.post("/taxonomy/{issue_id}/flatten")
-def post_flatten(issue_id: str):
-    return _mutate(lambda: flatten_issue_type(issue_id))
+@router.post("/labels/{label_id}/flatten")
+def post_flatten(label_id: str):
+    return _mutate(lambda: flatten_label(label_id))
 
 
-@router.post("/taxonomy/{issue_id}/remove")
-def post_remove(issue_id: str):
-    return _mutate(lambda: remove_issue_type(issue_id))
+@router.post("/labels/{label_id}/remove")
+def post_remove(label_id: str):
+    return _mutate(lambda: remove_label(label_id))
 
 
-@router.post("/taxonomy/{issue_id}/deactivate")
-def post_deactivate(issue_id: str):
-    return _mutate(lambda: deactivate_issue_type(issue_id))
-
-
-@router.post("/taxonomy/{issue_id}/counterexample")
-def post_counterexample(issue_id: str, body: CounterexampleBody):
-    return _mutate(lambda: add_counterexample(issue_id, text=body.text))
-
-
-@router.post("/taxonomy/{issue_id}/split")
-def post_split(issue_id: str):
-    return _llm_mutate(lambda: run_leaf_split(issue_id))
+@router.post("/labels/{label_id}/split")
+def post_split(label_id: str):
+    return _llm_mutate(lambda: run_leaf_split(label_id))
 
 
 @router.get("/history")

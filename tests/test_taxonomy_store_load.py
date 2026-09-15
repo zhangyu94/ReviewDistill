@@ -2,15 +2,15 @@ import json
 
 import pytest
 
-from reviewdistill.db.models import Coding, IssueType
+from reviewdistill.db.models import Coding, Label
 from reviewdistill.db.session import get_session, init_db, reset_engine
 from reviewdistill.errors import CorruptStore
-from reviewdistill.taxonomy.operations import rename_issue_type
+from reviewdistill.taxonomy.operations import rename_label
 
 
 def test_store_does_not_rewrite_category_rows(rd_home):
     reset_engine()
-    path = rd_home / "issue_types.jsonl"
+    path = rd_home / "labels.jsonl"
     row = {
         "id": "t1",
         "name": "Alpha",
@@ -21,7 +21,7 @@ def test_store_does_not_rewrite_category_rows(rd_home):
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")
     init_db()
     with get_session() as session:
-        loaded = session.get(IssueType, "t1")
+        loaded = session.get(Label, "t1")
         assert loaded is not None
         assert loaded.parent_id is None
         assert loaded.position == 0
@@ -32,7 +32,7 @@ def test_store_does_not_rewrite_category_rows(rd_home):
 
 def test_store_loads_issue_type_with_leftover_notes_and_drops_them_on_rewrite(rd_home):
     reset_engine()
-    path = rd_home / "issue_types.jsonl"
+    path = rd_home / "labels.jsonl"
     path.write_text(
         json.dumps(
             {
@@ -50,11 +50,11 @@ def test_store_loads_issue_type_with_leftover_notes_and_drops_them_on_rewrite(rd
     )
     init_db()
     with get_session() as session:
-        loaded = session.get(IssueType, "t1")
+        loaded = session.get(Label, "t1")
         assert loaded is not None
         assert loaded.definition == "a"
         assert "notes" not in loaded.model_dump()
-    rename_issue_type("t1", name="Alpha")
+    rename_label("t1", name="Alpha")
     saved = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
     assert "notes" not in saved
     assert saved["name"] == "Alpha"
@@ -87,7 +87,7 @@ def test_store_does_not_rewrite_proposed_issue_category(rd_home):
 
 def test_invalid_active_parent_fails_fast(rd_home):
     reset_engine()
-    path = rd_home / "issue_types.jsonl"
+    path = rd_home / "labels.jsonl"
     path.write_text(
         json.dumps(
             {
@@ -109,7 +109,7 @@ def test_invalid_active_parent_fails_fast(rd_home):
 
 def test_self_parent_fails_fast(rd_home):
     reset_engine()
-    path = rd_home / "issue_types.jsonl"
+    path = rd_home / "labels.jsonl"
     path.write_text(
         json.dumps(
             {
@@ -131,7 +131,7 @@ def test_self_parent_fails_fast(rd_home):
 
 def test_parent_cycle_fails_fast(rd_home):
     reset_engine()
-    path = rd_home / "issue_types.jsonl"
+    path = rd_home / "labels.jsonl"
     path.write_text(
         "\n".join(
             [
@@ -167,7 +167,7 @@ def test_parent_cycle_fails_fast(rd_home):
 
 def test_inactive_parent_of_active_type_fails_fast(rd_home):
     reset_engine()
-    path = rd_home / "issue_types.jsonl"
+    path = rd_home / "labels.jsonl"
     path.write_text(
         "\n".join(
             [

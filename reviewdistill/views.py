@@ -5,12 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from reviewdistill.coding.coder import effective_provider_name, uncoded_comments
+from reviewdistill.config import load_project_config
 from reviewdistill.coding.validation import _latest_proposed, disappearance_guess, inbox_items
 from reviewdistill.db.models import (
     CODING_ACCEPTED,
-    ISSUE_ACTIVE,
+    LABEL_ACTIVE,
     Coding,
-    IssueType,
+    Label,
     Project,
     ProofreadingComment,
     in_manuscript,
@@ -24,14 +25,13 @@ from reviewdistill.llm.base import get_provider
 from reviewdistill.manuscript import comment_source_file
 from reviewdistill.paths import reveal_in_file_manager
 from reviewdistill.taxonomy.operations import (
-    accepted_counts_by_issue_type,
-    get_issue_type,
-    list_active_issue_types,
-    list_counterexamples,
+    accepted_counts_by_label,
+    get_label,
+    list_active_labels,
     list_examples,
     list_working_observations,
 )
-from reviewdistill.taxonomy.tree import type_path, types_to_forest
+from reviewdistill.taxonomy.tree import label_path, labels_to_forest
 
 
 def _iso(value) -> str | None:
@@ -53,11 +53,11 @@ def _coding_json(coding) -> dict | None:
     return {
         "id": coding.id,
         "status": coding.status,
-        "issue_type_id": coding.issue_type_id,
-        "proposed_issue_name": coding.proposed_issue_name,
+        "label_id": coding.label_id,
+        "proposed_label_name": coding.proposed_label_name,
         "confidence": coding.confidence,
         "rationale": coding.rationale,
-        "kind": "existing" if coding.issue_type_id else "new",
+        "kind": "existing" if coding.label_id else "new",
     }
 
 
@@ -73,9 +73,16 @@ def _source_file(comment: ProofreadingComment, project: Project | None) -> Path 
     return comment_source_file(project.root_path, comment.file_path)
 
 
-def _guess_from_source(comment: ProofreadingComment, source_path: Path | None) -> str:
+def _guess_from_source(
+    comment: ProofreadingComment, source_path: Path | None, project: Project | None
+) -> str:
     text = source_path.read_text(errors="replace") if source_path is not None else None
-    return disappearance_guess(comment, source=text)
+    commands = (
+        load_project_config(Path(project.root_path)).latex_commands
+        if project is not None
+        else None
+    )
+    return disappearance_guess(comment, source=text, commands=commands)
 
 
 def reveal_comment_file(comment_id: str) -> Path:
@@ -105,15 +112,12 @@ def comment_progress(comments: list, labeled_ids: set[str]) -> dict:
     There is no ``absent`` key. Presence is ``in_manuscript`` on each item.
     """
     working_set = unlabeled = labeled = 0
-    unreviewed = verified = dropped = 0
+    unreviewed = verified = 0
     for comment in comments:
-        quality = comment.quality
-        if quality == "unreviewed":
-            unreviewed += 1
-        elif quality == "verified":
+        if comment.verified:
             verified += 1
-        elif quality == "dropped":
-            dropped += 1
+        else:
+            unreviewed += 1
         if in_working_set(comment):
             working_set += 1
             if comment.id in labeled_ids:
@@ -126,11 +130,10 @@ def comment_progress(comments: list, labeled_ids: set[str]) -> dict:
         "labeled": labeled,
         "unreviewed": unreviewed,
         "verified": verified,
-        "dropped": dropped,
     }
 
 
-def _item_dict(comment, *, labeled: bool, issue, coding, project: Project | None) -> dict:
+def _item_dict(comment, *, labeled: bool, label, coding, project: Project | None) -> dict:
     source = _source_file(comment, project)
     return {
         "comment": comment_json(comment),
@@ -141,16 +144,16 @@ def _item_dict(comment, *, labeled: bool, issue, coding, project: Project | None
             comment.file_path,
             comment.line_number,
         ),
-        "guess": _guess_from_source(comment, source) if not in_manuscript(comment) else None,
+        "guess": _guess_from_source(comment, source, project) if not in_manuscript(comment) else None,
         "in_manuscript": in_manuscript(comment),
         "labeled": labeled,
-        "issue": (
+        "label": (
             {
-                "id": issue.id,
-                "name": issue.name,
-                "parent_id": issue.parent_id,
+                "id": label.id,
+                "name": label.name,
+                "parent_id": label.parent_id,
             }
-            if issue is not None
+            if label is not None
             else None
         ),
         "coding": _coding_json(coding),
@@ -168,15 +171,15 @@ def inbox_payload() -> dict:
     with get_session() as session:
         unlabeled = inbox_items()
         projects = {row.id: row for row in session.find(Project)}
-        issues = [
-            {"id": issue.id, "name": issue.name, "parent_id": issue.parent_id}
-            for issue in list_active_issue_types()
+        labels = [
+            {"id": row.id, "name": row.name, "parent_id": row.parent_id}
+            for row in list_active_labels()
         ]
         payload = [
             _item_dict(
                 item.comment,
                 labeled=item.labeled,
-                issue=item.issue,
+                label=item.label,
                 coding=item.coding,
                 project=projects.get(item.comment.project_id),
             )
@@ -188,15 +191,15 @@ def inbox_payload() -> dict:
             if not in_working_set(comment):
                 continue
             labeled = is_labeled(session, comment.id)
-            issue = None
+            label = None
             if labeled:
-                issue_json = _accepted_type_json(session, comment.id)
-                issue = session.get(IssueType, issue_json["id"]) if issue_json else None
+                label_json = _accepted_label_json(session, comment.id)
+                label = session.get(Label, label_json["id"]) if label_json else None
             working_payload.append(
                 _item_dict(
                     comment,
                     labeled=labeled,
-                    issue=issue,
+                    label=label,
                     coding=_latest_proposed(
                         session, comment.id, provider_name=provider_name, skip_placeholders=True
                     ),
@@ -208,56 +211,55 @@ def inbox_payload() -> dict:
             llm_name = get_provider().name
         except RuntimeError:
             pass
-        active_type_ids = {
-            row.id for row in session.find(IssueType) if row.status == ISSUE_ACTIVE
+        active_label_ids = {
+            row.id for row in session.find(Label) if row.status == LABEL_ACTIVE
         }
         labeled_ids = {
             row.comment_id
             for row in session.find(Coding)
-            if row.status == CODING_ACCEPTED and row.issue_type_id in active_type_ids
+            if row.status == CODING_ACCEPTED and row.label_id in active_label_ids
         }
         return {
             "unlabeled_count": len(unlabeled),
             "pending_code_count": len(uncoded_comments()),
             "llm_provider": llm_name,
-            "issues": issues,
+            "labels": labels,
             "items": payload,
             "working_items": working_payload,
             "progress": comment_progress(session.find(ProofreadingComment), labeled_ids),
         }
 
 
-def _accepted_type_json(session, comment_id: str) -> dict | None:
+def _accepted_label_json(session, comment_id: str) -> dict | None:
     for coding in session.find(Coding, comment_id=comment_id, status=CODING_ACCEPTED):
-        if not coding.issue_type_id:
+        if not coding.label_id:
             continue
-        issue = session.get(IssueType, coding.issue_type_id)
-        if issue is None or issue.status != ISSUE_ACTIVE:
+        label = session.get(Label, coding.label_id)
+        if label is None or label.status != LABEL_ACTIVE:
             continue
         return {
-            "id": issue.id,
-            "name": issue.name,
-            "parent_id": issue.parent_id,
+            "id": label.id,
+            "name": label.name,
+            "parent_id": label.parent_id,
         }
     return None
 
 
-def taxonomy_payload() -> dict:
+def labels_payload() -> dict:
     with get_session() as session:
-        types = session.find(IssueType)
-        counts = accepted_counts_by_issue_type()
-        return {"forest": types_to_forest(types, counts)}
+        labels = session.find(Label)
+        counts = accepted_counts_by_label()
+        return {"forest": labels_to_forest(labels, counts)}
 
 
-def issue_payload(issue_id: str) -> dict:
+def label_payload(label_id: str) -> dict:
     with get_session() as session:
-        issue = get_issue_type(issue_id)
-        if issue is None:
-            raise NotFound(f"Unknown issue type {issue_id}")
-        examples = [{"id": row.id, "text": row.text} for row in list_examples(issue_id)]
-        counterexamples = [{"id": row.id, "text": row.text} for row in list_counterexamples(issue_id)]
+        label = get_label(label_id)
+        if label is None:
+            raise NotFound(f"Unknown label {label_id}")
+        examples = [{"id": row.id, "text": row.text} for row in list_examples(label_id)]
         comments = []
-        for comment in list_working_observations(issue_id):
+        for comment in list_working_observations(label_id):
             row = comment_json(comment)
             row["project_name"] = _project_name(comment.project_id)
             row["permalink"] = context_permalink(
@@ -266,16 +268,15 @@ def issue_payload(issue_id: str) -> dict:
                 comment.file_path,
                 comment.line_number,
             )
-            row["issue"] = _accepted_type_json(session, comment.id)
+            row["label"] = _accepted_label_json(session, comment.id)
             comments.append(row)
         return {
-            "id": issue.id,
-            "name": issue.name,
-            "parent_id": issue.parent_id,
-            "path": type_path(session.find(IssueType), issue.id),
-            "definition": issue.definition,
-            "status": issue.status,
+            "id": label.id,
+            "name": label.name,
+            "parent_id": label.parent_id,
+            "path": label_path(session.find(Label), label.id),
+            "definition": label.definition,
+            "status": label.status,
             "examples": examples,
-            "counterexamples": counterexamples,
             "comments": comments,
         }

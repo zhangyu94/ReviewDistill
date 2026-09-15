@@ -3,7 +3,7 @@ import type { ExportFormat } from '../../api/client.ts'
 import { computed, ref } from 'vue'
 import { fetchExport } from '../../api/client.ts'
 import {
-  allTypeIds,
+  allLabelIds,
   toggleCheckedId,
 } from '../../workbench/exportSelection.ts'
 import { flattenForest } from '../../workbench/taxonomyTree.ts'
@@ -15,7 +15,7 @@ const store = useWorkbenchStore()
 const error = ref('')
 const busy = ref(false)
 const checked = ref<string[]>([])
-const list = computed(() => store.taxonomy)
+const list = computed(() => store.labels)
 const rows = computed(() => flattenForest(list.value?.forest ?? []))
 const canDownload = computed(() => checked.value.length > 0)
 
@@ -39,8 +39,8 @@ const formats: { id: ExportFormat, label: string }[] = [
 async function show() {
   open.value = true
   error.value = ''
-  await store.invalidate({ taxonomy: true })
-  checked.value = allTypeIds(list.value?.forest ?? [])
+  await store.invalidate({ labels: true })
+  checked.value = allLabelIds(list.value?.forest ?? [])
 }
 
 function hide() {
@@ -121,13 +121,13 @@ defineExpose({ show })
         </button>
       </div>
       <p class="ch-muted-text mb-1.5">
-        Types to include. Unchecked types stay in the taxonomy.
+        Labels to include. Unchecked labels stay in the taxonomy.
       </p>
       <div
         v-if="rows.length"
         class="mb-3 max-h-56 overflow-auto rounded-[4px] border border-[var(--ch-color-border)] py-1"
         role="tree"
-        aria-label="Issue types to export"
+        aria-label="Labels to export"
         aria-multiselectable="true"
       >
         <label
@@ -149,7 +149,7 @@ defineExpose({ show })
         </label>
       </div>
       <p v-else class="ch-muted-text mb-3">
-        No issue types yet.
+        No labels yet.
       </p>
       <div class="flex justify-end">
         <button

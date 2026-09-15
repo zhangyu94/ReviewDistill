@@ -1,62 +1,62 @@
-from reviewdistill.db.models import ISSUE_ACTIVE, IssueType
+from reviewdistill.db.models import LABEL_ACTIVE, Label
 from reviewdistill.taxonomy.tree import (
     compact_positions,
     descendant_ids,
     is_under,
     subtree_count,
-    types_to_forest,
+    labels_to_forest,
 )
 
 
 def _t(id, *, parent=None, position=0, name="n"):
-    return IssueType(
+    return Label(
         id=id,
         name=name,
         parent_id=parent,
         position=position,
         definition="",
-        status=ISSUE_ACTIVE,
+        status=LABEL_ACTIVE,
     )
 
 
 def test_descendants_and_cycle_check():
-    types = [
+    labels = [
         _t("root"),
         _t("a", parent="root", position=0),
         _t("b", parent="a", position=0),
         _t("c", parent="root", position=1),
     ]
-    assert descendant_ids(types, "root") == {"a", "b", "c"}
-    assert is_under(types, child="b", ancestor="root")
-    assert not is_under(types, child="root", ancestor="a")
-    assert is_under(types, child="a", ancestor="a")
+    assert descendant_ids(labels, "root") == {"a", "b", "c"}
+    assert is_under(labels, child="b", ancestor="root")
+    assert not is_under(labels, child="root", ancestor="a")
+    assert is_under(labels, child="a", ancestor="a")
 
 
 def test_descendant_ids_can_include_inactive():
-    types = [
+    labels = [
         _t("root"),
         _t("a", parent="root"),
     ]
-    types[1].status = "inactive"
-    assert descendant_ids(types, "root") == set()
-    assert descendant_ids(types, "root", active_only=False) == {"a"}
+    labels[1].status = "inactive"
+    assert descendant_ids(labels, "root") == set()
+    assert descendant_ids(labels, "root", active_only=False) == {"a"}
 
 
 def test_compact_positions_orders_siblings():
-    types = [_t("b", position=9, name="B"), _t("a", position=3, name="A")]
-    compact_positions(types, None)
-    by_id = {row.id: row.position for row in types}
+    labels = [_t("b", position=9, name="B"), _t("a", position=3, name="A")]
+    compact_positions(labels, None)
+    by_id = {row.id: row.position for row in labels}
     assert by_id == {"a": 0, "b": 1}
 
 
 def test_forest_and_subtree_count():
-    types = [_t("root", name="Root"), _t("leaf", parent="root", name="Leaf")]
+    labels = [_t("root", name="Root"), _t("leaf", parent="root", name="Leaf")]
     own = {"root": 1, "leaf": 4}
-    forest = types_to_forest(types, own)
+    forest = labels_to_forest(labels, own)
     assert forest[0]["id"] == "root"
     assert forest[0]["count"] == 5
     assert forest[0]["children"][0]["count"] == 4
-    assert subtree_count(own, descendant_ids(types, "root") | {"root"}) == 5
+    assert subtree_count(own, descendant_ids(labels, "root") | {"root"}) == 5
 
 
 def test_next_unique_name_matches_image_taxonomy_labeler():
@@ -66,4 +66,4 @@ def test_next_unique_name_matches_image_taxonomy_labeler():
     assert next_unique_name(["foo"], "foo") == "foo (2)"
     assert next_unique_name(["foo", "foo (2)", "foo (4)"], "foo") == "foo (3)"
     assert next_unique_name(["a+b"], "a+b") == "a+b (2)"
-    assert next_unique_name(["New type", "New type"], "New type") == "New type (2)"
+    assert next_unique_name(["New label", "New label"], "New label") == "New label (2)"

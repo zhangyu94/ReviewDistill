@@ -1,12 +1,12 @@
 # Data schema
 
-Stored shape of a **project** (paper), a proofreading **observation**, and an **issue type** in the ReviewDistill store.
+Stored shape of a **project** (paper), a proofreading **observation**, and a **label** in the ReviewDistill store.
 
 Identity (when a source comment is new, a revision, a move, or gone) is defined in [`comment-identity.md`](comment-identity.md). Product spec: [`spec.md`](spec.md). This file is the schema of the rows that identity acts on.
 
-Implementation: one JSONL file per collection in the ReviewDistill home folder (default `~/.reviewdistill`): `projects.jsonl`, `comments.jsonl`, `codings.jsonl`, `issue_types.jsonl`, `issue_examples.jsonl`, `issue_counterexamples.jsonl`, `taxonomy_events.jsonl`, `git_commits.jsonl`. One JSON object per line, sorted by `id`. `reviewdistill paths use` / `move` choose that folder. `comments.project_id` is the `projects.id` of the paper.
+Implementation: one JSONL file per collection in the ReviewDistill home folder (default `~/.reviewdistill`): `projects.jsonl`, `comments.jsonl`, `codings.jsonl`, `labels.jsonl`, `label_examples.jsonl`, `taxonomy_events.jsonl`. One JSON object per line, sorted by `id`. `reviewdistill paths use` / `move` choose that folder. `comments.project_id` is the `projects.id` of the paper.
 
-The JSON object under `comment` in `GET /api/inbox` is the comment row (`created_at` as ISO-8601). `items` is the Unlabeled queue; `working_items` is every comment to distill (labeled included) so the UI can AND selectors without extra fetches. Each item has `in_working_set`. `progress.working_set` is the **to distill** headline. `progress` has no `absent` key; presence is `in_manuscript` on the item. Response extras (`project_name`, `permalink`, `guess`, `in_manuscript`, `labeled`, `issue`, `coding`, `in_working_set`, `local_file`) are not columns on `comments`; `project_name` is `projects.name`. `in_manuscript` is `status == "active"`. `local_file` is true when `{projects.root_path}/{file_path}` resolves to a file that stays under that root (`..` does not count). The absolute path is not in the JSON. `POST /api/inbox/{comment_id}/reveal` (empty body) re-checks that path and selects the file in the OS file manager. Unknown comment is 404 (`Unknown comment {id}`); missing project, missing file, or path escape is 404 (`This file is not on this computer.`); file-manager failure is 400. Reveal does not write store rows or History.
+The JSON object under `comment` in `GET /api/inbox` is the comment row (`created_at` as ISO-8601). `items` is the Unlabeled queue; `working_items` is every comment to distill (labeled included) so the UI can AND selectors without extra fetches. Each item has `in_working_set`. `progress.working_set` is the **to distill** headline. `progress` has no `absent` key; presence is `in_manuscript` on the item. Response extras (`project_name`, `permalink`, `guess`, `in_manuscript`, `labeled`, `label`, `coding`, `in_working_set`, `local_file`) are not columns on `comments`; `project_name` is `projects.name`. `in_manuscript` is `status == "active"`. `local_file` is true when `{projects.root_path}/{file_path}` resolves to a file that stays under that root (`..` does not count). The absolute path is not in the JSON. `POST /api/inbox/{comment_id}/reveal` (empty body) re-checks that path and selects the file in the OS file manager. Unknown comment is 404 (`Unknown comment {id}`); missing project, missing file, or path escape is 404 (`This file is not on this computer.`); file-manager failure is 400. Reveal does not write store rows or History.
 
 ---
 
@@ -67,9 +67,8 @@ Time the row was first inserted. Not updated when `name` or `root_path` change.
 | `section` | string | yes | `null` | no |
 | `git_commit` | string | yes | `null` | no |
 | `git_url` | string | yes | `null` | no |
-| `fingerprint` | string | no | — | yes |
 | `status` | string | no | `"active"` | yes |
-| `quality` | string | no | `"unreviewed"` | no |
+| `verified` | bool | no | `false` | no |
 | `supersedes_id` | string | yes | `null` | no |
 | `created_at` | datetime (UTC) | no | now | no |
 
@@ -79,7 +78,7 @@ Time the row was first inserted. Not updated when `name` or `root_path` change.
 
 #### `id`
 
-Stable identity of the observation. Assigned once on insert (`uuid4`). Survives revision, move, absence from the source, Verify, and Drop.
+Stable identity of the observation. Assigned once on insert (`uuid4`). Survives revision, move, absence from the source, and Verify.
 
 #### `project_id`
 
@@ -91,7 +90,7 @@ How the comment was found in the manuscript. Current extractor always writes `la
 
 #### `source_command`
 
-LaTeX macro name **without** the leading backslash (for example `myremark` for `\myremark{...}`). Taken from the project’s configured comment commands. It is a marker, not an issue type.
+LaTeX macro name **without** the leading backslash (for example `myremark` for `\myremark{...}`). Taken from the project’s configured comment commands. It is a marker, not a label.
 
 #### `file_path`
 
@@ -111,12 +110,16 @@ The AI never writes this field. Source-driven **revision** of a still-present co
 
 Nearby manuscript text at last extract, **not** the comment body.
 
-Built as:
+Built as source TeX of the insertion neighborhood:
 
-1. Local prose around the comment (headings and following paragraph when the comment sits alone between sectioning commands; comment-command lines themselves are omitted). Line breaks match the source: consecutive TeX lines stay on separate lines; a blank line in the source becomes a blank line in `context_text`.
-2. Optional last line of harvested keys from that same local text: `Citations: …` and/or `Refs: …`, joined with ` | `.
+1. Find complete configured macros on the raw file (same brace rule as harvest; a `}` after `%` still closes).
+2. Strip those macros (optional space before `{`; do not drop the rest of the line). A blank line inside `{...}` does not split the outer paragraph.
+3. Drop unescaped `%` tails (line count unchanged).
+4. Take the blank-line block that contains the opening command line.
+5. If the span is empty, walk **up**, skipping blocks that are also empty after strip: consecutive heading / `\label` blocks (sectioning commands `\chapter` through `\subparagraph`, optional `*`), or the previous prose paragraph. Never a block below the comment.
+6. Keep line breaks. Trim edge blanks. Do not append `Citations:` / `Refs:`.
 
-Citations and refs are **not** separate columns. When the comment is not in the manuscript, a non-binding guess compares the prose (everything except that last extras line) to a fresh extract of `{root_path}/{file_path}` at `line_number`.
+When the comment is not in the manuscript, a non-binding guess compares stored `context_text` to a fresh extract of `{root_path}/{file_path}` at `line_number`.
 
 #### `section`
 
@@ -130,17 +133,15 @@ Nearest `\section` / `\subsection` titles at extract time, or `null`. Format whe
 
 `origin` remote as git reports it (`git remote get-url origin`), or `null`. HTTP(S) and `ssh://` userinfo is stripped before storage, JSON, and permalinks, except a password-less `git` username (`https://git@git.overleaf.com/...`). This is a clone URL, not a web permalink. GitHub/GitLab file+line links are derived at read time from `git_url` + `git_commit` + `file_path` + `line_number`.
 
-#### `fingerprint`
-
-SHA-256 hex of `source_command + NUL + normalized raw_text`, UTF-8. Normalization for the hash is `" ".join(raw_text.split())` (whitespace collapse). Used to pair exact same-wording comments within and across files. Not a primary key: two copies of the same wording are two rows with the same fingerprint.
+Exact same-wording pairing (within a file, across files, resurrect after a comment left the manuscript) is computed at extract time from `source_command` and `raw_text` (`fingerprint_for`). It is not a stored column. On load, a leftover `fingerprint` key is dropped and the store is rewritten.
 
 #### `status`
 
 Presence of the observation in the manuscript source. See [Presence](#presence).
 
-#### `quality`
+#### `verified`
 
-Human stamp on the observation itself, independent of the issue type. See [Quality](#quality).
+Human Verify stamp on the observation itself, independent of the label. See [Verified](#verified).
 
 #### `supersedes_id`
 
@@ -148,7 +149,7 @@ Unused by current extract. Do not infer identity from it.
 
 #### `created_at`
 
-Time the row was first inserted. Not updated on revision, move, presence change, or quality stamp.
+Time the row was first inserted. Not updated on revision, move, presence change, or Verify.
 
 ### Presence
 
@@ -156,41 +157,42 @@ Time the row was first inserted. Not updated on revision, move, presence change,
 
 | Status | Still in the manuscript source? | How it is set |
 | --- | --- | --- |
-| `active` | yes | New extract; resurrect when the same fingerprint returns |
+| `active` | yes | New extract; resurrect when the same wording (same command + text) returns |
 | `pending_disappeared` | no | Extract: present comment unmatched as revision/move |
 
-Extract never Verify/Drops. Exception: a wording revision clears `verified` to `unreviewed`. Dropped rows with the same wording still in the file keep the same `id` (no new row).
+Extract never Verify/Deletes. Exception: a wording revision clears verified to false. A deleted comment is gone; the same wording still in the file is a new observation (new `id`).
 
-### Quality
+### Verified
 
-| Quality | Meaning | How it is set |
+| `verified` | Meaning | How it is set |
 | --- | --- | --- |
-| `unreviewed` | Default after extract; revision of wording also clears `verified` back to this | Extract (new / revision) |
-| `verified` | Observation is quality-assured. Does not confirm the issue type | **Verify** |
-| `dropped` | Do not distill (too local or bad extract). History is kept | **Drop** |
+| `false` | Default after extract; wording revision also clears a Verify stamp | Extract (new / revision) |
+| `true` | Observation is verified. Does not confirm the label assignment | **Verify** |
 
-Unknown values are rejected on `add`, `commit`, and load (`Unknown comment quality`). Corrupt `comments.jsonl` fails fast; rows are not skipped.
+On load, leftover `quality` strings map to this bool (`verified`/`unreviewed`); leftover `quality=dropped` rows are purged (comment plus dependents, no History event). Unknown `quality` still fails (`Unknown comment quality`). A leftover `fingerprint` key is dropped. A non-boolean `verified` fails (`Unknown comment verified`). After a mapping, purge, or fingerprint drop, the store is rewritten so later loads see only `verified`.
 
 ### Comments to distill
 
-A comment is **to distill** (`in_working_set`) when it is not `dropped`, and either in the manuscript (`status=active`) or `verified`. Progress shows this count as **to distill**; the JSON key remains `working_set`.
+A comment is **to distill** (`in_working_set`) when it is in the manuscript (`status=active`) or `verified`. Progress shows this count as **to distill**; the JSON key remains `working_set`.
 
-AI suggestions, taxonomy examples, type-chip counts, recent observations, and export use only comments to distill.
+AI suggestions, taxonomy examples, label-chip counts, recent observations, and export use only comments to distill.
 
 Selector views:
 
-- **Unlabeled** — comments to distill with no **active** issue type, plus absent + `unreviewed` (so you can Verify or Drop). No Reject: not accepting a suggestion leaves the comment unlabeled. An accepted label on an inactive type does not count.
-- **Type chip** — that type’s labeled comments to distill.
+- **Unlabeled** — comments to distill with no **active** label, plus absent + not verified (so you can Verify or Delete). No Reject: not accepting a suggestion leaves the comment unlabeled. An accepted label on an inactive label does not count.
+- **Label chip** — that label’s labeled comments to distill.
 
 ### What extract updates in place
 
-On unchanged, revised, moved, or resurrected rows, extract refreshes location and git, and rebuilds `context_text` / `section`. On revision it also updates `raw_text`, `fingerprint`, `source_command`, and `source_type`, and clears `verified` to `unreviewed`. It does not change `id`, `project_id`, `created_at`, `supersedes_id`, or `dropped`.
+On unchanged, revised, moved, or resurrected rows, extract refreshes location and git, and rebuilds `context_text` / `section`. On revision it also updates `raw_text`, `source_command`, and `source_type`, and clears verified to false. It does not change `id`, `project_id`, `created_at`, or `supersedes_id`.
 
 ---
 
-## Issue type
+## Label
 
-Live taxonomy node (`issue_types.jsonl`). The store is a forest: `parent_id` is null for a root, otherwise another type’s `id`. `position` is order among siblings (`0..n-1` after each sibling-list rewrite). A type may have children and its own accepted comments.
+Live taxonomy node (`labels.jsonl`). The store is a forest: `parent_id` is null for a root, otherwise another label’s `id`. `position` is order among siblings (`0..n-1` after each sibling-list rewrite). A label may have children and its own accepted comments.
+
+A **label** is a category in the scheme. Whether a comment is **labeled** lives on `codings.label_id`, not on this row. YAML/JSON **export** dumps wrap the list in `labels` and default to `review-taxonomy.yaml` / `.json` (taxonomy = the scheme).
 
 | Column | Type | Null | Default |
 | --- | --- | --- | --- |
@@ -202,9 +204,9 @@ Live taxonomy node (`issue_types.jsonl`). The store is a forest: `parent_id` is 
 | `detection_guidance` | string | yes | null |
 | `status` | `active` / `inactive` | no | `active` |
 
-An active type’s `parent_id` must be an active type; missing, inactive, or cyclic parents fail load. Inactive rows keep last `parent_id` / `position` for undo. Leftover `category` and `notes` keys in old files are ignored; they are not rewritten and `category` is not promoted into parent types. `notes` is not a field. `detection_guidance` is used in retrieval and is not shown in Issue Details.
+An active label’s `parent_id` must be an active label; missing, inactive, or cyclic parents fail load. Inactive rows keep last `parent_id` / `position` for undo. Leftover `category` and `notes` keys in old files are ignored; they are not rewritten and `category` is not promoted into parent labels. `notes` is not a field. `detection_guidance` is used in retrieval and is not shown in Label Details.
 
-`codings.proposed_parent_id` is the parent for a proposed **new** type (`null` = root). Unknown or inactive ids are treated as root.
+`codings.proposed_parent_id` is the parent for a proposed **new** label (`null` = root). Unknown or inactive ids are treated as root.
 
 ---
 
@@ -213,8 +215,7 @@ An active type’s `parent_id` must be an active type; missing, inactive, or cyc
 | Table | Relationship |
 | --- | --- |
 | `codings` | many `codings.comment_id` → one comment; AI/human interpretation lives here |
-| `issue_examples` / `issue_counterexamples` | optional `source_comment_id` |
+| `label_examples` | optional `source_comment_id` |
 | `taxonomy_events` | append-only history (`event_type`, `payload_json`, `undone`); Undo/Redo set `undone` rather than inserting a new row |
-| `git_commits` | per-project commit log (`git_commits.project_id`); not a foreign key from `comments` |
 
 A comment may have several `codings` over time (`proposed`, `accepted`, `modified`). The observation row stays the evidence; coding rows stay the interpretation. Not accepting a suggestion leaves the comment unlabeled.

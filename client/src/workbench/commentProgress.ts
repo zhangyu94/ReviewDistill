@@ -6,13 +6,11 @@ export const EMPTY_PROGRESS: CommentProgress = {
   labeled: 0,
   unreviewed: 0,
   verified: 0,
-  dropped: 0,
 }
 
-export function progressParts(progress: CommentProgress): { key: 'unlabeled' | 'verified' | 'dropped', n: number }[] {
+export function progressParts(progress: CommentProgress): { key: 'unlabeled' | 'verified', n: number }[] {
   return [
     { key: 'unlabeled', n: progress.unlabeled },
     { key: 'verified', n: progress.verified },
-    { key: 'dropped', n: progress.dropped },
   ]
 }

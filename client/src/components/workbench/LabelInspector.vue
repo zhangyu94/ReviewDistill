@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import type { TaxonomyDetail } from '../../api/client.ts'
+import type { LabelDetail } from '../../api/client.ts'
 import { computed, ref, watch } from 'vue'
-import { editIssue, renameIssue } from '../../api/client.ts'
+import { editLabel, renameLabel } from '../../api/client.ts'
 import {
-  canSaveIssueEdit,
-  canShowIssueEdit,
-  issueDetailsErrorText,
-  issueEditSaves,
-  nextIssueSaveError,
-  shouldReloadAfterIssueSaves,
-  shouldSyncIssueEditFromProps,
-} from '../../workbench/issueDetailsEdit.ts'
+  canSaveLabelEdit,
+  canShowLabelEdit,
+  labelDetailsErrorText,
+  labelEditSaves,
+  nextLabelSaveError,
+  shouldReloadAfterLabelSaves,
+  shouldSyncLabelEditFromProps,
+} from '../../workbench/labelDetailsEdit.ts'
 
 const props = defineProps<{
-  issue: TaxonomyDetail | null
+  label: LabelDetail | null
   selectedId: string
   missing: boolean
   error: string
@@ -29,54 +29,54 @@ const saveError = ref('')
 const editName = ref('')
 const editDefinition = ref('')
 
-const showEdit = computed(() => canShowIssueEdit({
+const showEdit = computed(() => canShowLabelEdit({
   selectedId: props.selectedId,
   missing: props.missing,
-  issue: props.issue,
+  label: props.label,
 }))
 
-const canSave = computed(() => canSaveIssueEdit(editName.value, editDefinition.value))
+const canSave = computed(() => canSaveLabelEdit(editName.value, editDefinition.value))
 
-const errorText = computed(() => issueDetailsErrorText(saveError.value, props.error))
+const errorText = computed(() => labelDetailsErrorText(saveError.value, props.error))
 
-function syncFromIssue(issue: TaxonomyDetail) {
-  editName.value = issue.name
-  editDefinition.value = issue.definition
+function syncFromLabel(label: LabelDetail) {
+  editName.value = label.name
+  editDefinition.value = label.definition
 }
 
 watch(
-  () => props.issue,
-  (issue) => {
-    const keepDraft = !shouldSyncIssueEditFromProps(saving.value) && editing.value
+  () => props.label,
+  (label) => {
+    const keepDraft = !shouldSyncLabelEditFromProps(saving.value) && editing.value
     saving.value = false
-    saveError.value = nextIssueSaveError({ keepDraft, current: saveError.value })
+    saveError.value = nextLabelSaveError({ keepDraft, current: saveError.value })
     if (keepDraft) { return }
     editing.value = false
-    if (!issue) { return }
-    syncFromIssue(issue)
+    if (!label) { return }
+    syncFromLabel(label)
   },
   { immediate: true },
 )
 
 function startEdit() {
-  if (!props.issue) { return }
+  if (!props.label) { return }
   saveError.value = ''
-  syncFromIssue(props.issue)
+  syncFromLabel(props.label)
   editing.value = true
 }
 
 function cancelEdit() {
   saveError.value = ''
-  if (props.issue) { syncFromIssue(props.issue) }
+  if (props.label) { syncFromLabel(props.label) }
   editing.value = false
 }
 
 async function save() {
-  const issue = props.issue
-  if (!issue || !canSave.value) { return }
-  const calls = issueEditSaves({
-    currentName: issue.name,
-    currentDefinition: issue.definition,
+  const label = props.label
+  if (!label || !canSave.value) { return }
+  const calls = labelEditSaves({
+    currentName: label.name,
+    currentDefinition: label.definition,
     nextName: editName.value,
     nextDefinition: editDefinition.value,
   })
@@ -90,10 +90,10 @@ async function save() {
   try {
     for (const call of calls) {
       if (call.kind === 'rename') {
-        await renameIssue(issue.id, call.name)
+        await renameLabel(label.id, call.name)
       }
       else {
-        await editIssue(issue.id, { definition: call.definition })
+        await editLabel(label.id, { definition: call.definition })
       }
       completed += 1
     }
@@ -102,7 +102,7 @@ async function save() {
   }
   catch (err) {
     saveError.value = err instanceof Error ? err.message : String(err)
-    if (shouldReloadAfterIssueSaves(completed)) {
+    if (shouldReloadAfterLabelSaves(completed)) {
       emit('updated')
     }
     else {
@@ -115,7 +115,7 @@ async function save() {
 <template>
   <div class="flex min-h-0 min-w-0 shrink-0 flex-col">
     <div class="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-[var(--ch-color-border)] px-2">
-      <span class="text-xs font-medium">Issue Details</span>
+      <span class="text-xs font-medium">Label Details</span>
       <template v-if="showEdit">
         <button
           v-if="!editing"
@@ -152,39 +152,39 @@ async function save() {
         {{ errorText }}
       </p>
       <p v-if="!selectedId" class="ch-muted-text">
-        Select a group.
+        Select a label.
       </p>
       <p v-else-if="missing">
-        This issue type was not found.
+        This label was not found.
       </p>
-      <template v-else-if="issue">
+      <template v-else-if="label">
         <div class="flex w-full flex-col gap-2">
           <section>
-            <label v-if="editing" class="ch-field-label" for="issue-details-name">Name</label>
+            <label v-if="editing" class="ch-field-label" for="label-details-name">Name</label>
             <p
               v-if="!editing"
               class="font-semibold leading-5 text-[var(--ch-color-foreground)]"
             >
-              {{ issue.name }}
+              {{ label.name }}
             </p>
             <input
               v-else
-              id="issue-details-name"
+              id="label-details-name"
               v-model="editName"
               class="ch-input"
             >
           </section>
           <section>
-            <label v-if="editing" class="ch-field-label" for="issue-details-definition">Definition</label>
+            <label v-if="editing" class="ch-field-label" for="label-details-definition">Definition</label>
             <p
               v-if="!editing"
               class="ch-prose whitespace-pre-wrap text-[var(--ch-color-body)]"
             >
-              {{ issue.definition }}
+              {{ label.definition }}
             </p>
             <textarea
               v-else
-              id="issue-details-definition"
+              id="label-details-definition"
               v-model="editDefinition"
               class="ch-input h-20 py-1.5"
             />

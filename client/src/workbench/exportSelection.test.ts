@@ -1,6 +1,6 @@
 import type { TaxonomyNode } from './taxonomyTree.ts'
 import { describe, expect, it } from 'vitest'
-import { allTypeIds, exportQuery, toggleCheckedId } from './exportSelection.ts'
+import { allLabelIds, exportQuery, toggleCheckedId } from './exportSelection.ts'
 
 const forest: TaxonomyNode[] = [
   {
@@ -16,7 +16,7 @@ const forest: TaxonomyNode[] = [
 
 describe('exportSelection', () => {
   it('lists every type id without cascading', () => {
-    expect(allTypeIds(forest)).toEqual(['root', 'a', 'b'])
+    expect(allLabelIds(forest)).toEqual(['root', 'a', 'b'])
   })
 
   it('toggles one id without its children', () => {

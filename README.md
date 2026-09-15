@@ -24,9 +24,9 @@
 
 When you proofread, comments usually stay buried in the `.tex` file. The next paper, you start over. An AI assistant that edits the text has no idea what you usually flag.
 
-ReviewDistill reads those comments and the sentences around them. You group similar comments into types of problems (for example, “this claim is too strong”). Then you save that list as a file you can reuse — yourself, or by handing it to an assistant.
+ReviewDistill reads those comments and the sentences around them. You group similar comments into labels (for example, “this claim is too strong”). Then you save that list as a file you can reuse — yourself, or by handing it to an assistant.
 
-If you add an API key, an LLM can suggest a group. You still choose. Comments and keys stay on your computer.
+If you add an API key, an LLM can suggest a label assignment. You still choose. Comments and keys stay on your computer.
 
 ## Start using it
 
@@ -39,7 +39,7 @@ That puts the `reviewdistill` command on your `PATH`. In a paper repository:
 1. `reviewdistill init --name paper-01 --command myremark`
 2. Proofread with `\myremark{...}` (or the commands you passed to `init`). Define `\newcommand{\myremark}[1]{#1}` in the preamble if needed.
 3. `reviewdistill extract` (add `--watch` to keep extracting).
-4. `reviewdistill ui` → http://127.0.0.1:8765 — **Label with AI**, then Accept a suggestion or pick a type in the menu. **Verify** or **Drop** stamps quality.
+4. `reviewdistill ui` → http://127.0.0.1:8765 — **Label with AI**, then Accept a suggestion or pick a label in the menu. **Verify** stamps the observation; **Delete** removes a bad extract.
 5. Repeat on the next paper; the taxonomy is reused.
 6. `reviewdistill export --format md -o SKILL.md`
 7. Put that file in `.cursor/skills/scholarly-review/` (or the equivalent for another coding agent).

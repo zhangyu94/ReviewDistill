@@ -1,6 +1,6 @@
 import type { TaxonomyNode } from './taxonomyTree.ts'
 import { describe, expect, it } from 'vitest'
-import { assignableIssueRows, findNode, flattenForest, isLeaf, moveBody } from './taxonomyTree.ts'
+import { assignableLabelRows, findNode, flattenForest, isLeaf, moveBody } from './taxonomyTree.ts'
 
 const forest: TaxonomyNode[] = [
   {
@@ -49,8 +49,8 @@ describe('taxonomyTree', () => {
   })
 
   it('offers leaves for assign, plus the current type if it is a parent', () => {
-    expect(assignableIssueRows(forest).map((row) => row.id)).toEqual(['a', 'b'])
-    expect(assignableIssueRows(forest, 'root').map((row) => [row.id, row.depth])).toEqual([
+    expect(assignableLabelRows(forest).map((row) => row.id)).toEqual(['a', 'b'])
+    expect(assignableLabelRows(forest, 'root').map((row) => [row.id, row.depth])).toEqual([
       ['root', 0],
       ['a', 1],
       ['b', 1],

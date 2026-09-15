@@ -4,23 +4,23 @@ from __future__ import annotations
 
 import re
 
-from reviewdistill.db.models import ISSUE_ACTIVE, IssueType
+from reviewdistill.db.models import LABEL_ACTIVE, Label
 
 
-def active_only(types: list[IssueType]) -> list[IssueType]:
-    return [row for row in types if row.status == ISSUE_ACTIVE]
+def active_only(labels: list[Label]) -> list[Label]:
+    return [row for row in labels if row.status == LABEL_ACTIVE]
 
 
-def active_children(types: list[IssueType], parent_id: str | None) -> list[IssueType]:
-    rows = [row for row in active_only(types) if row.parent_id == parent_id]
+def active_children(labels: list[Label], parent_id: str | None) -> list[Label]:
+    rows = [row for row in active_only(labels) if row.parent_id == parent_id]
     return sorted(rows, key=lambda row: (row.position, row.name, row.id))
 
 
 def descendant_ids(
-    types: list[IssueType], root_id: str, *, active_only: bool = True
+    labels: list[Label], root_id: str, *, active_only: bool = True
 ) -> set[str]:
     rows = [
-        row for row in types if (not active_only) or row.status == ISSUE_ACTIVE
+        row for row in labels if (not active_only) or row.status == LABEL_ACTIVE
     ]
     children_of: dict[str | None, list[str]] = {}
     for row in rows:
@@ -36,49 +36,49 @@ def descendant_ids(
     return found
 
 
-def is_under(types: list[IssueType], *, child: str, ancestor: str) -> bool:
+def is_under(labels: list[Label], *, child: str, ancestor: str) -> bool:
     if child == ancestor:
         return True
-    return child in descendant_ids(types, ancestor)
+    return child in descendant_ids(labels, ancestor)
 
 
-def compact_positions(types: list[IssueType], parent_id: str | None) -> None:
+def compact_positions(labels: list[Label], parent_id: str | None) -> None:
     """Rewrite active siblings under parent_id to position 0..n-1."""
-    siblings = [row for row in types if row.status == ISSUE_ACTIVE and row.parent_id == parent_id]
+    siblings = [row for row in labels if row.status == LABEL_ACTIVE and row.parent_id == parent_id]
     siblings.sort(key=lambda row: (row.position, row.name, row.id))
     for index, row in enumerate(siblings):
         row.position = index
 
 
 def place_among_siblings(
-    types: list[IssueType],
-    issue: IssueType,
+    labels: list[Label],
+    label: Label,
     parent_id: str | None,
     position: int,
 ) -> None:
-    old_parent = issue.parent_id
-    siblings = [row for row in active_children(types, parent_id) if row.id != issue.id]
+    old_parent = label.parent_id
+    siblings = [row for row in active_children(labels, parent_id) if row.id != label.id]
     position = max(0, min(int(position), len(siblings)))
-    siblings.insert(position, issue)
-    issue.parent_id = parent_id
+    siblings.insert(position, label)
+    label.parent_id = parent_id
     for index, row in enumerate(siblings):
         row.position = index
     if old_parent != parent_id:
-        compact_positions(types, old_parent)
+        compact_positions(labels, old_parent)
 
 
-def lift_children(types: list[IssueType], issue: IssueType) -> list[dict]:
-    """Move active children onto issue's parent, inserted at issue.position."""
-    kids = active_children(types, issue.id)
+def lift_children(labels: list[Label], label: Label) -> list[dict]:
+    """Move active children onto label's parent, inserted at label.position."""
+    kids = active_children(labels, label.id)
     dumped = []
-    new_parent = issue.parent_id
-    siblings = [row for row in active_children(types, new_parent) if row.id != issue.id]
-    at = max(0, min(issue.position, len(siblings)))
+    new_parent = label.parent_id
+    siblings = [row for row in active_children(labels, new_parent) if row.id != label.id]
+    at = max(0, min(label.position, len(siblings)))
     for offset, kid in enumerate(kids):
         dumped.append(
             {
                 "id": kid.id,
-                "from_parent_id": issue.id,
+                "from_parent_id": label.id,
                 "from_position": kid.position,
             }
         )
@@ -89,7 +89,7 @@ def lift_children(types: list[IssueType], issue: IssueType) -> list[dict]:
     return dumped
 
 
-def next_unique_name(taken: list[str], name: str = "New type") -> str:
+def next_unique_name(taken: list[str], name: str = "New label") -> str:
     """Same suffix rule as image-taxonomy-labeler: ``foo``, then ``foo (2)``, filling gaps."""
     if name not in taken:
         return name
@@ -113,11 +113,11 @@ def subtree_count(own: dict[str, int], ids: set[str]) -> int:
     return sum(own.get(i, 0) for i in ids)
 
 
-def types_to_forest(types: list[IssueType], own_counts: dict[str, int]) -> list[dict]:
-    def node(row: IssueType) -> dict:
-        kids = active_children(types, row.id)
+def labels_to_forest(labels: list[Label], own_counts: dict[str, int]) -> list[dict]:
+    def node(row: Label) -> dict:
+        kids = active_children(labels, row.id)
         child_nodes = [node(child) for child in kids]
-        ids = descendant_ids(types, row.id) | {row.id}
+        ids = descendant_ids(labels, row.id) | {row.id}
         return {
             "id": row.id,
             "name": row.name,
@@ -125,13 +125,13 @@ def types_to_forest(types: list[IssueType], own_counts: dict[str, int]) -> list[
             "children": child_nodes,
         }
 
-    return [node(row) for row in active_children(types, None)]
+    return [node(row) for row in active_children(labels, None)]
 
 
-def type_path(types: list[IssueType], issue_id: str) -> list[dict]:
-    by_id = {row.id: row for row in types}
+def label_path(labels: list[Label], label_id: str) -> list[dict]:
+    by_id = {row.id: row for row in labels}
     chain = []
-    current = by_id.get(issue_id)
+    current = by_id.get(label_id)
     seen: set[str] = set()
     while current is not None and current.id not in seen:
         seen.add(current.id)

@@ -1,24 +1,24 @@
-import type { InboxResponse, TaxonomyDetail, TaxonomyListResponse } from '../api/client.ts'
+import type { InboxResponse, LabelDetail, TaxonomyListResponse } from '../api/client.ts'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { ApiError, fetchInbox, fetchIssue, fetchTaxonomy } from '../api/client.ts'
-import { clearIssueBeforeLoad, issueLoadErrorView, shouldApplyIssueLoad } from './workbenchMode.ts'
+import { ApiError, fetchInbox, fetchLabel, fetchLabels } from '../api/client.ts'
+import { clearLabelBeforeLoad, labelLoadErrorView, shouldApplyLabelLoad } from './workbenchMode.ts'
 
 export interface InvalidateParts {
   inbox?: boolean
-  taxonomy?: boolean
-  issue?: boolean
+  labels?: boolean
+  label?: boolean
 }
 
 export const useWorkbenchStore = defineStore('workbench', () => {
   const inbox = ref<InboxResponse | null>(null)
-  const taxonomy = ref<TaxonomyListResponse | null>(null)
-  const issue = ref<TaxonomyDetail | null>(null)
+  const labels = ref<TaxonomyListResponse | null>(null)
+  const label = ref<LabelDetail | null>(null)
   const missing = ref(false)
   const error = ref('')
   const loading = ref(false)
   const settingsOpen = ref(false)
-  let issueLoadGen = 0
+  let labelLoadGen = 0
 
   function openSettings() {
     settingsOpen.value = true
@@ -32,14 +32,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     inbox.value = await fetchInbox()
   }
 
-  async function loadTaxonomy() {
-    taxonomy.value = await fetchTaxonomy()
+  async function loadLabels() {
+    labels.value = await fetchLabels()
   }
 
-  async function loadIssue(id: string) {
-    const gen = ++issueLoadGen
-    if (clearIssueBeforeLoad(issue.value?.id ?? '', id)) {
-      issue.value = null
+  async function loadLabel(id: string) {
+    const gen = ++labelLoadGen
+    if (clearLabelBeforeLoad(label.value?.id ?? '', id)) {
+      label.value = null
     }
     if (!id) {
       missing.value = false
@@ -47,17 +47,17 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       return
     }
     try {
-      const next = await fetchIssue(id)
-      if (!shouldApplyIssueLoad(gen, issueLoadGen)) { return }
-      issue.value = next
+      const next = await fetchLabel(id)
+      if (!shouldApplyLabelLoad(gen, labelLoadGen)) { return }
+      label.value = next
       missing.value = false
       error.value = ''
     }
     catch (err) {
-      if (!shouldApplyIssueLoad(gen, issueLoadGen)) { return }
+      if (!shouldApplyLabelLoad(gen, labelLoadGen)) { return }
       const status = err instanceof ApiError ? err.status : null
-      if (issueLoadErrorView(status) === 'missing') {
-        issue.value = null
+      if (labelLoadErrorView(status) === 'missing') {
+        label.value = null
         missing.value = true
         error.value = ''
       }
@@ -68,23 +68,23 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
   }
 
-  async function invalidate(parts: InvalidateParts, issueId = '') {
+  async function invalidate(parts: InvalidateParts, labelId = '') {
     const jobs: Promise<void>[] = []
     if (parts.inbox) { jobs.push(loadInbox()) }
-    if (parts.taxonomy) { jobs.push(loadTaxonomy()) }
-    if (parts.issue) { jobs.push(loadIssue(issueId)) }
+    if (parts.labels) { jobs.push(loadLabels()) }
+    if (parts.label) { jobs.push(loadLabel(labelId)) }
     await Promise.all(jobs)
   }
 
-  async function refreshAfterHistory(issueId = '') {
-    await invalidate({ inbox: true, taxonomy: true, issue: true }, issueId)
+  async function refreshAfterHistory(labelId = '') {
+    await invalidate({ inbox: true, labels: true, label: true }, labelId)
   }
 
-  async function loadAll(issueId = '') {
+  async function loadAll(labelId = '') {
     loading.value = true
     error.value = ''
     try {
-      await invalidate({ inbox: true, taxonomy: true, issue: true }, issueId)
+      await invalidate({ inbox: true, labels: true, label: true }, labelId)
     }
     catch (err) {
       error.value = err instanceof Error ? err.message : String(err)
@@ -96,8 +96,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   return {
     inbox,
-    taxonomy,
-    issue,
+    labels,
+    label,
     missing,
     error,
     loading,
@@ -105,8 +105,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     openSettings,
     closeSettings,
     loadInbox,
-    loadTaxonomy,
-    loadIssue,
+    loadLabels,
+    loadLabel,
     invalidate,
     refreshAfterHistory,
     loadAll,

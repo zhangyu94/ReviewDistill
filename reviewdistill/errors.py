@@ -6,7 +6,7 @@ class ReviewDistillError(ValueError):
 
 
 class NotFound(ReviewDistillError):
-    """Missing comment, issue type, or project."""
+    """Missing comment, label, or project."""
 
 
 class Conflict(ReviewDistillError):

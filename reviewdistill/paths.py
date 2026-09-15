@@ -16,7 +16,7 @@ STAGING_DIRNAME = ".commit"
 HOME_README = """\
 # ReviewDistill data
 
-Comments, issue types, and coding live in this folder as JSONL files.
+Comments, labels, and coding live in this folder as JSONL files.
 
 ## Backup
 

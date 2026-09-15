@@ -6,20 +6,20 @@ import {
   historyHasExtra,
   historyHasQuotes,
   historyShowExplanation,
-} from './historyDetails.ts'
+} from './historyDetails'
 
 describe('historyDetailsOf', () => {
   it('returns server details when present', () => {
     expect(historyDetailsOf({
-      summary: 'Change label',
+      summary: 'Change label assignment',
       details: {
         explanation: 'Assigned this comment to Overclaiming.',
-        comments: [{ text: 'Too strong.', type_name: 'Overclaiming' }],
+        comments: [{ text: 'Too strong.', label_name: 'Overclaiming' }],
         quotes: [],
       },
     })).toEqual({
       explanation: 'Assigned this comment to Overclaiming.',
-      comments: [{ text: 'Too strong.', type_name: 'Overclaiming' }],
+      comments: [{ text: 'Too strong.', label_name: 'Overclaiming' }],
       quotes: [],
     })
   })
@@ -43,29 +43,43 @@ describe('historyShowExplanation', () => {
 
   it('hides an add restatement of the list title', () => {
     expect(historyShowExplanation(
-      'Added the issue type New type.',
-      'Add New type',
+      'Added the label New label.',
+      'Add New label',
     )).toBe(false)
   })
 
   it('shows merge names when the list title is generic', () => {
     expect(historyShowExplanation(
       'Merged Type A, Type B into Overclaiming.',
-      'Merge issue types',
+      'Merge labels',
     )).toBe(true)
   })
 
   it('shows a second sentence such as moving labels onto ungrouped', () => {
     expect(historyShowExplanation(
-      'Added the issue type New type. Existing labels on the parent were moved onto ungrouped.',
-      'Add New type',
+      'Added the label New label. Existing label assignments on the parent were moved onto ungrouped.',
+      'Add New label',
     )).toBe(true)
   })
 
-  it('shows where a type was moved', () => {
+  it('shows where a label was moved', () => {
     expect(historyShowExplanation(
       'Moved Overclaiming under Claims.',
       'Move Overclaiming',
+    )).toBe(true)
+  })
+
+  it('shows a delete explanation under a generic list title', () => {
+    expect(historyShowExplanation(
+      'Deleted this comment.',
+      'Delete comment',
+    )).toBe(true)
+  })
+
+  it('shows an unverify explanation under a generic list title', () => {
+    expect(historyShowExplanation(
+      'Unverified this comment.',
+      'Unverify comment',
     )).toBe(true)
   })
 })
@@ -105,10 +119,10 @@ describe('historyEventHasExtra', () => {
 
   it('shows the chevron when the event has a comment', () => {
     expect(historyEventHasExtra({
-      summary: 'Change label',
+      summary: 'Change label assignment',
       details: {
         explanation: 'Assigned this comment to Overclaiming.',
-        comments: [{ text: 'Too strong.', type_name: 'Overclaiming' }],
+        comments: [{ text: 'Too strong.', label_name: 'Overclaiming' }],
         quotes: [],
       },
     })).toBe(true)

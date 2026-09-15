@@ -1,4 +1,4 @@
-export interface IssueOption {
+export interface LabelOption {
   id: string
   name: string
   parent_id: string | null
@@ -16,9 +16,8 @@ export interface CommentJson {
   section: string | null
   git_commit: string | null
   git_url: string | null
-  fingerprint: string
   status: string
-  quality: string
+  verified: boolean
   supersedes_id: string | null
   created_at: string
 }
@@ -26,8 +25,8 @@ export interface CommentJson {
 export interface CodingJson {
   id: string
   status: string
-  issue_type_id: string | null
-  proposed_issue_name: string | null
+  label_id: string | null
+  proposed_label_name: string | null
   confidence: number | null
   rationale: string | null
   kind: 'existing' | 'new'
@@ -40,7 +39,7 @@ export interface InboxItemJson {
   guess: string | null
   in_manuscript: boolean
   labeled: boolean
-  issue: IssueOption | null
+  label: LabelOption | null
   coding: CodingJson | null
   in_working_set: boolean
   local_file: boolean
@@ -52,14 +51,13 @@ export interface CommentProgress {
   labeled: number
   unreviewed: number
   verified: number
-  dropped: number
 }
 
 export interface InboxResponse {
   unlabeled_count: number
   pending_code_count: number
   llm_provider: string | null
-  issues: IssueOption[]
+  labels: LabelOption[]
   items: InboxItemJson[]
   working_items: InboxItemJson[]
   progress: CommentProgress
@@ -105,7 +103,7 @@ export function fetchInbox(): Promise<InboxResponse> {
   return api<InboxResponse>('/api/inbox')
 }
 
-export function postInbox(commentId: string, action: 'accept' | 'verify' | 'drop'): Promise<{ ok: true }> {
+export function postInbox(commentId: string, action: 'accept' | 'verify' | 'delete'): Promise<{ ok: true }> {
   return api(`/api/inbox/${commentId}/${action}`, { method: 'POST' })
 }
 
@@ -117,10 +115,10 @@ export function postInboxCode(): Promise<{ ok: true, coded: number, failed: numb
   return api('/api/inbox/code', { method: 'POST' })
 }
 
-export function changeInbox(commentId: string, issueTypeId: string): Promise<{ ok: true }> {
+export function changeInbox(commentId: string, labelId: string): Promise<{ ok: true }> {
   return api(`/api/inbox/${commentId}/change`, {
     method: 'POST',
-    body: JSON.stringify({ issue_type_id: issueTypeId }),
+    body: JSON.stringify({ label_id: labelId }),
   })
 }
 
@@ -135,7 +133,7 @@ export interface TaxonomyListResponse {
   forest: TaxonomyNode[]
 }
 
-export interface TaxonomyDetail {
+export interface LabelDetail {
   id: string
   name: string
   parent_id: string | null
@@ -143,76 +141,75 @@ export interface TaxonomyDetail {
   definition: string
   status: string
   examples: { id: string, text: string }[]
-  counterexamples: { id: string, text: string }[]
   comments: TaxonomyCommentJson[]
 }
 
 export type TaxonomyCommentJson = CommentJson & {
   project_name: string
   permalink: string | null
-  issue?: IssueOption | null
+  label?: LabelOption | null
 }
 
-export function fetchTaxonomy(): Promise<TaxonomyListResponse> {
-  return api('/api/taxonomy')
+export function fetchLabels(): Promise<TaxonomyListResponse> {
+  return api('/api/labels')
 }
 
-export function fetchIssue(id: string): Promise<TaxonomyDetail> {
-  return api(`/api/taxonomy/${id}`)
+export function fetchLabel(id: string): Promise<LabelDetail> {
+  return api(`/api/labels/${id}`)
 }
 
-export function renameIssue(id: string, name: string): Promise<{ ok: true }> {
-  return api(`/api/taxonomy/${id}/rename`, { method: 'POST', body: JSON.stringify({ name }) })
+export function renameLabel(id: string, name: string): Promise<{ ok: true }> {
+  return api(`/api/labels/${id}/rename`, { method: 'POST', body: JSON.stringify({ name }) })
 }
 
-export function editIssue(
+export function editLabel(
   id: string,
   body: { definition: string },
 ): Promise<{ ok: true }> {
-  return api(`/api/taxonomy/${id}/edit`, { method: 'POST', body: JSON.stringify(body) })
+  return api(`/api/labels/${id}/edit`, { method: 'POST', body: JSON.stringify(body) })
 }
 
-export function createIssue(parentId: string | null): Promise<{ ok: true, id: string }> {
-  return api('/api/taxonomy', { method: 'POST', body: JSON.stringify({ parent_id: parentId }) })
+export function createLabel(parentId: string | null): Promise<{ ok: true, id: string }> {
+  return api('/api/labels', { method: 'POST', body: JSON.stringify({ parent_id: parentId }) })
 }
 
-export function moveIssue(id: string, parentId: string | null, position: number): Promise<{ ok: true }> {
-  return api(`/api/taxonomy/${id}/move`, {
+export function moveLabel(id: string, parentId: string | null, position: number): Promise<{ ok: true }> {
+  return api(`/api/labels/${id}/move`, {
     method: 'POST',
     body: JSON.stringify({ parent_id: parentId, position }),
   })
 }
 
-export function flattenIssue(id: string): Promise<{ ok: true }> {
-  return api(`/api/taxonomy/${id}/flatten`, { method: 'POST' })
+export function flattenLabel(id: string): Promise<{ ok: true }> {
+  return api(`/api/labels/${id}/flatten`, { method: 'POST' })
 }
 
-export function removeIssue(id: string): Promise<{ ok: true }> {
-  return api(`/api/taxonomy/${id}/remove`, { method: 'POST' })
+export function removeLabel(id: string): Promise<{ ok: true }> {
+  return api(`/api/labels/${id}/remove`, { method: 'POST' })
 }
 
-export function addCounterexample(id: string, text: string): Promise<{ ok: true }> {
-  return api(`/api/taxonomy/${id}/counterexample`, { method: 'POST', body: JSON.stringify({ text }) })
-}
-
-export function mergeIssues(sourceIds: string[], targetId: string): Promise<{ ok: true }> {
-  return api('/api/taxonomy/merge', {
+export function mergeLabels(sourceIds: string[], targetId: string): Promise<{ ok: true }> {
+  return api('/api/labels/merge', {
     method: 'POST',
     body: JSON.stringify({ source_ids: sourceIds, target_id: targetId }),
   })
 }
 
-export function splitIssue(id: string): Promise<{ ok: true, privacy_warning: string | null }> {
-  return api(`/api/taxonomy/${id}/split`, { method: 'POST' })
+export function splitLabel(id: string): Promise<{ ok: true, privacy_warning: string | null }> {
+  return api(`/api/labels/${id}/split`, { method: 'POST' })
 }
 
-export function splitTaxonomy(): Promise<{ ok: true, privacy_warning: string | null }> {
-  return api('/api/taxonomy/split', { method: 'POST' })
+export function splitForest(): Promise<{ ok: true, privacy_warning: string | null }> {
+  return api('/api/labels/split', { method: 'POST' })
+}
+
+export function recycleUngrouped(): Promise<{ ok: true, id: string }> {
+  return api('/api/labels/recycle', { method: 'POST' })
 }
 
 export interface HistoryComment {
   text: string
-  type_name: string | null
+  label_name: string | null
 }
 
 export interface HistoryQuote {
@@ -261,7 +258,7 @@ export async function fetchExport(fmt: ExportFormat, ids: string[]): Promise<str
   for (const id of ids) {
     params.append('id', id)
   }
-  const response = await fetch(`/api/taxonomy/export?${params.toString()}`)
+  const response = await fetch(`/api/labels/export?${params.toString()}`)
   if (!response.ok) {
     await throwHttpError(response)
   }

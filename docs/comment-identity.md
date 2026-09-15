@@ -1,12 +1,12 @@
 # Comment identity
 
-How ReviewDistill decides whether a proofreading comment is **new**, a **revision** of an existing observation, a **move**, or **gone from the source** — and how presence and quality combine.
+How ReviewDistill decides whether a proofreading comment is **new**, a **revision** of an existing observation, a **move**, or **gone from the source** — and how presence and Verify combine.
 
 The stored columns of a project and observation are in [`data-schema.md`](data-schema.md). Product spec: [`spec.md`](spec.md).
 
 ## Comments in the manuscript
 
-Reviewers leave informal notes in the LaTeX source using a **comment command**: a macro whose only job is to mark “the reviewer wrote this.” It is not an issue type and not a verdict. The body of the command is the comment.
+Reviewers leave informal notes in the LaTeX source using a **comment command**: a macro whose only job is to mark “the reviewer wrote this.” It is not a label and not a verdict. The body of the command is the comment.
 
 This spec writes that marker as `\myremark{...}` (the default `init` command). Define it in the preamble if needed: `\newcommand{\myremark}[1]{#1}`.
 
@@ -19,27 +19,26 @@ A project may use a different command name, or several. ReviewDistill treats all
 
 ## Why this exists
 
-Each comment is a lasting **observation**: the wording you wrote, the manuscript around it, and its location. The observation is not the issue type. The manuscript keeps changing. You edit a comment’s body, cut it, put a different remark where an old one used to be, or save while a comment is only half typed.
+Each comment is a lasting **observation**: the wording you wrote, the manuscript around it, and its location. The observation is not the label. The manuscript keeps changing. You edit a comment’s body, cut it, put a different remark where an old one used to be, or save while a comment is only half typed.
 
 **Line number is not identity.** A new comment on the line where an old one used to live is a new observation. The old one is gone from the source.
 
-Presence and quality are independent. Extract only updates presence (and wording on revision). It never stamps quality and never assigns an issue type.
+Presence and Verify are independent. Extract only updates presence (and wording on revision). It never Verifies and never assigns a label.
 
 ## Comments to distill
 
-**Comments to distill** are the comments that count for AI suggestions, taxonomy examples, type chips, and export. Progress shows this count as **to distill**.
+**Comments to distill** are the comments that count for AI suggestions, taxonomy examples, label chips, and export. Progress shows this count as **to distill**.
 
-A comment is **to distill** when it is not `dropped`, and it is either **in the manuscript** or **verified**.
+A comment is **to distill** when it is **in the manuscript** or **verified**.
 
-| Quality | To distill? |
+| Verified | To distill? |
 | --- | --- |
-| `unreviewed` (default after extract) | only while the comment is still in the manuscript. If it has left the `.tex` file, it is not to distill, but Unlabeled still lists it so you can Verify or Drop |
-| `verified` | yes, whether or not it is still in the manuscript |
-| `dropped` | no (history is kept; same wording in the file does not mint a new row) |
+| `false` (default after extract) | only while the comment is still in the manuscript. If it has left the `.tex` file, it is not to distill, but Unlabeled still lists it so you can Verify or Delete |
+| `true` | yes, whether or not it is still in the manuscript |
 
-`verified` means the observation itself is quality-assured (wording, context, worth keeping as evidence). It does **not** confirm the issue type. A verified comment that later leaves the `.tex` file is still to distill: the passage was fixed, and the problem was real.
+`verified` means the observation itself is verified (wording, context, worth keeping as evidence). It does **not** confirm the label. A verified comment that later leaves the `.tex` file is still to distill: the passage was fixed, and the problem was real.
 
-`dropped` means do not distill (too local, or a bad extract). Undo Drop from History if you need the row back.
+**Delete** removes the observation from the store (comment, labels, sourced examples). Undo from History. A later extract that still sees the same wording mints a **new** id. Too-local comments you still want in the dataset stay labeled; exclude their label at export.
 
 ## Events
 
@@ -47,13 +46,13 @@ A comment is **to distill** when it is not `dropped`, and it is either **in the 
 
 A comment in the source that does not match an observation already treated as present.
 
-It becomes a new observation (`quality=unreviewed`) and appears as Unlabeled.
+It becomes a new observation (`verified=false`) and appears as Unlabeled.
 
 ### Revision
 
 The comment **stayed in the source** and its wording changed **similarly**: an edit of the same remark, not a different remark.
 
-That **same observation** is updated to the new wording and surrounding manuscript context. Any label already attached to it stays attached. A `verified` stamp is cleared back to `unreviewed` (the wording changed). A move that does not change wording keeps the stamp. The AI never overwrites what you wrote; only your source edits do.
+That **same observation** is updated to the new wording and surrounding manuscript context. Any label already attached to it stays attached. A Verify stamp is cleared back to `verified=false` (the wording changed). A move that does not change wording keeps the stamp. The AI never overwrites what you wrote; only your source edits do.
 
 Examples of revisions:
 
@@ -73,28 +72,27 @@ A *different* remark that happens to sit on the old line is **not** a move.
 
 A present comment is no longer in the source, and it was not a revision or a move.
 
-The observation is **not** discarded. Presence becomes “not in the manuscript” (`status=pending_disappeared`). Extract does not set quality.
+The observation is **not** discarded. Presence becomes “not in the manuscript” (`status=pending_disappeared`). Extract does not set verified.
 
 - If the comment was already **verified**, it is still to distill (fixed passage; the problem was real).
-- If it is still **unreviewed**, it stays on the **Unlabeled** chip (same Comments list) with a **Left the manuscript** chip so you can **Verify** or **Drop**. There is no Disappeared queue.
-- If it is **dropped**, it is not to distill.
+- If it is still **not verified**, it stays on the **Unlabeled** chip (same Comments list) with a **Left the manuscript** chip so you can **Verify** or **Delete**. There is no Disappeared queue.
 
 Two common meanings of “gone”:
 
-1. **The manuscript was fixed** (or the comment is still useful evidence). **Verify** — quality-assured; it is still to distill even though the comment command is gone.
-2. **Too local, or a bad extract.** **Drop** — it is no longer to distill. History is kept.
+1. **The manuscript was fixed** (or the comment is still useful evidence). **Verify** — it is still to distill even though the comment command is gone.
+2. **A bad extract.** **Delete** — the observation is removed. Undo from History.
 
-Each unreviewed comment that left the manuscript can show a **guess**. The guess is never applied automatically:
+Each comment that left the manuscript and is not verified can show a **guess**. The guess is never applied automatically:
 
 - Nearby manuscript text changed a lot → guess **Verify** (likely resolved).
-- Nearby manuscript text looks the same → guess **Drop** (likely pulled without fixing the passage).
+- Nearby manuscript text looks the same → guess **Delete** (likely a bad extract).
 - The source file itself is gone → guess **Verify**.
 
 ### Same line after a gap
 
 If a comment leaves the source, and later a comment appears on that line (or any line) with different wording, that is **two observations**: the old one left the manuscript; the new one is unlabeled.
 
-If the **same wording** returns in the source, the **same observation** becomes present again (including a dropped row: no new id). A revision of the text (fingerprint change) clears `verified` back to `unreviewed`.
+If the **same wording** returns in the source, the **same observation** becomes present again **if the row still exists**. A deleted comment is a new observation (new id). A revision of the text (same observation, new wording) clears verified back to false.
 
 ## One save, no observed gap
 
@@ -129,7 +127,7 @@ This avoids treating a half-typed brace as “the comment vanished.”
 
 `reviewdistill extract --watch` stays in the project and watches its LaTeX sources. After you pause editing, it extracts the same way a one-shot `reviewdistill extract` does.
 
-It does not run AI labeling. It does not Verify or Drop. It follows the files as you edit them, not only when you commit.
+It does not run AI labeling. It does not Verify or Delete. It follows the files as you edit them, not only when you commit.
 
 `reviewdistill extract` without `--watch` is the same extraction, run once.
 
@@ -137,9 +135,9 @@ It does not run AI labeling. It does not Verify or Drop. It follows the files as
 
 In `reviewdistill ui`, Selectors chips AND. The right-hand **Unlabeled** control toggles a left-hand Unlabeled chip and is never pressed. No chips: Comments lists comments to distill.
 
-- **Unlabeled** — inbox queue: comments to distill with no **active** issue type, plus comments that left the manuscript and are still unreviewed so you can Verify or Drop. Those rows show a **Left the manuscript** chip. There is no Reject button: not accepting a suggestion leaves the comment unlabeled.
-- **Type chip** — named with the issue type (for example `Missing introduction (3)`). Clicking a type opens Issue Details and replaces the type chip; it does not clear Unlabeled. × on the type chip sets `typechip=0` and keeps `/taxonomy/:id` (Issue Details stays). Comments then lists comments to distill, or the inbox if Unlabeled is still on.
+- **Unlabeled** — inbox queue: comments to distill with no **active** label, plus comments that left the manuscript and are still not verified so you can Verify or Delete. Those rows show a **Left the manuscript** chip. There is no Reject button: not accepting a suggestion leaves the comment unlabeled.
+- **Label chip** — named with the label (for example `Missing introduction (3)`). Clicking a label opens Label Details and replaces the label chip; it does not clear Unlabeled. × on the label chip sets `labelchip=0` and keeps `/labels/:id` (Label Details stays). Comments then lists comments to distill, or the inbox if Unlabeled is still on.
 
-**Verify** and **Drop** are quality stamps on the comment inspector (every comment). They are independent of the label. **Accept** applies the AI suggestion. Picking a type in the menu assigns it.
+**Verify** stamps the observation on the comment inspector. **Delete** removes the observation (undo from History). They are independent of the label. **Accept** applies the AI suggestion. Picking a label in the menu assigns it.
 
-The Comments panel switches between a list and a single comment. The list shows each comment’s assigned leaf issue type(s) when it has them. The list and the inspector Comment header show a **Left the manuscript** chip when the remark is no longer in the `.tex` file. The single-comment view shows manuscript context, type, quality (Verify / Drop), location, record metadata, and the guess under Quality when present. Location **File** can still show the `.tex` file in the file manager if that path exists on this computer.
+The Comments panel switches between a list and a single comment. The list shows each comment’s assigned leaf label(s) when it has them. The list and the inspector Comment header show a **Left the manuscript** chip when the remark is no longer in the `.tex` file. The single-comment view shows manuscript context, type, Triage (Verify / Delete), location, record metadata, and the guess under Triage when present. Location **File** can still show the `.tex` file in the file manager if that path exists on this computer.

@@ -2,7 +2,7 @@
 import type { InboxItemJson, TaxonomyNode } from '../../api/client.ts'
 import type { CommentsLayout } from '../../workbench/workbenchMode.ts'
 import { computed } from 'vue'
-import { commentListLeafTypeLabel } from '../../workbench/commentList.ts'
+import { commentListLeafLabelNames } from '../../workbench/commentList.ts'
 import { commentsTotalLabel } from '../../workbench/commentsHeader.ts'
 import { DRAG_MIME, serializeDragPayload } from '../../workbench/dropAction.ts'
 import { idForPage, pageForId } from '../../workbench/pagination.ts'
@@ -16,7 +16,7 @@ const props = defineProps<{
   totalCount: number
   toDistillCount: number
   unlabeled: boolean
-  typeOn: boolean
+  labelOn: boolean
   loading: boolean
   emptyCopy: string
   error?: string
@@ -50,7 +50,7 @@ function onCommentDragStart(event: DragEvent, id: string) {
 }
 
 function leafTypeLabel(item: InboxItemJson): string {
-  return commentListLeafTypeLabel(item, props.forest ?? [])
+  return commentListLeafLabelNames(item, props.forest ?? [])
 }
 </script>
 
@@ -102,16 +102,16 @@ function leafTypeLabel(item: InboxItemJson): string {
             {{ labeling ? 'Labeling…' : 'Label with AI' }}
           </button>
         </span>
-        <span class="ch-muted-text">{{ commentsTotalLabel(totalCount, { unlabeled, typeOn }, toDistillCount) }}</span>
+        <span class="ch-muted-text">{{ commentsTotalLabel(totalCount, { unlabeled, labelOn }, toDistillCount) }}</span>
       </span>
     </div>
+    <p v-if="error" class="ch-error-text px-2 pt-2">
+      {{ error }}
+    </p>
+    <p v-if="notice" class="ch-muted-text px-2 pt-2">
+      {{ notice }}
+    </p>
     <div v-if="layout === 'list'" class="min-h-0 flex-1 overflow-auto">
-      <p v-if="error" class="ch-error-text px-2 pt-2">
-        {{ error }}
-      </p>
-      <p v-if="notice" class="ch-muted-text px-2 pt-2">
-        {{ notice }}
-      </p>
       <button
         v-for="item in items"
         :key="item.comment.id"

@@ -13,8 +13,8 @@ paths_app = typer.Typer(help="Show or change the data folder.")
 app.add_typer(paths_app, name="paths")
 
 
-def _write_export(fmt: str, output: Path | None, issue_ids: list[str] | None) -> None:
-    text = export_rubric(fmt=fmt, issue_ids=issue_ids)
+def _write_export(fmt: str, output: Path | None, label_ids: list[str] | None) -> None:
+    text = export_rubric(fmt=fmt, label_ids=label_ids)
     path = output or Path(default_export_filename(fmt))
     path.write_text(text)
     typer.echo(f"Wrote {path}")
@@ -52,7 +52,7 @@ def export_cmd(
     id: list[str] | None = typer.Option(
         None,
         "--id",
-        help="Issue type id to include (repeatable). Default: all active types. Does not change labels in the UI.",
+        help="Label id to include (repeatable). Default: all active labels. Does not change labels in the UI.",
     ),
 ) -> None:
     """Export a review skill (Markdown) or taxonomy (YAML/JSON)."""
@@ -61,7 +61,7 @@ def export_cmd(
 
 @paths_app.callback(invoke_without_command=True)
 def paths_callback(ctx: typer.Context) -> None:
-    """Show where comments and issue types are stored."""
+    """Show where comments and labels are stored."""
     if ctx.invoked_subcommand is not None:
         return
     from reviewdistill.paths import data_location
@@ -80,9 +80,9 @@ def paths_callback(ctx: typer.Context) -> None:
 
 @paths_app.command("use")
 def paths_use(
-    directory: Path = typer.Argument(..., help="Folder to store comments and issue types."),
+    directory: Path = typer.Argument(..., help="Folder to store comments and labels."),
 ) -> None:
-    """Use this folder for comments and issue types from now on."""
+    """Use this folder for comments and labels from now on."""
     from reviewdistill.paths import HomePathError, use_home
 
     try:

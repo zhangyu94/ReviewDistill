@@ -10,7 +10,7 @@ export const router = createRouter({
       component: AppShell,
       children: [
         { path: '', name: 'inbox', component: WorkbenchPage },
-        { path: 'taxonomy/:id', name: 'issue', component: WorkbenchPage },
+        { path: 'labels/:id', name: 'label', component: WorkbenchPage },
         { path: 'history', redirect: '/' },
       ],
     },

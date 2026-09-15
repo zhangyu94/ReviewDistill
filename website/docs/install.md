@@ -26,10 +26,10 @@ reviewdistill --help
 
 ## Where data lives
 
-Comments and issue types are stored in one folder on your computer (not in the paper repo):
+Comments and labels are stored in one folder on your computer (not in the paper repo):
 
 - Default: `~/.reviewdistill`
-- Comments: `~/.reviewdistill/comments.jsonl` (plus `projects.jsonl`, `codings.jsonl`, `issue_types.jsonl`, …)
+- Comments: `~/.reviewdistill/comments.jsonl` (plus `projects.jsonl`, `codings.jsonl`, `labels.jsonl`, …)
 
 Print the resolved paths:
 

@@ -32,7 +32,7 @@ describe('inboxLocationRows', () => {
       '20',
       'paper-01 / Methods',
       'https://git@git.overleaf.com/aaaaaaaaaaaaaaaaaaaaaaaa',
-      'abc1234',
+      'abc1234def456',
     ])
     expect(rows.find((row) => row.label === 'Remote')?.href).toBe(base.gitHref)
   })

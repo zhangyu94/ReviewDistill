@@ -26,13 +26,15 @@ Proofread as usual. ReviewDistill watches the comments, not a separate review fi
 
    Add `--watch` to extract again whenever `.tex` files settle.
 
+   How comments and context are chosen: [Extract](./extract.md).
+
 5. Open the UI:
 
    ```bash
    reviewdistill ui
    ```
 
-   Then open http://127.0.0.1:8765. Configure an LLM in **Settings** if you want suggestions. Use **Label with AI** on unlabeled comments, then Accept a suggestion or pick a type in the menu. **Verify** or **Drop** stamps quality; there is no Reject.
+   Then open http://127.0.0.1:8765. Configure an LLM in **Settings** if you want suggestions. Use **Label with AI** on unlabeled comments, then Accept a suggestion or pick a label in the menu. **Verify** toggles protect; **Delete** removes a bad extract (disabled while verified). There is no Reject.
 
 6. Repeat on the next paper. The taxonomy (Settings → **Data**, or `reviewdistill paths`) is reused.
 

@@ -1,6 +1,6 @@
 import type { HistoryDetails, HistoryEvent } from '../api/client.ts'
 
-const GENERIC_SUMMARY = /^(?:Merge issue types|Split issue type|Change label|Accept label|Verify comment|Drop comment|Edit definition|Label with AI)\b/
+const GENERIC_SUMMARY = /^(?:Merge labels|Split label|Change label assignment|Accept suggested label assignment|Verify comment|Unverify comment|Drop comment|Delete comment|Edit definition|Label with AI)\b/
 
 export function historyDetailsOf(
   event: Pick<HistoryEvent, 'summary'> & { details?: HistoryDetails | null },
@@ -60,7 +60,7 @@ function normalizeHistoryCopy(value: string): string {
     .toLowerCase()
     .replace(/→/g, ' to ')
     .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\b(?:renamed|rename|added|add|moved|move|flattened|flatten|removed|remove|deactivated|deactivate|the issue type)\b/g, ' ')
+    .replace(/\b(?:renamed|rename|added|add|moved|move|flattened|flatten|removed|remove|deactivated|deactivate|the label)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }

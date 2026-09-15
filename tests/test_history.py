@@ -7,10 +7,11 @@ from reviewdistill.coding.coder import code_uncoded_comments
 from reviewdistill.coding.validation import (
     accept_coding,
     change_coding,
+    delete_comment,
     inbox_items,
     verify_comment,
 )
-from reviewdistill.db.models import Coding, IssueType, ProofreadingComment
+from reviewdistill.db.models import CODING_MODIFIED, Coding, Label, ProofreadingComment, is_labeled
 from reviewdistill.coding.split import SplitPlan
 from reviewdistill.db.session import get_session
 from reviewdistill.extraction.incremental import extract_project
@@ -18,16 +19,17 @@ from reviewdistill.history import list_history, record, redo, undo
 from reviewdistill.llm.mock import MockLLMProvider
 from reviewdistill.taxonomy.operations import (
     apply_split,
-    create_empty_issue_type,
-    create_issue_type,
-    deactivate_issue_type,
-    flatten_issue_type,
+    create_empty_label,
+    create_label,
+    deactivate_label,
+    flatten_label,
     list_examples,
     list_working_observations,
-    merge_issue_types,
-    move_issue_type,
-    remove_issue_type,
-    rename_issue_type,
+    merge_labels,
+    move_label,
+    recycle_ungrouped,
+    remove_label,
+    rename_label,
 )
 from reviewdistill.web.app import create_app
 
@@ -40,14 +42,14 @@ def _event_types(include_undone: bool = False) -> list[str]:
 
 
 def test_rename_undo_and_redo(db):
-    issue = create_issue_type(
+    label = create_label(
         name="Overly strong claim",
         definition="old",
     )
-    rename_issue_type(issue.id, name="Overclaiming")
+    rename_label(label.id, name="Overclaiming")
     undo()
     with get_session() as session:
-        row = session.get(IssueType, issue.id)
+        row = session.get(Label, label.id)
         assert row.name == "Overly strong claim"
     history = list_history()
     assert history["events"][0]["undone"] is True
@@ -55,17 +57,17 @@ def test_rename_undo_and_redo(db):
     assert history["can_undo"] is True
     redo()
     with get_session() as session:
-        row = session.get(IssueType, issue.id)
+        row = session.get(Label, label.id)
         assert row.name == "Overclaiming"
     assert list_history()["can_redo"] is False
 
 
 def test_rename_undo_uniquifies_when_old_name_is_taken(db):
-    first = create_issue_type(name="Foo", definition="")
-    rename_issue_type(first.id, name="Bar")
+    first = create_label(name="Foo", definition="")
+    rename_label(first.id, name="Bar")
     with get_session() as session:
         session.add(
-            IssueType(
+            Label(
                 id="other",
                 name="Foo",
                 definition="",
@@ -77,35 +79,35 @@ def test_rename_undo_uniquifies_when_old_name_is_taken(db):
         session.commit()
     undo()
     with get_session() as session:
-        assert session.get(IssueType, first.id).name == "Foo (2)"
+        assert session.get(Label, first.id).name == "Foo (2)"
 
 
 def test_no_op_move_is_not_logged(db):
-    issue = create_issue_type(
+    label = create_label(
         name="Overclaiming",
         definition="too strong",
     )
-    move_issue_type(issue.id, parent_id=None, position=0)
+    move_label(label.id, parent_id=None, position=0)
     assert _event_types() == ["add"]
 
 
 def test_move_undo_restores_sibling_order(db):
-    create_issue_type(name="Alpha", definition="")
-    writing = create_issue_type(name="Writing", definition="")
-    create_issue_type(name="Style", definition="")
-    move_issue_type(writing.id, parent_id=None, position=2)
+    create_label(name="Alpha", definition="")
+    writing = create_label(name="Writing", definition="")
+    create_label(name="Style", definition="")
+    move_label(writing.id, parent_id=None, position=2)
     undo()
     with get_session() as session:
         roots = sorted(
-            [row for row in session.find(IssueType) if row.status == "active" and row.parent_id is None],
+            [row for row in session.find(Label) if row.status == "active" and row.parent_id is None],
             key=lambda row: row.position,
         )
         assert [row.name for row in roots] == ["Alpha", "Writing", "Style"]
 
 
 def test_flatten_undo_restores_descendants(db):
-    parent = create_issue_type(name="Parent", definition="")
-    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
+    parent = create_label(name="Parent", definition="")
+    child = create_label(name="Child", definition="", parent_id=parent.id)
     with get_session() as session:
         session.add(
             ProofreadingComment(
@@ -116,7 +118,6 @@ def test_flatten_undo_restores_descendants(db):
                 file_path="main.tex",
                 line_number=1,
                 raw_text="too strong",
-                fingerprint="fp-flat",
                 status="active",
             )
         )
@@ -124,26 +125,26 @@ def test_flatten_undo_restores_descendants(db):
             Coding(
                 id="coding-flat",
                 comment_id="c-flat",
-                issue_type_id=child.id,
+                label_id=child.id,
                 coder_type="human",
                 status="accepted",
             )
         )
         session.commit()
-    flatten_issue_type(parent.id)
+    flatten_label(parent.id)
     undo()
     with get_session() as session:
-        child_row = session.get(IssueType, child.id)
+        child_row = session.get(Label, child.id)
         assert child_row.status == "active"
         assert child_row.parent_id == parent.id
         coding = session.get(Coding, "coding-flat")
-        assert coding.issue_type_id == child.id
+        assert coding.label_id == child.id
 
 
 def test_flatten_undo_redo_restores_nested_tree_and_coding(db):
-    parent = create_issue_type(name="Parent", definition="")
-    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
-    grand = create_issue_type(name="Grand", definition="", parent_id=child.id)
+    parent = create_label(name="Parent", definition="")
+    child = create_label(name="Child", definition="", parent_id=parent.id)
+    grand = create_label(name="Grand", definition="", parent_id=child.id)
     with get_session() as session:
         session.add(
             ProofreadingComment(
@@ -154,7 +155,6 @@ def test_flatten_undo_redo_restores_nested_tree_and_coding(db):
                 file_path="main.tex",
                 line_number=1,
                 raw_text="too strong",
-                fingerprint="fp-nest",
                 status="active",
             )
         )
@@ -162,83 +162,83 @@ def test_flatten_undo_redo_restores_nested_tree_and_coding(db):
             Coding(
                 id="coding-nest",
                 comment_id="c-nest",
-                issue_type_id=grand.id,
+                label_id=grand.id,
                 coder_type="human",
                 status="accepted",
             )
         )
         session.commit()
-    flatten_issue_type(parent.id)
+    flatten_label(parent.id)
     undo()
     with get_session() as session:
-        assert session.get(IssueType, child.id).parent_id == parent.id
-        assert session.get(IssueType, grand.id).parent_id == child.id
-        assert session.get(IssueType, child.id).status == "active"
-        assert session.get(IssueType, grand.id).status == "active"
-        assert session.get(Coding, "coding-nest").issue_type_id == grand.id
+        assert session.get(Label, child.id).parent_id == parent.id
+        assert session.get(Label, grand.id).parent_id == child.id
+        assert session.get(Label, child.id).status == "active"
+        assert session.get(Label, grand.id).status == "active"
+        assert session.get(Coding, "coding-nest").label_id == grand.id
     redo()
     with get_session() as session:
-        assert session.get(IssueType, child.id).status == "inactive"
-        assert session.get(IssueType, grand.id).status == "inactive"
-        assert session.get(Coding, "coding-nest").issue_type_id == parent.id
+        assert session.get(Label, child.id).status == "inactive"
+        assert session.get(Label, grand.id).status == "inactive"
+        assert session.get(Coding, "coding-nest").label_id == parent.id
 
 
 def test_deactivate_parent_redo_then_create_appends_last(db):
-    create_issue_type(name="Alpha", definition="")
-    parent = create_issue_type(name="Zeta", definition="")
-    kid = create_issue_type(name="Kid", definition="", parent_id=parent.id)
-    create_issue_type(name="Gamma", definition="")
-    deactivate_issue_type(parent.id)
+    create_label(name="Alpha", definition="")
+    parent = create_label(name="Zeta", definition="")
+    kid = create_label(name="Kid", definition="", parent_id=parent.id)
+    create_label(name="Gamma", definition="")
+    deactivate_label(parent.id)
     undo()
     redo()
-    created = create_empty_issue_type(parent_id=None)
+    created = create_empty_label(parent_id=None)
     roots = _active_siblings(None)
-    assert [row.name for row in roots] == ["Alpha", "Kid", "Gamma", "New type"]
+    assert [row.name for row in roots] == ["Alpha", "Kid", "Gamma", "New label"]
     assert [row.position for row in roots] == [0, 1, 2, 3]
     assert created.position == 3
     with get_session() as session:
-        assert session.get(IssueType, parent.id).status == "inactive"
-        assert session.get(IssueType, kid.id).parent_id is None
+        assert session.get(Label, parent.id).status == "inactive"
+        assert session.get(Label, kid.id).parent_id is None
 
 
 def test_move_nest_undo_redo_restores_parent(db):
-    parent = create_issue_type(name="Alpha", definition="")
-    child = create_issue_type(name="Zeta", definition="")
-    create_issue_type(name="Gamma", definition="")
-    move_issue_type(child.id, parent_id=parent.id, position=0)
+    parent = create_label(name="Alpha", definition="")
+    child = create_label(name="Zeta", definition="")
+    create_label(name="Gamma", definition="")
+    move_label(child.id, parent_id=parent.id, position=0)
     undo()
     roots = _active_siblings(None)
     assert [row.name for row in roots] == ["Alpha", "Zeta", "Gamma"]
     assert [row.position for row in roots] == [0, 1, 2]
     redo()
     with get_session() as session:
-        assert session.get(IssueType, child.id).parent_id == parent.id
-        assert session.get(IssueType, child.id).position == 0
+        assert session.get(Label, child.id).parent_id == parent.id
+        assert session.get(Label, child.id).position == 0
     assert [row.name for row in _active_siblings(None)] == ["Alpha", "Gamma"]
     assert [row.name for row in _active_siblings(parent.id)] == ["Zeta"]
 
 
 def test_move_under_labeled_leaf_undo_redo_restores_labels(db):
-    parent = create_issue_type(name="Parent", definition="")
-    child = create_issue_type(name="Child", definition="")
+    parent = create_label(name="Parent", definition="")
+    child = create_label(name="Child", definition="")
     with get_session() as session:
         session.add(ProofreadingComment(
             id="c-move", project_id="p", source_type="latex_command", source_command="myremark",
-            file_path="main.tex", line_number=1, raw_text="too strong", fingerprint="fp-move",
-            status="active", quality="unreviewed",
+            file_path="main.tex", line_number=1, raw_text="too strong",
+            status="active",
         ))
         session.add(Coding(
-            id="k-move", comment_id="c-move", issue_type_id=parent.id, coder_type="human",
+            id="k-move", comment_id="c-move", label_id=parent.id, coder_type="human",
             status="accepted",
         ))
         session.commit()
-    move_issue_type(child.id, parent_id=parent.id, position=0)
+    move_label(child.id, parent_id=parent.id, position=0)
     undo()
     with get_session() as session:
-        assert session.get(Coding, "k-move").issue_type_id == parent.id
-        assert session.get(IssueType, child.id).parent_id is None
+        assert session.get(Coding, "k-move").label_id == parent.id
+        assert session.get(Label, child.id).parent_id is None
         kids = [
-            row for row in session.find(IssueType)
+            row for row in session.find(Label)
             if row.parent_id == parent.id and row.status == "active"
         ]
         assert kids == []
@@ -246,103 +246,103 @@ def test_move_under_labeled_leaf_undo_redo_restores_labels(db):
     with get_session() as session:
         kids = _active_siblings(parent.id)
         ungrouped = next(row for row in kids if row.name == "ungrouped")
-        assert session.get(IssueType, child.id).parent_id == parent.id
-        assert session.get(Coding, "k-move").issue_type_id == ungrouped.id
+        assert session.get(Label, child.id).parent_id == parent.id
+        assert session.get(Coding, "k-move").label_id == ungrouped.id
 
 
-def _active_siblings(parent_id: str | None) -> list[IssueType]:
+def _active_siblings(parent_id: str | None) -> list[Label]:
     with get_session() as session:
         rows = [
             row
-            for row in session.find(IssueType)
+            for row in session.find(Label)
             if row.status == "active" and row.parent_id == parent_id
         ]
         return sorted(rows, key=lambda row: (row.position, row.name, row.id))
 
 
 def test_remove_undo_restores_subtree(db):
-    parent = create_issue_type(name="Parent", definition="")
-    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
-    remove_issue_type(parent.id)
+    parent = create_label(name="Parent", definition="")
+    child = create_label(name="Child", definition="", parent_id=parent.id)
+    remove_label(parent.id)
     undo()
     with get_session() as session:
-        assert session.get(IssueType, parent.id) is not None
-        assert session.get(IssueType, child.id) is not None
+        assert session.get(Label, parent.id) is not None
+        assert session.get(Label, child.id) is not None
 
 
 def test_deactivate_undo_restores_child_parent(db):
-    parent = create_issue_type(name="Parent", definition="")
-    child = create_issue_type(name="Child", definition="", parent_id=parent.id)
-    deactivate_issue_type(parent.id)
+    parent = create_label(name="Parent", definition="")
+    child = create_label(name="Child", definition="", parent_id=parent.id)
+    deactivate_label(parent.id)
     undo()
     with get_session() as session:
-        assert session.get(IssueType, parent.id).status == "active"
-        assert session.get(IssueType, child.id).parent_id == parent.id
+        assert session.get(Label, parent.id).status == "active"
+        assert session.get(Label, child.id).parent_id == parent.id
 
 
 def test_undo_add_compacts_remaining_siblings(db):
-    create_issue_type(name="Alpha", definition="")
-    create_issue_type(name="Beta", definition="")
-    extra = create_issue_type(name="Style", definition="")
+    create_label(name="Alpha", definition="")
+    create_label(name="Beta", definition="")
+    extra = create_label(name="Style", definition="")
     undo()
-    created = create_empty_issue_type(parent_id=None)
+    created = create_empty_label(parent_id=None)
     with get_session() as session:
         roots = sorted(
-            [row for row in session.find(IssueType) if row.status == "active" and row.parent_id is None],
+            [row for row in session.find(Label) if row.status == "active" and row.parent_id is None],
             key=lambda row: row.position,
         )
-        assert [row.name for row in roots] == ["Alpha", "Beta", "New type"]
-        assert session.get(IssueType, created.id).position == 2
-        assert session.get(IssueType, extra.id).status == "inactive"
+        assert [row.name for row in roots] == ["Alpha", "Beta", "New label"]
+        assert session.get(Label, created.id).position == 2
+        assert session.get(Label, extra.id).status == "inactive"
 
 
 def test_undo_first_child_restores_parent_labels(db):
-    parent = create_issue_type(name="Parent", definition="")
+    parent = create_label(name="Parent", definition="")
     with get_session() as session:
         session.add(ProofreadingComment(
             id="c1", project_id="p", source_type="latex_command", source_command="myremark",
-            file_path="main.tex", line_number=1, raw_text="too strong", fingerprint="fp",
-            status="active", quality="unreviewed",
+            file_path="main.tex", line_number=1, raw_text="too strong",
+            status="active",
         ))
         session.add(Coding(
-            id="k1", comment_id="c1", issue_type_id=parent.id, coder_type="human",
+            id="k1", comment_id="c1", label_id=parent.id, coder_type="human",
             status="accepted",
         ))
         session.commit()
-    created = create_empty_issue_type(parent_id=parent.id)
+    created = create_empty_label(parent_id=parent.id)
     undo()
     with get_session() as session:
         kids = [
-            row for row in session.find(IssueType)
+            row for row in session.find(Label)
             if row.parent_id == parent.id and row.status == "active"
         ]
         assert kids == []
-        assert session.get(IssueType, created.id).status == "inactive"
-        assert session.get(Coding, "k1").issue_type_id == parent.id
+        assert session.get(Label, created.id).status == "inactive"
+        assert session.get(Coding, "k1").label_id == parent.id
     redo()
     with get_session() as session:
         kids = sorted(
             [
-                row for row in session.find(IssueType)
+                row for row in session.find(Label)
                 if row.parent_id == parent.id and row.status == "active"
             ],
             key=lambda row: row.position,
         )
-        assert [row.name for row in kids] == ["New type", "ungrouped"]
-        assert session.get(Coding, "k1").issue_type_id == kids[1].id
+        assert [row.name for row in kids] == ["New label", "ungrouped"]
+        assert session.get(Coding, "k1").label_id == kids[1].id
 
 
 def test_merge_undo_restores_child_positions(db):
-    source = create_issue_type(name="Source", definition="")
-    first = create_issue_type(name="KidA", definition="", parent_id=source.id)
-    second = create_issue_type(name="KidB", definition="", parent_id=source.id)
-    target = create_issue_type(name="Target", definition="")
-    create_issue_type(name="Mid", definition="", parent_id=target.id)
-    merge_issue_types(source_ids=[source.id], target_id=target.id)
+    source = create_label(name="Source", definition="")
+    first = create_label(name="KidA", definition="", parent_id=source.id)
+    second = create_label(name="KidB", definition="", parent_id=source.id)
+    target = create_label(name="Target", definition="")
+    create_label(name="Mid", definition="", parent_id=target.id)
+    merge_labels(source_ids=[source.id], target_id=target.id)
     undo()
     with get_session() as session:
         kids = sorted(
-            [row for row in session.find(IssueType) if row.parent_id == source.id and row.status == "active"],
+            [row for row in session.find(Label) if row.parent_id == source.id and row.status == "active"],
             key=lambda row: row.position,
         )
         assert [row.id for row in kids] == [first.id, second.id]
@@ -350,10 +350,10 @@ def test_merge_undo_restores_child_positions(db):
 
 
 def test_deactivate_undo_restores_sibling_order(db):
-    create_issue_type(name="Alpha", definition="")
-    middle = create_issue_type(name="Zeta", definition="")
-    create_issue_type(name="Gamma", definition="")
-    deactivate_issue_type(middle.id)
+    create_label(name="Alpha", definition="")
+    middle = create_label(name="Zeta", definition="")
+    create_label(name="Gamma", definition="")
+    deactivate_label(middle.id)
     undo()
     roots = _active_siblings(None)
     assert [row.name for row in roots] == ["Alpha", "Zeta", "Gamma"]
@@ -361,10 +361,10 @@ def test_deactivate_undo_restores_sibling_order(db):
 
 
 def test_remove_undo_restores_sibling_order(db):
-    create_issue_type(name="Alpha", definition="")
-    middle = create_issue_type(name="Zeta", definition="")
-    create_issue_type(name="Gamma", definition="")
-    remove_issue_type(middle.id)
+    create_label(name="Alpha", definition="")
+    middle = create_label(name="Zeta", definition="")
+    create_label(name="Gamma", definition="")
+    remove_label(middle.id)
     undo()
     roots = _active_siblings(None)
     assert [row.name for row in roots] == ["Alpha", "Zeta", "Gamma"]
@@ -372,25 +372,25 @@ def test_remove_undo_restores_sibling_order(db):
 
 
 def test_remove_redo_compacts_remaining_siblings(db):
-    create_issue_type(name="Alpha", definition="")
-    middle = create_issue_type(name="Zeta", definition="")
-    create_issue_type(name="Gamma", definition="")
-    remove_issue_type(middle.id)
+    create_label(name="Alpha", definition="")
+    middle = create_label(name="Zeta", definition="")
+    create_label(name="Gamma", definition="")
+    remove_label(middle.id)
     undo()
     redo()
-    created = create_empty_issue_type(parent_id=None)
+    created = create_empty_label(parent_id=None)
     roots = _active_siblings(None)
-    assert [row.name for row in roots] == ["Alpha", "Gamma", "New type"]
+    assert [row.name for row in roots] == ["Alpha", "Gamma", "New label"]
     assert [row.position for row in roots] == [0, 1, 2]
     assert created.position == 2
 
 
 def test_merge_undo_restores_source_sibling_order(db):
-    create_issue_type(name="Alpha", definition="")
-    source = create_issue_type(name="Zeta", definition="")
-    create_issue_type(name="Gamma", definition="")
-    target = create_issue_type(name="Target", definition="")
-    merge_issue_types(source_ids=[source.id], target_id=target.id)
+    create_label(name="Alpha", definition="")
+    source = create_label(name="Zeta", definition="")
+    create_label(name="Gamma", definition="")
+    target = create_label(name="Target", definition="")
+    merge_labels(source_ids=[source.id], target_id=target.id)
     undo()
     roots = _active_siblings(None)
     assert [row.name for row in roots] == ["Alpha", "Zeta", "Gamma", "Target"]
@@ -398,12 +398,12 @@ def test_merge_undo_restores_source_sibling_order(db):
 
 
 def test_merge_redo_matches_forward_child_order(db):
-    source = create_issue_type(name="Source", definition="")
-    create_issue_type(name="KidA", definition="", parent_id=source.id)
-    create_issue_type(name="KidB", definition="", parent_id=source.id)
-    target = create_issue_type(name="Target", definition="")
-    create_issue_type(name="Mid", definition="", parent_id=target.id)
-    merge_issue_types(source_ids=[source.id], target_id=target.id)
+    source = create_label(name="Source", definition="")
+    create_label(name="KidA", definition="", parent_id=source.id)
+    create_label(name="KidB", definition="", parent_id=source.id)
+    target = create_label(name="Target", definition="")
+    create_label(name="Mid", definition="", parent_id=target.id)
+    merge_labels(source_ids=[source.id], target_id=target.id)
     forward = _active_siblings(target.id)
     forward_names = [row.name for row in forward]
     forward_positions = [row.position for row in forward]
@@ -416,38 +416,38 @@ def test_merge_redo_matches_forward_child_order(db):
 
 
 def test_merge_parent_into_labeled_leaf_undo_redo_restores_labels(db):
-    target = create_issue_type(name="Target", definition="t")
-    source = create_issue_type(name="Source", definition="s")
-    kid = create_issue_type(name="Kid", definition="k", parent_id=source.id)
+    target = create_label(name="Target", definition="t")
+    source = create_label(name="Source", definition="s")
+    kid = create_label(name="Kid", definition="k", parent_id=source.id)
     with get_session() as session:
         session.add(ProofreadingComment(
             id="c-tgt", project_id="p", source_type="latex_command", source_command="myremark",
-            file_path="main.tex", line_number=1, raw_text="on target", fingerprint="fp-tgt-hist",
-            status="active", quality="unreviewed",
+            file_path="main.tex", line_number=1, raw_text="on target",
+            status="active",
         ))
         session.add(Coding(
-            id="k-tgt", comment_id="c-tgt", issue_type_id=target.id, coder_type="human",
+            id="k-tgt", comment_id="c-tgt", label_id=target.id, coder_type="human",
             status="accepted",
         ))
         session.add(ProofreadingComment(
             id="c-src", project_id="p", source_type="latex_command", source_command="myremark",
-            file_path="main.tex", line_number=2, raw_text="on source", fingerprint="fp-src-hist",
-            status="active", quality="unreviewed",
+            file_path="main.tex", line_number=2, raw_text="on source",
+            status="active",
         ))
         session.add(Coding(
-            id="k-src", comment_id="c-src", issue_type_id=source.id, coder_type="human",
+            id="k-src", comment_id="c-src", label_id=source.id, coder_type="human",
             status="accepted",
         ))
         session.commit()
-    merge_issue_types(source_ids=[source.id], target_id=target.id)
+    merge_labels(source_ids=[source.id], target_id=target.id)
     undo()
     with get_session() as session:
-        assert session.get(Coding, "k-tgt").issue_type_id == target.id
-        assert session.get(Coding, "k-src").issue_type_id == source.id
-        assert session.get(IssueType, kid.id).parent_id == source.id
-        assert session.get(IssueType, source.id).status == "active"
+        assert session.get(Coding, "k-tgt").label_id == target.id
+        assert session.get(Coding, "k-src").label_id == source.id
+        assert session.get(Label, kid.id).parent_id == source.id
+        assert session.get(Label, source.id).status == "active"
         extras = [
-            row for row in session.find(IssueType)
+            row for row in session.find(Label)
             if row.parent_id == target.id and row.status == "active"
         ]
         assert extras == []
@@ -455,51 +455,51 @@ def test_merge_parent_into_labeled_leaf_undo_redo_restores_labels(db):
     with get_session() as session:
         kids = _active_siblings(target.id)
         ungrouped = next(row for row in kids if row.name == "ungrouped")
-        assert session.get(IssueType, kid.id).parent_id == target.id
-        assert session.get(IssueType, source.id).status == "inactive"
-        assert session.get(Coding, "k-tgt").issue_type_id == ungrouped.id
-        assert session.get(Coding, "k-src").issue_type_id == ungrouped.id
+        assert session.get(Label, kid.id).parent_id == target.id
+        assert session.get(Label, source.id).status == "inactive"
+        assert session.get(Coding, "k-tgt").label_id == ungrouped.id
+        assert session.get(Coding, "k-src").label_id == ungrouped.id
 
 
 def test_split_undo_then_create_appends_last(db):
-    create_issue_type(name="Alpha", definition="")
-    middle = create_issue_type(name="Zeta", definition="")
-    create_issue_type(name="Gamma", definition="")
+    create_label(name="Alpha", definition="")
+    middle = create_label(name="Zeta", definition="")
+    create_label(name="Gamma", definition="")
     apply_split(
         source_id=middle.id,
         plan=SplitPlan(
-            types=[
+            labels=[
                 {"name": "Zeta Left", "definition": "l"},
                 {"name": "Zeta Right", "definition": "r"},
             ],
             assignments=[
-                {"comment_id": "c1", "type_index": 0},
-                {"comment_id": "c2", "type_index": 1},
+                {"comment_id": "c1", "label_index": 0},
+                {"comment_id": "c2", "label_index": 1},
             ],
         ),
     )
     undo()
-    created = create_empty_issue_type(parent_id=None)
+    created = create_empty_label(parent_id=None)
     roots = _active_siblings(None)
-    assert [row.name for row in roots] == ["Alpha", "Zeta", "Gamma", "New type"]
+    assert [row.name for row in roots] == ["Alpha", "Zeta", "Gamma", "New label"]
     assert [row.position for row in roots] == [0, 1, 2, 3]
     assert created.position == 3
 
 
 def test_split_redo_matches_forward_sibling_order(db):
-    create_issue_type(name="Alpha", definition="")
-    middle = create_issue_type(name="Zeta", definition="")
-    create_issue_type(name="Gamma", definition="")
+    create_label(name="Alpha", definition="")
+    middle = create_label(name="Zeta", definition="")
+    create_label(name="Gamma", definition="")
     apply_split(
         source_id=middle.id,
         plan=SplitPlan(
-            types=[
+            labels=[
                 {"name": "Zeta Left", "definition": "l"},
                 {"name": "Zeta Right", "definition": "r"},
             ],
             assignments=[
-                {"comment_id": "c1", "type_index": 0},
-                {"comment_id": "c2", "type_index": 1},
+                {"comment_id": "c1", "label_index": 0},
+                {"comment_id": "c2", "label_index": 1},
             ],
         ),
     )
@@ -509,26 +509,26 @@ def test_split_redo_matches_forward_sibling_order(db):
     after = _active_siblings(None)
     assert [row.name for row in after] == forward
     assert [row.position for row in after] == [0, 1, 2]
-    created = create_empty_issue_type(parent_id=None)
+    created = create_empty_label(parent_id=None)
     roots = _active_siblings(None)
-    assert roots[-1].name == "New type"
+    assert roots[-1].name == "New label"
     assert created.position == 3
     assert [row.position for row in roots] == [0, 1, 2, 3]
 
 
 def test_split_redo_keeps_children_under_source(db):
-    first = create_issue_type(name="Zeta", definition="")
-    create_issue_type(name="Gamma", definition="")
+    first = create_label(name="Zeta", definition="")
+    create_label(name="Gamma", definition="")
     apply_split(
         source_id=first.id,
         plan=SplitPlan(
-            types=[
+            labels=[
                 {"name": "Zeta Left", "definition": "l"},
                 {"name": "Zeta Right", "definition": "r"},
             ],
             assignments=[
-                {"comment_id": "c1", "type_index": 0},
-                {"comment_id": "c2", "type_index": 1},
+                {"comment_id": "c1", "label_index": 0},
+                {"comment_id": "c2", "label_index": 1},
             ],
         ),
     )
@@ -541,11 +541,11 @@ def test_split_redo_keeps_children_under_source(db):
 
 
 def test_legacy_split_payload_still_inverts(db):
-    source = create_issue_type(name="Source", definition="")
-    left = create_issue_type(name="Left", definition="")
-    right = create_issue_type(name="Right", definition="")
+    source = create_label(name="Source", definition="")
+    left = create_label(name="Left", definition="")
+    right = create_label(name="Right", definition="")
     with get_session() as session:
-        row = session.get(IssueType, source.id)
+        row = session.get(Label, source.id)
         row.status = "inactive"
         session.add(row)
         record(
@@ -560,19 +560,19 @@ def test_legacy_split_payload_still_inverts(db):
         session.commit()
     undo()
     with get_session() as session:
-        assert session.get(IssueType, source.id).status == "active"
-        assert session.get(IssueType, left.id).status == "inactive"
-        assert session.get(IssueType, right.id).status == "inactive"
+        assert session.get(Label, source.id).status == "active"
+        assert session.get(Label, left.id).status == "inactive"
+        assert session.get(Label, right.id).status == "inactive"
 
 
 def test_edit_does_not_log_move(db):
-    issue = create_issue_type(
+    label = create_label(
         name="Overclaiming",
         definition="too strong",
     )
     client = TestClient(create_app())
     response = client.post(
-        f"/api/taxonomy/{issue.id}/edit",
+        f"/api/labels/{label.id}/edit",
         json={"definition": "A claim exceeds the evidence."},
     )
     assert response.status_code == 200
@@ -581,13 +581,13 @@ def test_edit_does_not_log_move(db):
 
 
 def test_undo_edit_ignores_notes_in_legacy_payload(db):
-    issue = create_issue_type(name="Overclaiming", definition="new def")
+    label = create_label(name="Overclaiming", definition="new def")
     with get_session() as session:
         record(
             session,
             "edit",
             {
-                "issue_type_id": issue.id,
+                "label_id": label.id,
                 "before": {
                     "definition": "old def",
                     "notes": "Watch epistemic verbs.",
@@ -603,7 +603,7 @@ def test_undo_edit_ignores_notes_in_legacy_payload(db):
         session.commit()
     undo()
     with get_session() as session:
-        row = session.get(IssueType, issue.id)
+        row = session.get(Label, label.id)
         assert row.definition == "old def"
         assert "notes" not in row.model_dump()
 
@@ -614,7 +614,7 @@ def test_accept_is_logged_and_undo_returns_to_inbox(db, tmp_path):
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
     (repo / "main.tex").write_text("\\myremark{Why this method?}\n")
     extract_project(repo)
-    issue = create_issue_type(
+    label = create_label(
         name="Missing methodological justification",
         definition="A design choice is unexplained.",
     )
@@ -623,7 +623,7 @@ def test_accept_is_logged_and_undo_returns_to_inbox(db, tmp_path):
             scripted_response=json.dumps(
                 {
                     "recommendation": "existing",
-                    "issue_type_id": issue.id,
+                    "label_id": label.id,
                     "confidence": 0.84,
                     "rationale": "Asks why the method was chosen.",
                 }
@@ -638,7 +638,7 @@ def test_accept_is_logged_and_undo_returns_to_inbox(db, tmp_path):
     items = inbox_items()
     assert len(items) == 1
     assert items[0].comment.id == comment_id
-    assert list_examples(issue.id) == []
+    assert list_examples(label.id) == []
     with get_session() as session:
         coding = session.first(Coding)
         assert coding.status == "proposed"
@@ -650,11 +650,11 @@ def test_undo_change_restores_previous_label(db, tmp_path):
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
     (repo / "main.tex").write_text("\\myremark{Why this method?}\n")
     extract_project(repo)
-    first = create_issue_type(
+    first = create_label(
         name="Missing methodological justification",
         definition="A design choice is unexplained.",
     )
-    second = create_issue_type(
+    second = create_label(
         name="Weak evidence",
         definition="evidence is thin",
     )
@@ -663,7 +663,7 @@ def test_undo_change_restores_previous_label(db, tmp_path):
             scripted_response=json.dumps(
                 {
                     "recommendation": "existing",
-                    "issue_type_id": first.id,
+                    "label_id": first.id,
                     "confidence": 0.84,
                     "rationale": "Asks why the method was chosen.",
                 }
@@ -672,7 +672,7 @@ def test_undo_change_restores_previous_label(db, tmp_path):
     )
     comment_id = inbox_items()[0].comment.id
     accept_coding(comment_id)
-    change_coding(comment_id, issue_type_id=second.id)
+    change_coding(comment_id, label_id=second.id)
     assert [row.id for row in list_working_observations(second.id)] == [comment_id]
     assert list_working_observations(first.id) == []
     undo()
@@ -696,7 +696,7 @@ def test_propose_is_one_event_and_undo_removes_suggestions(db, tmp_path):
     summary = code_uncoded_comments(
         provider=MockLLMProvider(
             scripted_response=json.dumps(
-                {"recommendation": "new", "issue_name": "Unclear thesis", "confidence": 0.7, "rationale": "Unclear."}
+                {"recommendation": "new", "label_name": "Unclear thesis", "confidence": 0.7, "rationale": "Unclear."}
             )
         )
     )
@@ -712,16 +712,102 @@ def test_propose_is_one_event_and_undo_removes_suggestions(db, tmp_path):
 
 
 def test_new_action_drops_redo_tail(db):
-    issue = create_issue_type(
+    label = create_label(
         name="Overly strong claim",
         definition="old",
     )
-    rename_issue_type(issue.id, name="Overclaiming")
+    rename_label(label.id, name="Overclaiming")
     undo()
-    create_issue_type(name="Ambiguous terminology", definition="vague")
+    create_label(name="Ambiguous terminology", definition="vague")
     history = list_history()
     assert history["can_redo"] is False
     assert "rename" not in _event_types(include_undone=True)
+
+
+def test_delete_undo_restores_comment_and_dependents(db, tmp_path):
+    from reviewdistill.db.models import LabelExample
+    from reviewdistill.taxonomy.operations import add_example
+
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Keep me.}\n")
+    extract_project(repo)
+    label = create_label(name="Overclaiming", definition="too strong")
+    with get_session() as session:
+        comment_id = session.first(ProofreadingComment).id
+        raw = session.get(ProofreadingComment, comment_id).raw_text
+    change_coding(comment_id, label_id=label.id)
+    add_example(label.id, text="Too strong.", source_comment_id=comment_id)
+    delete_comment(comment_id)
+    assert "delete" in _event_types()
+    undo()
+    with get_session() as session:
+        row = session.get(ProofreadingComment, comment_id)
+        assert row is not None
+        assert row.raw_text == raw
+        assert session.find(Coding, comment_id=comment_id)
+        assert session.find(LabelExample, source_comment_id=comment_id)
+    assert list_examples(label.id)
+    redo()
+    with get_session() as session:
+        assert session.get(ProofreadingComment, comment_id) is None
+
+
+def test_old_drop_undo_is_noop_and_unblocks_history(db, tmp_path):
+    from uuid import uuid4
+
+    from reviewdistill.db.models import TaxonomyEvent
+
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Keep me.}\n")
+    extract_project(repo)
+    verify_comment(inbox_items()[0].comment.id)
+    with get_session() as session:
+        comment_id = session.first(ProofreadingComment).id
+        session.add(
+            TaxonomyEvent(
+                id=str(uuid4()),
+                event_type="drop",
+                payload_json=json.dumps(
+                    {"comment_id": comment_id, "previous_quality": "verified"}
+                ),
+            )
+        )
+        session.commit()
+    history = list_history()
+    assert history["can_undo"] is True
+    undo()
+    with get_session() as session:
+        row = session.get(ProofreadingComment, comment_id)
+        assert row is not None
+        assert row.verified
+    redo()
+    with get_session() as session:
+        row = session.get(ProofreadingComment, comment_id)
+        assert row is not None
+        assert row.verified
+
+
+def test_unverify_undo_restores_verified(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Keep me.}\n")
+    extract_project(repo)
+    with get_session() as session:
+        comment_id = session.first(ProofreadingComment).id
+    verify_comment(comment_id)
+    verify_comment(comment_id)
+    assert "unverify" in _event_types()
+    undo()
+    with get_session() as session:
+        assert session.get(ProofreadingComment, comment_id).verified
+    redo()
+    with get_session() as session:
+        assert session.get(ProofreadingComment, comment_id).verified is False
 
 
 def test_verify_undo_restores_previous_quality(db, tmp_path):
@@ -736,14 +822,34 @@ def test_verify_undo_restores_previous_quality(db, tmp_path):
         comment = session.first(ProofreadingComment)
         comment_id = comment.id
         assert comment.status == "pending_disappeared"
-        assert comment.quality == "unreviewed"
+        assert comment.verified is False
     verify_comment(comment_id)
     assert "verify" in _event_types()
     undo()
     with get_session() as session:
         row = session.get(ProofreadingComment, comment_id)
-        assert row.quality == "unreviewed"
+        assert row.verified is False
         assert row.status == "pending_disappeared"
+
+
+def test_comment_from_dump_maps_quality():
+    from reviewdistill.history import comment_from_dump
+
+    row = comment_from_dump(
+        {
+            "id": "c1",
+            "project_id": "p1",
+            "source_type": "latex_command",
+            "source_command": "myremark",
+            "file_path": "main.tex",
+            "line_number": 1,
+            "raw_text": "Too strong.",
+            "status": "active",
+            "quality": "verified",
+            "created_at": "2026-01-01T00:00:00+00:00",
+        }
+    )
+    assert row.verified is True
 
 
 def test_history_api_undo_redo_and_empty_errors(db):
@@ -756,7 +862,7 @@ def test_history_api_undo_redo_and_empty_errors(db):
     assert client.post("/api/history/undo").status_code == 400
     assert client.post("/api/history/redo").status_code == 400
 
-    create_issue_type(name="Unsupported claim", definition="a")
+    create_label(name="Unsupported claim", definition="a")
     listed = client.get("/api/history").json()
     assert listed["can_undo"] is True
     assert listed["events"][0]["summary"]
@@ -799,4 +905,52 @@ def test_list_history_sorts_naive_and_aware_created_at(rd_home):
     init_db()
     body = list_history()
     assert [event["id"] for event in body["events"]] == ["new", "old"]
+
+
+def test_recycle_undo_redo_restores_unlabeled(db):
+    create_label(name="Existing", definition="")
+    with get_session() as session:
+        for comment_id, text in (("c1", "too strong"), ("c2", "hedge this")):
+            session.add(
+                ProofreadingComment(
+                    id=comment_id,
+                    project_id="p",
+                    source_type="latex_command",
+                    source_command="myremark",
+                    file_path="main.tex",
+                    line_number=1,
+                    raw_text=text,
+                    status="active",
+                    quality="unreviewed",
+                )
+            )
+        session.add(
+            Coding(
+                id="k-prop",
+                comment_id="c1",
+                label_id=None,
+                coder_type="ai",
+                status="proposed",
+                proposed_label_name="Maybe",
+                proposed_label_definition="too strong",
+            )
+        )
+        session.commit()
+    created = recycle_ungrouped()
+    history = list_history()
+    assert history["events"][0]["event_type"] == "recycle"
+    assert history["events"][0]["summary"] == "Group unlabeled comments onto ungrouped"
+    assert history["can_undo"] is True
+    undo()
+    with get_session() as session:
+        assert session.get(Label, created.id).status == "inactive"
+        assert not is_labeled(session, "c1")
+        assert not is_labeled(session, "c2")
+        assert session.get(Coding, "k-prop").status == "proposed"
+    redo()
+    with get_session() as session:
+        assert session.get(Label, created.id).status == "active"
+        assert is_labeled(session, "c1")
+        assert is_labeled(session, "c2")
+        assert session.get(Coding, "k-prop").status == CODING_MODIFIED
 

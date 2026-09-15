@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -5,8 +6,25 @@ from pathlib import Path
 
 import pytest
 
-from reviewdistill.db.models import Project, ProofreadingComment, comment_quality
-from reviewdistill.db.session import get_session, init_db
+from reviewdistill.db.models import (
+    Coding,
+    Project,
+    ProofreadingComment,
+    normalize_comment_record,
+)
+from reviewdistill.db.session import FILES, get_session, init_db, reset_engine
+from reviewdistill.errors import CorruptStore
+
+
+def test_store_files_are_the_live_collections():
+    assert set(FILES.values()) == {
+        "projects.jsonl",
+        "comments.jsonl",
+        "codings.jsonl",
+        "labels.jsonl",
+        "label_examples.jsonl",
+        "taxonomy_events.jsonl",
+    }
 
 
 def test_init_db_creates_and_round_trips_project(rd_home):
@@ -38,7 +56,6 @@ def test_comment_raw_text_persists(rd_home):
                 context_text="The results demonstrate that...",
                 section="4.2 Results",
                 git_commit="abc123",
-                fingerprint="deadbeef",
                 status="active",
             )
         )
@@ -52,63 +69,60 @@ def test_comment_raw_text_persists(rd_home):
     assert "demonstrate" in line
 
 
-def test_unknown_quality_is_rejected():
-    comment = ProofreadingComment(
-        id="c-bad",
-        project_id="p1",
-        source_type="latex_command",
-        source_command="myremark",
-        file_path="main.tex",
-        line_number=1,
-        raw_text="Too strong.",
-        fingerprint="fp",
-        quality="kept",
-    )
-    with pytest.raises(ValueError, match="Unknown comment quality"):
-        comment_quality(comment)
+def _record(**extra):
+    base = {
+        "id": "c1",
+        "project_id": "p1",
+        "source_type": "latex_command",
+        "source_command": "myremark",
+        "file_path": "main.tex",
+        "line_number": 1,
+        "raw_text": "Too strong.",
+        "status": "active",
+    }
+    base.update(extra)
+    return base
 
 
-def test_add_rejects_unknown_quality(rd_home):
-    init_db()
-    with pytest.raises(ValueError, match="Unknown comment quality"):
-        with get_session() as session:
-            session.add(
-                ProofreadingComment(
-                    id="c-bad",
-                    project_id="p1",
-                    source_type="latex_command",
-                    source_command="myremark",
-                    file_path="main.tex",
-                    line_number=1,
-                    raw_text="Too strong.",
-                    fingerprint="fp",
-                    quality="kept",
-                )
-            )
+def test_normalize_maps_quality_strings():
+    assert normalize_comment_record(_record(quality="verified"))["verified"] is True
+    assert normalize_comment_record(_record(quality="unreviewed"))["verified"] is False
+    assert "quality" not in normalize_comment_record(_record(quality="unreviewed"))
 
 
-def test_commit_rejects_unknown_quality(rd_home):
-    init_db()
-    with get_session() as session:
-        session.add(Project(id="p1", name="paper-01", root_path="/tmp/paper"))
-        comment = ProofreadingComment(
-            id="c-bad",
-            project_id="p1",
-            source_type="latex_command",
-            source_command="myremark",
-            file_path="main.tex",
-            line_number=1,
-            raw_text="Too strong.",
-            fingerprint="fp",
-            quality="unreviewed",
-        )
-        session.add(comment)
-        session.commit()
-        comment.quality = "kept"
-        with pytest.raises(ValueError, match="Unknown comment quality"):
-            session.commit()
-    assert '"unreviewed"' in (rd_home / "comments.jsonl").read_text(encoding="utf-8")
-    assert '"kept"' not in (rd_home / "comments.jsonl").read_text(encoding="utf-8")
+def test_normalize_keeps_boolean_verified():
+    out = normalize_comment_record(_record(verified=True, quality="unreviewed"))
+    assert out["verified"] is True
+    assert "quality" not in out
+
+
+def test_normalize_purges_dropped_even_if_verified_present():
+    assert normalize_comment_record(_record(quality="dropped", verified=True)) is None
+
+
+def test_normalize_dropped_without_purge_is_not_verified():
+    out = normalize_comment_record(_record(quality="dropped"), purge_dropped=False)
+    assert out["verified"] is False
+    assert "quality" not in out
+
+
+def test_normalize_unknown_quality_fails():
+    with pytest.raises(CorruptStore, match="Unknown comment quality"):
+        normalize_comment_record(_record(quality="kept"))
+
+
+def test_normalize_non_boolean_verified_fails():
+    with pytest.raises(CorruptStore, match="Unknown comment verified"):
+        normalize_comment_record(_record(verified="yes"))
+
+
+def test_normalize_missing_both_defaults_false():
+    assert normalize_comment_record(_record())["verified"] is False
+
+
+def test_normalize_drops_stored_fingerprint():
+    out = normalize_comment_record(_record(fingerprint="deadbeef"))
+    assert "fingerprint" not in out
 
 
 def test_store_load_rejects_unknown_quality(rd_home):
@@ -124,22 +138,139 @@ def test_store_load_rejects_unknown_quality(rd_home):
                 file_path="main.tex",
                 line_number=1,
                 raw_text="Too strong.",
-                fingerprint="fp",
-                quality="unreviewed",
             )
         )
         session.commit()
     path = rd_home / "comments.jsonl"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data.pop("verified", None)
+    data["quality"] = "kept"
+    path.write_text(json.dumps(data, ensure_ascii=False) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Unknown comment quality"):
+        with get_session():
+            pass
+    with pytest.raises(ValueError, match="Unknown comment quality"):
+        with get_session():
+            pass
+
+
+def test_store_load_rejects_non_boolean_verified(rd_home):
+    init_db()
+    with get_session() as session:
+        session.add(Project(id="p1", name="paper-01", root_path="/tmp/paper"))
+        session.add(
+            ProofreadingComment(
+                id="c-bad",
+                project_id="p1",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=1,
+                raw_text="Too strong.",
+            )
+        )
+        session.commit()
+    path = rd_home / "comments.jsonl"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["verified"] = "yes"
+    path.write_text(json.dumps(data, ensure_ascii=False) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Unknown comment verified"):
+        with get_session():
+            pass
+
+
+def test_load_maps_quality_and_rewrites_jsonl(rd_home):
+    init_db()
+    with get_session() as session:
+        session.add(Project(id="p1", name="paper-01", root_path="/tmp/paper"))
+        session.add(
+            ProofreadingComment(
+                id="c1",
+                project_id="p1",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=1,
+                raw_text="Too strong.",
+            )
+        )
+        session.commit()
+    path = rd_home / "comments.jsonl"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data.pop("verified", None)
+    data["quality"] = "verified"
+    path.write_text(json.dumps(data, ensure_ascii=False) + "\n", encoding="utf-8")
+    reset_engine()
+    with get_session() as session:
+        assert session.get(ProofreadingComment, "c1").verified is True
     text = path.read_text(encoding="utf-8")
-    assert '"unreviewed"' in text
-    path.write_text(text.replace('"unreviewed"', '"kept"', 1), encoding="utf-8")
-    assert '"kept"' in path.read_text(encoding="utf-8")
-    with pytest.raises(ValueError, match="Unknown comment quality"):
-        with get_session():
-            pass
-    with pytest.raises(ValueError, match="Unknown comment quality"):
-        with get_session():
-            pass
+    assert '"verified": true' in text
+    assert "quality" not in text
+
+
+def test_load_purges_dropped_comment_and_dependents(rd_home):
+    init_db()
+    with get_session() as session:
+        session.add(Project(id="p1", name="paper-01", root_path="/tmp/paper"))
+        session.add(
+            ProofreadingComment(
+                id="c-drop",
+                project_id="p1",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=1,
+                raw_text="Bad extract.",
+            )
+        )
+        session.add(
+            Coding(
+                id="k1",
+                comment_id="c-drop",
+                label_id=None,
+                coder_type="human",
+                status="proposed",
+            )
+        )
+        session.commit()
+    path = rd_home / "comments.jsonl"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data.pop("verified", None)
+    data["quality"] = "dropped"
+    path.write_text(json.dumps(data, ensure_ascii=False) + "\n", encoding="utf-8")
+    reset_engine()
+    with get_session() as session:
+        assert session.get(ProofreadingComment, "c-drop") is None
+        assert session.get(Coding, "k1") is None
+    assert "dropped" not in (rd_home / "comments.jsonl").read_text(encoding="utf-8")
+
+
+def test_load_drops_stored_fingerprint(rd_home):
+    init_db()
+    with get_session() as session:
+        session.add(Project(id="p1", name="paper-01", root_path="/tmp/paper"))
+        session.add(
+            ProofreadingComment(
+                id="c1",
+                project_id="p1",
+                source_type="latex_command",
+                source_command="myremark",
+                file_path="main.tex",
+                line_number=1,
+                raw_text="Too strong.",
+            )
+        )
+        session.commit()
+    path = rd_home / "comments.jsonl"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["fingerprint"] = "deadbeef"
+    path.write_text(json.dumps(data, ensure_ascii=False) + "\n", encoding="utf-8")
+    reset_engine()
+    with get_session() as session:
+        row = session.get(ProofreadingComment, "c1")
+        assert row is not None
+        assert not hasattr(row, "fingerprint") or "fingerprint" not in row.model_dump()
+    assert "fingerprint" not in path.read_text(encoding="utf-8")
 
 
 def _seed_project_and_comment(*, name: str, raw_text: str) -> None:
@@ -154,7 +285,6 @@ def _seed_project_and_comment(*, name: str, raw_text: str) -> None:
                 file_path="main.tex",
                 line_number=1,
                 raw_text=raw_text,
-                fingerprint="fp",
                 status="active",
             )
         )

@@ -7,10 +7,9 @@ defineProps<{
 }>()
 
 const partTitle = {
-  working_set: 'The number of comments to distill. They are not dropped, and they are still in the manuscript or already verified.',
-  unlabeled: 'The number of comments to distill that have no issue type. The Unlabeled chip is the inbox queue, not this count.',
-  verified: 'The number of comments that are quality-assured. Does not confirm the issue type.',
-  dropped: 'The number of comments not to distill (too local, or a bad extract). History is kept.',
+  working_set: 'The number of comments to distill. They are still in the manuscript, or already verified.',
+  unlabeled: 'The number of comments to distill that have no label. The Unlabeled chip is the inbox queue, not this count.',
+  verified: 'The number of comments that are verified. Does not confirm the label assignment.',
 } as const
 </script>
 

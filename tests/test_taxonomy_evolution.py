@@ -2,37 +2,36 @@ import json
 
 import pytest
 
-from reviewdistill.db.models import Coding, IssueCounterexample, IssueExample, IssueType, ProofreadingComment, TaxonomyEvent
+from reviewdistill.db.models import Coding, LabelExample, Label, ProofreadingComment, TaxonomyEvent
 from reviewdistill.db.session import get_session
 from reviewdistill.history import list_history
 from reviewdistill.coding.split import SplitPlan
 from reviewdistill.taxonomy.operations import (
-    add_counterexample,
     add_example,
     apply_split,
-    create_issue_type,
-    deactivate_issue_type,
-    edit_issue_type,
-    list_active_issue_types,
+    create_label,
+    deactivate_label,
+    edit_label,
+    list_active_labels,
     list_working_observations,
-    merge_issue_types,
-    move_issue_type,
-    rename_issue_type,
+    merge_labels,
+    move_label,
+    rename_label,
 )
 
 
 def test_rename_and_edit_keep_id(db):
-    issue = create_issue_type(
+    label = create_label(
         name="Overly strong claim",
         definition="old",
     )
-    renamed = rename_issue_type(issue.id, name="Overclaiming")
-    edited = edit_issue_type(
-        issue.id,
+    renamed = rename_label(label.id, name="Overclaiming")
+    edited = edit_label(
+        label.id,
         definition="A claim is stronger than the evidence supports.",
         detection_guidance="demonstrate, prove, establish",
     )
-    assert renamed.id == issue.id
+    assert renamed.id == label.id
     assert edited.name == "Overclaiming"
     assert edited.definition.startswith("A claim is stronger")
     assert "notes" not in edited.model_dump()
@@ -47,9 +46,9 @@ def test_rename_and_edit_keep_id(db):
 
 
 def test_move_inner_nests_under_target(db):
-    parent = create_issue_type(name="Parent", definition="p")
-    child = create_issue_type(name="Child", definition="c")
-    moved = move_issue_type(child.id, parent_id=parent.id, position=0)
+    parent = create_label(name="Parent", definition="p")
+    child = create_label(name="Child", definition="c")
+    moved = move_label(child.id, parent_id=parent.id, position=0)
     assert moved.parent_id == parent.id
     assert moved.position == 0
 
@@ -57,32 +56,32 @@ def test_move_inner_nests_under_target(db):
 def test_move_refuses_under_descendant(db):
     from reviewdistill.errors import BadInput
 
-    root = create_issue_type(name="Root", definition="r")
-    child = create_issue_type(name="A", definition="a", parent_id=root.id)
+    root = create_label(name="Root", definition="r")
+    child = create_label(name="A", definition="a", parent_id=root.id)
     with pytest.raises(BadInput):
-        move_issue_type(root.id, parent_id=child.id, position=0)
+        move_label(root.id, parent_id=child.id, position=0)
 
 
 def test_deactivate_hides_from_active_list(db):
-    issue = create_issue_type(
+    label = create_label(
         name="Overclaiming",
         definition="too strong",
     )
-    deactivate_issue_type(issue.id)
-    assert list_active_issue_types() == []
+    deactivate_label(label.id)
+    assert list_active_labels() == []
     with get_session() as session:
-        assert session.get(IssueType, issue.id).status == "inactive"
+        assert session.get(Label, label.id).status == "inactive"
 
 
 def test_deactivate_returns_accepted_comments_to_unlabeled(db):
     from reviewdistill.coding.validation import inbox_items
     from reviewdistill.history import redo, undo
 
-    issue = create_issue_type(
+    label = create_label(
         name="Overclaiming",
         definition="too strong",
     )
-    other = create_issue_type(
+    other = create_label(
         name="Weak evidence",
         definition="evidence is thin",
     )
@@ -96,7 +95,6 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
                 file_path="main.tex",
                 line_number=1,
                 raw_text="Too strong.",
-                fingerprint="fp-deact",
                 status="active",
             )
         )
@@ -104,7 +102,7 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
             Coding(
                 id="coding-deact",
                 comment_id="c-deact",
-                issue_type_id=issue.id,
+                label_id=label.id,
                 coder_type="human",
                 status="accepted",
             )
@@ -113,7 +111,7 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
             Coding(
                 id="coding-deact-old",
                 comment_id="c-deact",
-                issue_type_id=issue.id,
+                label_id=label.id,
                 coder_type="ai",
                 status="modified",
             )
@@ -127,7 +125,6 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
                 file_path="main.tex",
                 line_number=2,
                 raw_text="Weak evidence.",
-                fingerprint="fp-other",
                 status="active",
             )
         )
@@ -135,7 +132,7 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
             Coding(
                 id="coding-other",
                 comment_id="c-other",
-                issue_type_id=other.id,
+                label_id=other.id,
                 coder_type="human",
                 status="accepted",
             )
@@ -144,14 +141,14 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
             Coding(
                 id="coding-other-old",
                 comment_id="c-other",
-                issue_type_id=issue.id,
+                label_id=label.id,
                 coder_type="ai",
                 status="modified",
             )
         )
         session.commit()
 
-    deactivate_issue_type(issue.id)
+    deactivate_label(label.id)
     items = inbox_items()
     assert [item.comment.id for item in items] == ["c-deact"]
     assert items[0].labeled is False
@@ -167,7 +164,7 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
         assert restored is not None
         assert restored.status == "accepted"
         assert session.get(Coding, "coding-deact-old").status == "modified"
-        assert session.get(IssueType, issue.id).status == "active"
+        assert session.get(Label, label.id).status == "active"
         assert session.get(Coding, "coding-other").status == "accepted"
     redo()
     assert [item.comment.id for item in inbox_items()] == ["c-deact"]
@@ -176,74 +173,71 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
         assert session.get(Coding, "coding-other").status == "accepted"
 
 
-def test_merge_moves_codings_examples_and_counterexamples_to_target(db):
-    a = create_issue_type(name="Unsupported claim", definition="a")
-    b = create_issue_type(name="Overly strong claim", definition="b")
-    target = create_issue_type(
+def test_merge_moves_codings_and_examples_to_target(db):
+    a = create_label(name="Unsupported claim", definition="a")
+    b = create_label(name="Overly strong claim", definition="b")
+    target = create_label(
         name="Overclaiming", definition="c"
     )
     add_example(a.id, text="from A", source_comment_id="c1")
     add_example(a.id, text="unique from A", source_comment_id="c2")
     add_example(target.id, text="already on target", source_comment_id="c1")
-    add_counterexample(a.id, text="not A")
     with get_session() as session:
         session.add(
             Coding(
                 id="coding-a",
                 comment_id="c1",
-                issue_type_id=a.id,
+                label_id=a.id,
                 coder_type="human",
                 status="accepted",
             )
         )
         session.commit()
 
-    merged = merge_issue_types(source_ids=[a.id, b.id], target_id=target.id)
+    merged = merge_labels(source_ids=[a.id, b.id], target_id=target.id)
     assert merged.id == target.id
-    assert {i.id for i in list_active_issue_types()} == {target.id}
+    assert {i.id for i in list_active_labels()} == {target.id}
 
     with get_session() as session:
         coding = session.get(Coding, "coding-a")
-        assert coding.issue_type_id == target.id
-        examples = session.find(IssueExample, issue_type_id=target.id)
+        assert coding.label_id == target.id
+        examples = session.find(LabelExample, label_id=target.id)
         texts = {row.text for row in examples}
         assert texts == {"already on target", "unique from A"}
-        assert session.find(IssueExample, issue_type_id=a.id) == []
-        counters = session.find(IssueCounterexample, issue_type_id=target.id)
-        assert any(row.text == "not A" for row in counters)
-        assert session.get(IssueType, a.id).status == "inactive"
+        assert session.find(LabelExample, label_id=a.id) == []
+        assert session.get(Label, a.id).status == "inactive"
         events = [e for e in session.find(TaxonomyEvent) if e.event_type == "merge"]
         payload = json.loads(events[-1].payload_json)
         assert payload["target_id"] == target.id
         assert set(payload["source_ids"]) == {a.id, b.id}
 
 
-def test_create_issue_type_suffixes_duplicate_active_name(db):
-    create_issue_type(name="Overclaiming", definition="a")
-    second = create_issue_type(name="Overclaiming", definition="b")
+def test_create_label_suffixes_duplicate_active_name(db):
+    create_label(name="Overclaiming", definition="a")
+    second = create_label(name="Overclaiming", definition="b")
     assert second.name == "Overclaiming (2)"
-    assert {i.name for i in list_active_issue_types()} == {"Overclaiming", "Overclaiming (2)"}
+    assert {i.name for i in list_active_labels()} == {"Overclaiming", "Overclaiming (2)"}
 
 
 def test_apply_split_uniquifies_duplicate_child_names(db):
-    source = create_issue_type(
+    source = create_label(
         name="Insufficient explanation",
         definition="too broad",
     )
     apply_split(
         source_id=source.id,
         plan=SplitPlan(
-            types=[
+            labels=[
                 {"name": "Dup", "definition": "a"},
                 {"name": "Dup", "definition": "b"},
             ],
             assignments=[
-                {"comment_id": "c1", "type_index": 0},
-                {"comment_id": "c2", "type_index": 1},
+                {"comment_id": "c1", "label_index": 0},
+                {"comment_id": "c2", "label_index": 1},
             ],
         ),
     )
-    assert {i.name for i in list_active_issue_types()} == {
+    assert {i.name for i in list_active_labels()} == {
         "Insufficient explanation",
         "Dup",
         "Dup (2)",
@@ -251,24 +245,24 @@ def test_apply_split_uniquifies_duplicate_child_names(db):
 
 
 def test_apply_split_suffixes_child_named_like_source(db):
-    source = create_issue_type(
+    source = create_label(
         name="Insufficient explanation",
         definition="too broad",
     )
     apply_split(
         source_id=source.id,
         plan=SplitPlan(
-            types=[
+            labels=[
                 {"name": "Insufficient explanation", "definition": "a"},
                 {"name": "Missing methodological justification", "definition": "b"},
             ],
             assignments=[
-                {"comment_id": "c1", "type_index": 0},
-                {"comment_id": "c2", "type_index": 1},
+                {"comment_id": "c1", "label_index": 0},
+                {"comment_id": "c2", "label_index": 1},
             ],
         ),
     )
-    assert {i.name for i in list_active_issue_types()} == {
+    assert {i.name for i in list_active_labels()} == {
         "Insufficient explanation",
         "Insufficient explanation (2)",
         "Missing methodological justification",

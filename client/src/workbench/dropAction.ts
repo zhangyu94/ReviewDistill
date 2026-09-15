@@ -4,19 +4,19 @@ export const DRAG_MIME = 'application/x-reviewdistill'
 
 export type DragPayload
   = | { kind: 'comment', id: string }
-    | { kind: 'issue', id: string }
+    | { kind: 'label', id: string }
 
 export interface DropTarget {
-  kind: 'issue'
+  kind: 'label'
   id: string
   placement: DropPlacement
   isLeaf: boolean
 }
 
 export type DropAction
-  = | { type: 'change', commentId: string, issueTypeId: string }
+  = | { type: 'change', commentId: string, labelId: string }
     | { type: 'merge', sourceId: string, targetId: string }
-    | { type: 'move', issueTypeId: string, targetId: string, placement: 'before' | 'inner' | 'after' }
+    | { type: 'move', labelId: string, targetId: string, placement: 'before' | 'inner' | 'after' }
     | { type: 'ignore' }
 
 /** Map HTML5 drag payload + drop target to Change / merge / move. No extra DnD library. */
@@ -26,12 +26,12 @@ export function dropAction(
   labeledTypeId: string | null = null,
   sourceDescendantIds: string[] = [],
 ): DropAction {
-  if (payload.kind === 'comment' && target.kind === 'issue') {
+  if (payload.kind === 'comment' && target.kind === 'label') {
     if (!target.isLeaf) { return { type: 'ignore' } }
     if (labeledTypeId && target.id === labeledTypeId) { return { type: 'ignore' } }
-    return { type: 'change', commentId: payload.id, issueTypeId: target.id }
+    return { type: 'change', commentId: payload.id, labelId: target.id }
   }
-  if (payload.kind === 'issue' && target.kind === 'issue') {
+  if (payload.kind === 'label' && target.kind === 'label') {
     if (payload.id === target.id || sourceDescendantIds.includes(target.id)) {
       return { type: 'ignore' }
     }
@@ -39,7 +39,7 @@ export function dropAction(
       if (!target.isLeaf) { return { type: 'ignore' } }
       return { type: 'merge', sourceId: payload.id, targetId: target.id }
     }
-    return { type: 'move', issueTypeId: payload.id, targetId: target.id, placement: target.placement }
+    return { type: 'move', labelId: payload.id, targetId: target.id, placement: target.placement }
   }
   return { type: 'ignore' }
 }
@@ -47,7 +47,7 @@ export function dropAction(
 export function parseDragPayload(raw: string): DragPayload | null {
   try {
     const data = JSON.parse(raw) as { kind?: unknown, id?: unknown }
-    if ((data.kind === 'comment' || data.kind === 'issue') && typeof data.id === 'string' && data.id) { return { kind: data.kind, id: data.id } }
+    if ((data.kind === 'comment' || data.kind === 'label') && typeof data.id === 'string' && data.id) { return { kind: data.kind, id: data.id } }
   }
   catch {
     return null
@@ -60,19 +60,19 @@ export function serializeDragPayload(payload: DragPayload): string {
 }
 
 export function allowDropHighlight(args: {
-  dragKind: 'comment' | 'issue' | ''
+  dragKind: 'comment' | 'label' | ''
   isLeaf: boolean
   isSelf: boolean
   isDescendant: boolean
 }): boolean {
   if (args.isSelf || args.isDescendant) { return false }
-  if (args.dragKind !== 'issue' && !args.isLeaf) { return false }
+  if (args.dragKind !== 'label' && !args.isLeaf) { return false }
   return true
 }
 
 export function showSiblingDropGuide(
-  dragKind: 'comment' | 'issue' | '',
+  dragKind: 'comment' | 'label' | '',
   placement: DropPlacement,
 ): boolean {
-  return dragKind === 'issue' && (placement === 'before' || placement === 'after')
+  return dragKind === 'label' && (placement === 'before' || placement === 'after')
 }

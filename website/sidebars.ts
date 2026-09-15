@@ -8,7 +8,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Using ReviewDistill',
-      items: ['ui', 'llm', 'history'],
+      items: ['ui', 'llm', 'history', 'extract'],
     },
     'export',
     'cli',

@@ -3,7 +3,7 @@ defineProps<{
   unlabeledOn: boolean
   dismissUnlabeledHref: string
   toggleUnlabeledHref: string
-  typeChip: { label: string, title: string, dismissHref: string } | null
+  labelChip: { label: string, title: string, dismissHref: string } | null
 }>()
 </script>
 
@@ -22,25 +22,25 @@ defineProps<{
         aria-label="Remove Unlabeled selector"
       >×</RouterLink>
     </span>
-    <span v-if="unlabeledOn && typeChip" class="ch-muted-text">∩</span>
+    <span v-if="unlabeledOn && labelChip" class="ch-muted-text">∩</span>
     <span
-      v-if="typeChip"
+      v-if="labelChip"
       class="ch-chip ch-chip-active gap-0.5 pr-1"
-      :title="typeChip.title"
+      :title="labelChip.title"
     >
-      {{ typeChip.label }}
+      {{ labelChip.label }}
       <RouterLink
         class="inline-flex h-4 w-4 items-center justify-center rounded-[2px] text-xs leading-none text-[var(--ch-color-muted-foreground)] no-underline hover:bg-[var(--ch-color-background)] hover:text-[var(--ch-color-foreground)]"
-        :to="typeChip.dismissHref"
-        title="Remove type selector"
-        :aria-label="`Remove ${typeChip.title || typeChip.label} selector`"
+        :to="labelChip.dismissHref"
+        title="Remove label selector"
+        :aria-label="`Remove ${labelChip.title || labelChip.label} selector`"
       >×</RouterLink>
     </span>
     <div class="ml-auto flex flex-wrap items-center gap-1.5">
       <RouterLink
         class="ch-chip ch-chip-idle"
         :to="toggleUnlabeledHref"
-        title="Unlabeled comments, plus comments not in the manuscript that still need Verify or Drop"
+        title="Unlabeled comments, plus comments not in the manuscript that still need Verify or Delete"
       >
         Unlabeled
       </RouterLink>

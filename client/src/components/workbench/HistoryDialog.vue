@@ -63,8 +63,8 @@ async function wrap(fn: () => Promise<unknown>) {
   try {
     await fn()
     await load()
-    const issueId = typeof route.params.id === 'string' ? route.params.id : ''
-    await store.refreshAfterHistory(issueId)
+    const labelId = typeof route.params.id === 'string' ? route.params.id : ''
+    await store.refreshAfterHistory(labelId)
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -202,10 +202,10 @@ async function wrap(fn: () => Promise<unknown>) {
                 <h3 class="ch-kicker mb-0">
                   Comment
                 </h3>
-                <p v-if="comment.type_name" class="ch-muted-text mb-1.5">
-                  {{ comment.type_name }}
+                <p v-if="comment.label_name" class="ch-muted-text mb-1.5">
+                  {{ comment.label_name }}
                 </p>
-                <p class="ch-prose whitespace-pre-wrap" :class="comment.type_name ? '' : 'mt-1.5'">
+                <p class="ch-prose whitespace-pre-wrap" :class="comment.label_name ? '' : 'mt-1.5'">
                   {{ comment.text }}
                 </p>
               </section>

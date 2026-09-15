@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import type { InboxItemJson, InboxResponse, TaxonomyNode } from '../../api/client.ts'
-import { fileRevealAccessibleName, fileRevealLabel, type LocationRow } from '../../inboxLocation.ts'
+import type { LocationRow } from '../../inboxLocation.ts'
 import { computed, ref, watch } from 'vue'
-import { assignSuggestion, shouldAssignOnSelect } from '../../workbench/assignType.ts'
-import { assignableIssueRows } from '../../workbench/taxonomyTree.ts'
-import { showAssignType } from '../../workbench/workbenchMode.ts'
+import { fileRevealAccessibleName, fileRevealLabel } from '../../inboxLocation.ts'
+import { assignSuggestion, shouldAssignOnSelect } from '../../workbench/assignLabel.ts'
+import { assignableLabelRows } from '../../workbench/taxonomyTree.ts'
+import { showAssignLabel } from '../../workbench/workbenchMode.ts'
 import {
   Select,
   SelectContent,
@@ -19,7 +20,6 @@ const props = defineProps<{
   data: InboxResponse | null
   error: string
   locationRows: LocationRow[]
-  contextParts: { prose: string, extras: string }
   forest?: TaxonomyNode[]
 }>()
 
@@ -27,36 +27,36 @@ const emit = defineEmits<{
   accept: []
   assign: [id: string]
   verify: []
-  drop: []
+  delete: []
   configureLlm: []
   reveal: []
 }>()
 
 function onAssignId(value: unknown) {
   if (typeof value !== 'string') { return }
-  if (!shouldAssignOnSelect(props.selected?.issue?.id, value)) { return }
+  if (!shouldAssignOnSelect(props.selected?.label?.id, value)) { return }
   emit('assign', value)
 }
 
-const changeIssues = computed(() => {
+const changeLabels = computed(() => {
   const forest = props.forest
   if (forest && forest.length) {
-    return assignableIssueRows(forest, props.selected?.issue?.id)
+    return assignableLabelRows(forest, props.selected?.label?.id)
   }
-  return (props.data?.issues ?? []).map((issue) => ({
-    ...issue,
+  return (props.data?.labels ?? []).map((label) => ({
+    ...label,
     depth: 0,
   }))
 })
-const changeEmpty = computed(() => changeIssues.value.length === 0)
-const menuValue = computed(() => props.selected?.issue?.id ?? '')
+const changeEmpty = computed(() => changeLabels.value.length === 0)
+const menuValue = computed(() => props.selected?.label?.id ?? '')
 const changeMenuTitle = computed(() => (
   changeEmpty.value
-    ? 'No issue types yet. Accept a new-issue suggestion first.'
-    : 'The menu shows the current type. Pick another type to assign it.'
+    ? 'No labels yet. Accept a new-label suggestion first.'
+    : 'The menu shows the current label. Pick another label to assign it.'
 ))
 const suggestion = computed(() =>
-  assignSuggestion(props.selected?.coding, changeIssues.value),
+  assignSuggestion(props.selected?.coding, changeLabels.value),
 )
 const whyOpen = ref(false)
 watch(() => props.selected?.comment.id, () => {
@@ -92,17 +92,14 @@ watch(() => props.selected?.comment.id, () => {
             Manuscript context
           </h2>
           <p class="font-[var(--ch-font-mono)] leading-5 whitespace-pre-wrap text-[var(--ch-color-body)]">
-            {{ contextParts.prose || '—' }}
-          </p>
-          <p v-if="contextParts.extras" class="ch-muted-text mt-2 leading-4">
-            {{ contextParts.extras }}
+            {{ selected.comment.context_text || '—' }}
           </p>
         </section>
 
-        <template v-if="showAssignType(selected.labeled)">
+        <template v-if="showAssignLabel(selected.labeled)">
           <section class="ch-panel">
             <h2 class="ch-kicker">
-              Assign type
+              Assign label
             </h2>
             <div class="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
               <template v-if="suggestion">
@@ -118,7 +115,7 @@ watch(() => props.selected?.comment.id, () => {
                 >
                   Why?
                 </button>
-                <span class="ml-auto inline-flex" title="Apply the AI suggestion. If it proposed a new issue type, that type is added to the taxonomy and this comment becomes an example.">
+                <span class="ml-auto inline-flex" title="Accept the suggested label assignment. If it proposed a new label, that label is added to the taxonomy and this comment becomes an example.">
                   <button
                     class="ch-btn ch-btn-default"
                     type="button"
@@ -150,11 +147,11 @@ watch(() => props.selected?.comment.id, () => {
               @update:model-value="onAssignId"
             >
               <SelectTrigger class="w-auto min-w-40" :title="changeMenuTitle">
-                <SelectValue placeholder="Choose a type…" />
+                <SelectValue placeholder="Choose a label…" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem v-for="issue in changeIssues" :key="issue.id" :value="issue.id">
-                  <span :style="{ paddingLeft: `${issue.depth * 12}px` }">{{ issue.name }}</span>
+                <SelectItem v-for="row in changeLabels" :key="row.id" :value="row.id">
+                  <span :style="{ paddingLeft: `${row.depth * 12}px` }">{{ row.name }}</span>
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -163,7 +160,7 @@ watch(() => props.selected?.comment.id, () => {
         <template v-else>
           <section class="ch-panel">
             <h2 class="ch-kicker">
-              Type
+              Label
             </h2>
             <Select
               :model-value="menuValue || undefined"
@@ -171,11 +168,11 @@ watch(() => props.selected?.comment.id, () => {
               @update:model-value="onAssignId"
             >
               <SelectTrigger class="w-auto min-w-40" :title="changeMenuTitle">
-                <SelectValue placeholder="Choose a type…" />
+                <SelectValue placeholder="Choose a label…" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem v-for="issue in changeIssues" :key="issue.id" :value="issue.id">
-                  <span :style="{ paddingLeft: `${issue.depth * 12}px` }">{{ issue.name }}</span>
+                <SelectItem v-for="row in changeLabels" :key="row.id" :value="row.id">
+                  <span :style="{ paddingLeft: `${row.depth * 12}px` }">{{ row.name }}</span>
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -184,29 +181,43 @@ watch(() => props.selected?.comment.id, () => {
 
         <section class="ch-panel">
           <h2 class="ch-kicker">
-            Quality
+            Triage
           </h2>
+          <!-- Protect or remove the observation — not a quality rating. -->
           <p v-if="selected.guess" class="mb-3">
             {{ selected.guess }}
           </p>
           <div class="flex flex-wrap items-center gap-1.5">
             <button
               class="ch-btn ch-btn-outline"
+              :class="selected.comment.verified
+                ? 'border-[var(--ch-color-primary)] bg-[var(--ch-color-primary)] text-[var(--ch-color-primary-foreground)] hover:border-black hover:bg-black'
+                : ''"
               type="button"
-              :disabled="selected.comment.quality === 'verified'"
-              title="This observation is quality-assured (wording, context, worth keeping as evidence). Does not confirm the issue type."
+              :aria-pressed="selected.comment.verified"
+              :title="selected.comment.verified
+                ? 'Click to unprotect so Delete is available again.'
+                : 'Stamp this observation as verified (wording, context, worth keeping as evidence). Does not confirm the label assignment.'"
               @click="emit('verify')"
             >
+              <span
+                class="h-3.5 w-3.5 shrink-0"
+                :class="selected.comment.verified ? 'i-fa6-solid:lock' : 'i-fa6-solid:lock-open'"
+                aria-hidden="true"
+              />
               Verify
             </button>
             <button
               class="ch-btn ch-btn-outline"
               type="button"
-              :disabled="selected.comment.quality === 'dropped'"
-              title="Do not distill this observation (too local, or a bad extract). History is kept."
-              @click="emit('drop')"
+              :disabled="selected.comment.verified"
+              :title="selected.comment.verified
+                ? 'Unverify before deleting.'
+                : 'Remove this observation from the store. Undo from History. A later extract can recreate it if the wording is still in the file.'"
+              @click="emit('delete')"
             >
-              Drop
+              <span class="i-fa6-solid:trash-can h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Delete
             </button>
           </div>
         </section>
@@ -261,21 +272,8 @@ watch(() => props.selected?.comment.id, () => {
               Source type
             </dt><dd>{{ selected.comment.source_type }}</dd>
             <dt class="ch-muted-text">
-              Quality
-            </dt><dd>{{ selected.comment.quality }}</dd>
-            <dt class="ch-muted-text">
               In the manuscript
             </dt><dd>{{ selected.in_manuscript ? 'Yes' : 'No' }}</dd>
-            <dt class="ch-muted-text">
-              Git commit
-            </dt><dd class="break-all">
-              {{ selected.comment.git_commit || '—' }}
-            </dd>
-            <dt class="ch-muted-text">
-              Fingerprint
-            </dt><dd class="break-all">
-              {{ selected.comment.fingerprint }}
-            </dd>
             <dt class="ch-muted-text">
               Created
             </dt><dd>{{ selected.comment.created_at }}</dd>

@@ -9,8 +9,10 @@ Visible commands:
 | `reviewdistill ui` | UI + API on `:8765` |
 | `reviewdistill export` | Write a review skill (`md`) or taxonomy dump (`yaml` / `json`) (`--format`, `--output`) |
 | `reviewdistill paths` | Print the data folder and comments JSONL path |
-| `reviewdistill paths use DIR` | Use `DIR` for comments and issue types from now on |
+| `reviewdistill paths use DIR` | Use `DIR` for comments and labels from now on |
 | `reviewdistill paths move DIR` | Copy the current data folder to `DIR` and keep using it |
+
+`extract` finds configured macros and stores the insertion-neighborhood context. Details: [Extract](./extract.md).
 
 `init` options: `--name`, `--command` (repeatable; default `myremark`).
 

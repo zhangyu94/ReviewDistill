@@ -12,17 +12,15 @@ from pathlib import Path
 from typing import Self, TypeVar
 
 from reviewdistill.db.models import (
-    ISSUE_ACTIVE,
+    LABEL_ACTIVE,
     Coding,
-    GitCommitRecord,
-    IssueCounterexample,
-    IssueExample,
-    IssueType,
+    LabelExample,
+    Label,
     Project,
     ProofreadingComment,
     TaxonomyEvent,
     as_utc,
-    comment_quality,
+    normalize_comment_record,
 )
 from reviewdistill.errors import CorruptStore
 from reviewdistill.paths import LOCK_NAME, STAGING_DIRNAME, ensure_home_readme, home_dir
@@ -33,22 +31,19 @@ MODELS = (
     Project,
     ProofreadingComment,
     Coding,
-    IssueType,
-    IssueExample,
-    IssueCounterexample,
+    Label,
+    LabelExample,
     TaxonomyEvent,
-    GitCommitRecord,
 )
 
+# Label is a category row (labels.jsonl). TaxonomyEvent is the scheme-mutation log.
 FILES = {
     Project: "projects.jsonl",
     ProofreadingComment: "comments.jsonl",
     Coding: "codings.jsonl",
-    IssueType: "issue_types.jsonl",
-    IssueExample: "issue_examples.jsonl",
-    IssueCounterexample: "issue_counterexamples.jsonl",
+    Label: "labels.jsonl",
+    LabelExample: "label_examples.jsonl",
     TaxonomyEvent: "taxonomy_events.jsonl",
-    GitCommitRecord: "git_commits.jsonl",
 }
 
 SENTINEL_NAME = "COMMIT"
@@ -81,12 +76,19 @@ class StoreSession:
             self._lock_fp = None
 
     def add(self, obj: object) -> None:
-        if isinstance(obj, ProofreadingComment):
-            comment_quality(obj)
         self._tables[type(obj)][obj.id] = obj  # type: ignore[attr-defined]
 
     def delete(self, obj: object) -> None:
         self._tables[type(obj)].pop(obj.id, None)  # type: ignore[attr-defined]
+
+    def delete_comment_graph(self, comment: ProofreadingComment) -> None:
+        """Drop the comment, its codings, and sourced examples. Labels stay."""
+        comment_id = comment.id
+        for row in self.find(Coding, comment_id=comment_id):
+            self.delete(row)
+        for row in self.find(LabelExample, source_comment_id=comment_id):
+            self.delete(row)
+        self.delete(comment)
 
     def get(self, model: type[T], ident: str) -> T | None:
         return self._tables[model].get(ident)  # type: ignore[return-value]
@@ -123,6 +125,8 @@ class StoreSession:
         apply_pending_commit(self._home)
         _cleanup_tmp(self._home)
         self._tables = {model: {} for model in MODELS}
+        dropped_ids: list[str] = []
+        rewrote_comments = False
         for model, name in FILES.items():
             path = self._home / name
             if not path.is_file():
@@ -135,18 +139,32 @@ class StoreSession:
                     data = json.loads(line)
                 except json.JSONDecodeError as exc:
                     raise CorruptStore(f"Invalid JSON in {name}") from exc
+                if model is ProofreadingComment:
+                    # Map leftover quality / fingerprint; None means purge a dropped row.
+                    had_legacy = "quality" in data or "fingerprint" in data
+                    normalized = normalize_comment_record(data)
+                    if normalized is None:
+                        dropped_ids.append(str(data["id"]))
+                        rewrote_comments = True
+                        continue
+                    if had_legacy:
+                        rewrote_comments = True
+                    data = normalized
                 row = model.model_validate(data)
                 _aware_datetimes(row)
                 # Leftover keys such as category / notes / proposed_issue_category are ignored.
                 # Missing parent_id is a root; do not rewrite those old fields on load.
-                if model is ProofreadingComment:
-                    comment_quality(row)
                 self._tables[model][row.id] = row
-        _validate_issue_parents(self._tables[IssueType])
+        _validate_issue_parents(self._tables[Label])
+        for comment_id in dropped_ids:
+            for row in list(self.find(Coding, comment_id=comment_id)):
+                self.delete(row)
+            for row in list(self.find(LabelExample, source_comment_id=comment_id)):
+                self.delete(row)
+        if rewrote_comments:
+            self._save()
 
     def _save(self) -> None:
-        for row in self._tables[ProofreadingComment].values():
-            comment_quality(row)  # type: ignore[arg-type]
         self._home.mkdir(parents=True, exist_ok=True)
         apply_pending_commit(self._home)
         staging = self._home / STAGING_DIRNAME
@@ -183,14 +201,14 @@ def _validate_issue_parents(table: dict) -> None:
             continue
         parent = table.get(row.parent_id)
         if parent is None:
-            raise CorruptStore(f"Issue type {row.id} parent_id {row.parent_id!r} is missing")
-        if row.status == ISSUE_ACTIVE and parent.status != ISSUE_ACTIVE:
-            raise CorruptStore(f"Issue type {row.id} parent_id {row.parent_id!r} is inactive")
+            raise CorruptStore(f"Label {row.id} parent_id {row.parent_id!r} is missing")
+        if row.status == LABEL_ACTIVE and parent.status != LABEL_ACTIVE:
+            raise CorruptStore(f"Label {row.id} parent_id {row.parent_id!r} is inactive")
         seen: set[str] = set()
         current = row
         while current.parent_id is not None:
             if current.id in seen:
-                raise CorruptStore(f"Issue type {row.id} parent_id cycle")
+                raise CorruptStore(f"Label {row.id} parent_id cycle")
             seen.add(current.id)
             parent = table.get(current.parent_id)
             if parent is None:

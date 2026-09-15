@@ -72,8 +72,89 @@ def test_line_commented_command_is_not_extracted():
     assert [c.raw_text for c in comments] == ["keep me."]
 
 
+def test_commented_multiline_command_is_not_extracted():
+    extractor = LatexCommandExtractor(commands=["yzc", "myremark"])
+    source = "% \\yzc{\nNeed to rewrite.\n}\n\\myremark{cite me.}\n"
+    comments = extractor.extract(source, file_path="main.tex")
+    assert [(c.source_command, c.raw_text) for c in comments] == [
+        ("myremark", "cite me."),
+    ]
+
+
+def test_unclosed_commented_command_does_not_make_file_unstable():
+    extractor = LatexCommandExtractor(commands=["yzc", "myremark"])
+    source = "% \\yzc{\nno closer\n\\myremark{keep me.}\n"
+    comments, unstable = extractor.extract_with_status(source, file_path="main.tex")
+    assert unstable is False
+    assert [c.raw_text for c in comments] == ["keep me."]
+
+
 def test_escaped_percent_does_not_start_a_tex_comment():
     extractor = LatexCommandExtractor(commands=["note"])
     source = "100\\% \\note{not commented.}\n"
     comments = extractor.extract(source, file_path="main.tex")
     assert [c.raw_text for c in comments] == ["not commented."]
+
+
+def test_percent_inside_caption_does_not_harvest_commented_command():
+    extractor = LatexCommandExtractor(commands=["note"])
+    source = "See Figure 1.\n\\caption{A figure. % \\note{old}}\n"
+    comments = extractor.extract(source, file_path="main.tex")
+    assert comments == []
+
+
+def test_percent_before_closer_does_not_hide_later_command():
+    extractor = LatexCommandExtractor(commands=["yzc", "myremark"])
+    source = "A claim. \\yzc{tone % x} More text. \\myremark{cite me.}\n"
+    comments = extractor.extract(source, file_path="main.tex")
+    assert [(c.source_command, c.raw_text) for c in comments] == [
+        ("yzc", "tone % x"),
+        ("myremark", "cite me."),
+    ]
+
+
+def test_percent_on_multiline_closer_does_not_hide_later_command():
+    extractor = LatexCommandExtractor(commands=["yzc", "myremark"])
+    source = "\\yzc{foo\nbar % x} \\myremark{cite me.}\n"
+    comments = extractor.extract(source, file_path="main.tex")
+    assert [(c.source_command, c.raw_text) for c in comments] == [
+        ("yzc", "foo bar % x"),
+        ("myremark", "cite me."),
+    ]
+
+
+def test_percent_before_closer_is_still_a_complete_comment():
+    extractor = LatexCommandExtractor(commands=["yzc"])
+    source = "We designed the interface.\n\\yzc{Where are the tables? % check}\n"
+    comments, unstable = extractor.extract_with_status(source, file_path="main.tex")
+    assert unstable is False
+    assert [c.raw_text for c in comments] == ["Where are the tables? % check"]
+
+
+def test_optional_space_before_brace_is_extracted():
+    extractor = LatexCommandExtractor(commands=["yzc"])
+    source = "Hello \\yzc {Where are the tables?}\n"
+    comments = extractor.extract(source, file_path="main.tex")
+    assert [c.raw_text for c in comments] == ["Where are the tables?"]
+    assert comments[0].line_number == 1
+
+
+def test_tab_before_brace_is_extracted():
+    extractor = LatexCommandExtractor(commands=["note"])
+    source = "Hello \\note\t{spaced.}\n"
+    comments = extractor.extract(source, file_path="main.tex")
+    assert [c.raw_text for c in comments] == ["spaced."]
+
+
+def test_command_after_letter_is_extracted():
+    extractor = LatexCommandExtractor(commands=["yzc"])
+    source = "citation\\yzc{check this.}\n"
+    comments = extractor.extract(source, file_path="main.tex")
+    assert [c.raw_text for c in comments] == ["check this."]
+
+
+def test_prefix_name_is_not_the_configured_command():
+    extractor = LatexCommandExtractor(commands=["myremark"])
+    source = "Hello \\notmyremark{skip} \\myremark{keep.}\n"
+    comments = extractor.extract(source, file_path="main.tex")
+    assert [c.raw_text for c in comments] == ["keep."]

@@ -209,7 +209,6 @@ def test_move_home_applies_pending_commit_before_copy(tmp_path, monkeypatch):
                 file_path="main.tex",
                 line_number=1,
                 raw_text="old",
-                fingerprint="fp",
                 status="active",
             )
         )

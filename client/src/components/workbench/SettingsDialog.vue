@@ -192,7 +192,7 @@ async function saveDataPath() {
     for (const step of homeSaveFollowUpOrder()) {
       if (step === 'reload') {
         await router.push(next.href)
-        await store.loadAll(next.issueId)
+        await store.loadAll(next.labelId)
         notice.value = 'Saved.'
       }
       else {
@@ -270,7 +270,7 @@ defineExpose({ show })
 
       <template v-if="panel === 'data'">
         <p class="ch-muted-text mb-1">
-          Comments and issue types live in this folder:
+          Comments and labels live in this folder:
         </p>
         <div class="mb-2 flex items-center gap-1.5">
           <input
@@ -280,7 +280,7 @@ defineExpose({ show })
             spellcheck="false"
             autocomplete="off"
             aria-label="Data folder path"
-            title="Folder for comments and issue types"
+            title="Folder for comments and labels"
           >
           <button
             class="ch-btn ch-btn-outline shrink-0"
@@ -363,7 +363,7 @@ defineExpose({ show })
         <button
           class="ch-btn ch-btn-default ml-auto"
           type="button"
-          :title="panel === 'data' ? 'Use this folder for comments and issue types' : 'Save provider, model, and API key'"
+          :title="panel === 'data' ? 'Use this folder for comments and labels' : 'Save provider, model, and API key'"
           :disabled="busy || !canSave"
           @click="save"
         >

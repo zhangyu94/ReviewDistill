@@ -16,9 +16,9 @@ class MockLLMProvider:
         from reviewdistill.coding.split import SPLIT_TASK
 
         if SPLIT_TASK in prompt:
-            # Split prompts need types+assignments JSON; coding prompts keep the recommendation object.
+            # Split prompts need labels+assignments JSON; coding prompts keep the recommendation object.
             ids = re.findall(r"^- id=(\S+)", prompt, re.M)
-            types = [
+            labels = [
                 {
                     "name": "Split type A",
                     "definition": "First partition from the mock provider.",
@@ -29,14 +29,14 @@ class MockLLMProvider:
                 },
             ]
             assignments = [
-                {"comment_id": comment_id, "type_index": index % 2}
+                {"comment_id": comment_id, "label_index": index % 2}
                 for index, comment_id in enumerate(ids)
             ]
-            return json.dumps({"types": types, "assignments": assignments})
+            return json.dumps({"labels": labels, "assignments": assignments})
         return (
             '{"recommendation":"new",'
-            '"issue_name":"Mock issue","parent_id":null,'
-            '"definition":"A placeholder issue from the mock provider.",'
+            '"label_name":"Mock label","parent_id":null,'
+            '"definition":"A placeholder label from the mock provider.",'
             '"confidence":0.5,"rationale":"Mock provider used in tests.",'
             '"suggested_evidence":null}'
         )

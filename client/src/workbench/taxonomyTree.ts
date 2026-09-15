@@ -1,3 +1,4 @@
+/** Forest helpers for the taxonomy (scheme). A node is a label; assignment is labeled/unlabeled. */
 import type { TaxonomyNode } from '../api/client.ts'
 
 export type { TaxonomyNode }
@@ -11,7 +12,7 @@ export function isLeaf(node: TaxonomyNode): boolean {
 }
 
 /** Leaves, plus ``currentId`` so a leftover parent label still shows in the menu. */
-export function assignableIssueRows(
+export function assignableLabelRows(
   forest: TaxonomyNode[],
   currentId?: string | null,
 ): { id: string, name: string, depth: number }[] {
