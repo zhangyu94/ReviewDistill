@@ -21,3 +21,7 @@ export function commentListLeafLabelNames(
 ): string {
   return commentListLeafLabels(item, forest).map((label) => label.name).join(' · ')
 }
+
+export function commentListLocationLabel(lineNumber: number): string {
+  return `line ${lineNumber}`
+}

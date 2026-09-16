@@ -29,8 +29,9 @@ import LabelsPanel from '../components/workbench/LabelsPanel.vue'
 import ProgressBar from '../components/workbench/ProgressBar.vue'
 import SelectorsBar from '../components/workbench/SelectorsBar.vue'
 import { inboxLocationRows, safeHttpHref } from '../inboxLocation.ts'
-import { selectedIdAfterAction } from '../select.ts'
+import { selectedIdAfterAction, selectedIdAfterListAssign } from '../select.ts'
 import { assignmentNoticeText, snackbarAfterClose, workbenchSnackbar } from '../workbench/assignmentNotice.ts'
+import { shouldIgnoreCommentHotkey } from '../workbench/commentHotkey.ts'
 import {
   applyCommentSelectors,
   commentsEmptyCopy,
@@ -40,6 +41,7 @@ import {
   staleCommentQuery,
   workbenchHref,
 } from '../workbench/commentSelectors.ts'
+import { adjacentVisibleCommentId, expandAncestors, selectedIdAfterTreeCollapse } from '../workbench/commentTree.ts'
 import { dropAction } from '../workbench/dropAction.ts'
 import {
   afterRecycleHref,
@@ -107,6 +109,7 @@ const labeling = ref(false)
 const revealing = ref(false)
 
 const commentsLayout = ref<CommentsLayout>('one')
+const commentTreeCollapsed = ref(new Set<string>())
 
 function labelRow(id: string) {
   if (!id) { return undefined }
@@ -298,13 +301,13 @@ async function act(action: 'accept' | 'verify' | 'delete') {
   }
 }
 
-async function revealFile() {
-  const current = inspectorItem.value
-  if (!current || revealing.value) { return }
+/** Reveal this comment’s .tex file. Does not change which row is selected. */
+async function revealFile(commentId: string) {
+  if (!commentId || revealing.value) { return }
   revealing.value = true
   beginAction()
   try {
-    await revealInboxFile(current.comment.id)
+    await revealInboxFile(commentId)
   }
   catch (err) {
     showActionError(err)
@@ -314,20 +317,38 @@ async function revealFile() {
   }
 }
 
-async function change(nextLabelId: string) {
+function revealSelected() {
   const current = inspectorItem.value
-  if (!current || !nextLabelId) { return }
+  if (!current) { return }
+  void revealFile(current.comment.id)
+}
+
+/** Assign a leaf on this comment id (list row or the open inspector comment). */
+async function change(commentId: string, nextLabelId: string) {
+  if (!commentId || !nextLabelId) { return }
   beginAction()
-  const actedId = current.comment.id
+  const actedId = commentId
   const idsBefore = commentQueueIds()
+  const currentId = selectedCommentId.value
   try {
     await changeInbox(actedId, nextLabelId)
     await invalidate({ inbox: true, labels: true, label: true })
-    afterCommentAction(selectedIdAfterAction(idsBefore, actedId, commentQueueIds()))
+    afterCommentAction(selectedIdAfterListAssign(
+      idsBefore,
+      actedId,
+      commentQueueIds(),
+      currentId,
+    ))
   }
   catch (err) {
     showActionError(err)
   }
+}
+
+function assignSelected(labelId: string) {
+  const current = inspectorItem.value
+  if (!current) { return }
+  void change(current.comment.id, labelId)
 }
 
 async function onDrop(payload: DragPayload, target: DropTarget) {
@@ -346,10 +367,16 @@ async function onDrop(payload: DragPayload, target: DropTarget) {
   try {
     if (action.type === 'change') {
       const actedId = action.commentId
-      const idsBefore = matchedItems.value.map((item) => item.comment.id)
+      const idsBefore = commentQueueIds()
+      const currentId = selectedCommentId.value
       await changeInbox(actedId, action.labelId)
       await invalidate({ inbox: true, labels: true, label: true })
-      await router.replace(commentHref(selectedIdAfterAction(idsBefore, actedId, commentQueueIds())))
+      afterCommentAction(selectedIdAfterListAssign(
+        idsBefore,
+        actedId,
+        commentQueueIds(),
+        currentId,
+      ))
       return
     }
     if (action.type === 'merge') {
@@ -447,18 +474,33 @@ function onCommentsLayout(layout: CommentsLayout) {
   commentsLayout.value = layout
 }
 
+function onCommentTreeCollapsed(next: Set<string>) {
+  commentTreeCollapsed.value = next
+  if (commentsLayout.value !== 'tree') { return }
+  const selected = listSelectedId.value
+  const keep = selectedIdAfterTreeCollapse(matchedItems.value, next, selected)
+  if (keep && keep !== selected) { onSelectEntry(keep) }
+}
+
 function onKey(event: KeyboardEvent) {
-  const tag = (event.target as HTMLElement | null)?.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') { return }
+  if (shouldIgnoreCommentHotkey(event.target)) { return }
   if (event.key !== 'j' && event.key !== 'k') { return }
-  const ids = matchedItems.value.map((item) => item.comment.id)
   const current = listSelectedId.value
-  const i = current ? ids.indexOf(current) : -1
-  const next = event.key === 'j' && i >= 0 && i + 1 < ids.length
-    ? ids[i + 1]
-    : event.key === 'k' && i > 0
-      ? ids[i - 1]
-      : undefined
+  if (!current) { return }
+  const step: 1 | -1 = event.key === 'j' ? 1 : -1
+  if (commentsLayout.value === 'tree') {
+    const next = adjacentVisibleCommentId(
+      matchedItems.value,
+      commentTreeCollapsed.value,
+      current,
+      step,
+    )
+    if (next) { onSelectEntry(next) }
+    return
+  }
+  const ids = matchedItems.value.map((item) => item.comment.id)
+  const i = ids.indexOf(current)
+  const next = i >= 0 ? ids[i + step] : undefined
   if (next) { onSelectEntry(next) }
 }
 
@@ -476,6 +518,18 @@ watch(
   ([queryId, ids]) => {
     if (!staleCommentQuery(queryId, ids)) { return }
     void router.replace(commentHref(ids[0]))
+  },
+)
+watch(
+  () => [commentsLayout.value, listSelectedId.value, matchedItems.value] as const,
+  () => {
+    const selected = listSelectedId.value
+    if (commentsLayout.value !== 'tree' || !selected) { return }
+    commentTreeCollapsed.value = expandAncestors(
+      commentTreeCollapsed.value,
+      matchedItems.value,
+      selected,
+    )
   },
 )
 </script>
@@ -524,6 +578,7 @@ watch(
           :layout="commentsLayout"
           :items="matchedItems"
           :selected-id="listSelectedId"
+          :collapsed="commentTreeCollapsed"
           :forest="labels?.forest ?? []"
           :total-count="commentTotal"
           :to-distill-count="toDistillCount"
@@ -537,7 +592,10 @@ watch(
           :label-with-ai-title="labelWithAiTitle()"
           @select="onSelectEntry"
           @update:layout="onCommentsLayout"
+          @update:collapsed="onCommentTreeCollapsed"
           @label-with-ai="labelWithAi"
+          @assign="change"
+          @reveal="revealFile"
         >
           <CommentInspector
             v-if="inspectorItem"
@@ -548,10 +606,10 @@ watch(
             :location-rows="locationRows"
             :forest="labels?.forest ?? []"
             @accept="act('accept')"
-            @assign="change"
+            @assign="assignSelected"
             @verify="act('verify')"
             @delete="act('delete')"
-            @reveal="revealFile"
+            @reveal="revealSelected"
             @configure-llm="openSettings"
           />
           <p v-else-if="!loading && emptyCopy" class="ch-muted-text p-2">

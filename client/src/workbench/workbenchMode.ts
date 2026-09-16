@@ -4,7 +4,7 @@ import { workbenchHref } from './commentSelectors.ts'
 
 export type EntryMode = 'unlabeled' | 'observations'
 export type InspectorKind = 'comment' | 'label'
-export type CommentsLayout = 'list' | 'one'
+export type CommentsLayout = 'list' | 'tree' | 'one'
 
 export function entryMode(routeName: string | symbol | undefined | null): EntryMode {
   if (routeName === 'label') { return 'observations' }

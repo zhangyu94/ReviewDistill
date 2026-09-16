@@ -17,3 +17,19 @@ export function selectedIdAfterAction(
   if (idsAfter.includes(actedId)) { return actedId }
   return nextSelectedId(idsBefore, actedId)
 }
+
+/** After a list assign (the acted row may not be the open comment): keep the acted row if it remains; if it left, keep the current row when it remains; else same as selectedIdAfterAction. */
+export function selectedIdAfterListAssign(
+  idsBefore: string[],
+  actedId: string,
+  idsAfter: string[],
+  currentId: string | undefined,
+): string | undefined {
+  if (idsAfter.includes(actedId)) {
+    return actedId
+  }
+  if (currentId && idsAfter.includes(currentId)) {
+    return currentId
+  }
+  return selectedIdAfterAction(idsBefore, actedId, idsAfter)
+}

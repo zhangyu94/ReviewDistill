@@ -2,16 +2,18 @@
 import type { InboxItemJson, TaxonomyNode } from '../../api/client.ts'
 import type { CommentsLayout } from '../../workbench/workbenchMode.ts'
 import { computed } from 'vue'
-import { commentListLeafLabelNames } from '../../workbench/commentList.ts'
+import { fileRevealAccessibleName, fileRevealLabel } from '../../inboxLocation.ts'
 import { commentsTotalLabel } from '../../workbench/commentsHeader.ts'
-import { DRAG_MIME, serializeDragPayload } from '../../workbench/dropAction.ts'
+import { commentTree, flattenCommentTree } from '../../workbench/commentTree.ts'
 import { idForPage, pageForId } from '../../workbench/pagination.ts'
+import CommentListRow from './CommentListRow.vue'
 import CommentPagination from './CommentPagination.vue'
 
 const props = defineProps<{
   layout: CommentsLayout
   items: InboxItemJson[]
   selectedId: string | undefined
+  collapsed: Set<string>
   forest?: TaxonomyNode[]
   totalCount: number
   toDistillCount: number
@@ -28,10 +30,14 @@ const props = defineProps<{
 const emit = defineEmits<{
   'select': [id: string]
   'update:layout': [layout: CommentsLayout]
+  'update:collapsed': [collapsed: Set<string>]
   'labelWithAi': []
+  'assign': [commentId: string, labelId: string]
+  'reveal': [id: string]
 }>()
 
 const pageIds = computed(() => props.items.map((item) => item.comment.id))
+const treeRows = computed(() => flattenCommentTree(commentTree(props.items), props.collapsed))
 
 const currentPage = computed({
   get: () => pageForId(pageIds.value, props.selectedId),
@@ -41,14 +47,11 @@ const currentPage = computed({
   },
 })
 
-function onCommentDragStart(event: DragEvent, id: string) {
-  if (!event.dataTransfer) { return }
-  event.dataTransfer.setData(DRAG_MIME, serializeDragPayload({ kind: 'comment', id }))
-  event.dataTransfer.effectAllowed = 'move'
-}
-
-function leafTypeLabel(item: InboxItemJson): string {
-  return commentListLeafLabelNames(item, props.forest ?? [])
+function toggleCollapsed(id: string) {
+  const next = new Set(props.collapsed)
+  if (next.has(id)) { next.delete(id) }
+  else { next.add(id) }
+  emit('update:collapsed', next)
 }
 </script>
 
@@ -73,6 +76,19 @@ function leafTypeLabel(item: InboxItemJson): string {
           @click="emit('update:layout', 'list')"
         >
           <span class="i-fa6-solid:list h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+        <button
+          class="inline-flex h-6 w-6 items-center justify-center p-0.5 rounded-none text-xs font-medium border-e border-[var(--ch-color-border)] hover:bg-[var(--ch-color-background-muted)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--ch-color-ring)]"
+          :class="layout === 'tree'
+            ? 'bg-[#e5e5e5] text-[var(--ch-color-foreground)]'
+            : 'text-[var(--ch-color-muted-foreground)]'"
+          type="button"
+          title="Show comments in a project file tree"
+          aria-label="Show comments in a project file tree"
+          :aria-pressed="layout === 'tree'"
+          @click="emit('update:layout', 'tree')"
+        >
+          <span class="i-fa6-solid:folder-tree h-3.5 w-3.5" aria-hidden="true" />
         </button>
         <button
           class="inline-flex h-6 w-6 items-center justify-center p-0.5 rounded-none text-xs font-medium hover:bg-[var(--ch-color-background-muted)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--ch-color-ring)]"
@@ -104,35 +120,70 @@ function leafTypeLabel(item: InboxItemJson): string {
       </span>
     </div>
     <div v-if="layout === 'list'" class="min-h-0 flex-1 overflow-auto">
-      <button
+      <CommentListRow
         v-for="item in items"
         :key="item.comment.id"
-        type="button"
-        class="block w-full border-b border-[var(--ch-color-border)] px-2 py-1.5 text-left text-xs"
-        :class="item.comment.id === selectedId ? 'bg-[var(--ch-color-background-muted)]' : ''"
-        :title="item.comment.raw_text"
-        :draggable="!item.labeled"
-        @click="emit('select', item.comment.id)"
-        @dragstart="!item.labeled ? onCommentDragStart($event, item.comment.id) : undefined"
-      >
-        <div class="line-clamp-2">
-          {{ item.comment.raw_text }}
-        </div>
-        <div class="ch-muted-text mt-0.5 flex flex-wrap items-center gap-1">
-          <span>{{ item.project_name }} · {{ item.comment.file_path }}:{{ item.comment.line_number }}</span>
-          <span
-            v-if="!item.in_manuscript"
-            class="ch-chip ch-chip-idle"
-            title="This remark is no longer in the .tex file."
-          >Left the manuscript</span>
-        </div>
+        :item="item"
+        :selected="item.comment.id === selectedId"
+        :forest="forest ?? []"
+        @select="emit('select', $event)"
+        @assign="(commentId, labelId) => emit('assign', commentId, labelId)"
+        @reveal="emit('reveal', $event)"
+      />
+      <p v-if="!loading && items.length === 0 && emptyCopy" class="ch-muted-text p-2">
+        {{ emptyCopy }}
+      </p>
+    </div>
+    <div v-else-if="layout === 'tree'" class="min-h-0 flex-1 overflow-auto">
+      <template v-for="row in treeRows" :key="row.id">
         <div
-          v-if="leafTypeLabel(item)"
-          class="ch-muted-text mt-0.5"
+          v-if="row.kind === 'group'"
+          class="flex w-full items-center gap-1 border-b border-[var(--ch-color-border)] py-1 pr-2 text-xs"
+          :style="{ paddingLeft: `${8 + row.depth * 12}px` }"
         >
-          {{ leafTypeLabel(item) }}
+          <button
+            type="button"
+            class="inline-flex h-4 w-3 shrink-0 items-center justify-center text-[var(--ch-color-muted-foreground)]"
+            :title="collapsed.has(row.id) ? 'Expand' : 'Collapse'"
+            :aria-label="collapsed.has(row.id) ? `Expand ${row.name}` : `Collapse ${row.name}`"
+            :aria-expanded="!collapsed.has(row.id)"
+            @click="toggleCollapsed(row.id)"
+          >
+            <span aria-hidden="true">{{ collapsed.has(row.id) ? '▸' : '▾' }}</span>
+          </button>
+          <button
+            v-if="row.revealId"
+            class="ch-link min-w-0 truncate cursor-pointer border-0 bg-transparent p-0 text-left"
+            type="button"
+            :title="fileRevealLabel()"
+            :aria-label="fileRevealAccessibleName(row.name)"
+            @click="emit('reveal', row.revealId)"
+          >
+            {{ row.name }}
+          </button>
+          <button
+            v-else
+            class="min-w-0 truncate border-0 bg-transparent p-0 text-left"
+            type="button"
+            :title="collapsed.has(row.id) ? 'Expand' : 'Collapse'"
+            @click="toggleCollapsed(row.id)"
+          >
+            {{ row.name }}
+          </button>
+          <span class="ch-muted-text shrink-0">{{ row.count }}</span>
         </div>
-      </button>
+        <div v-else-if="row.kind === 'comment'" :style="{ paddingLeft: `${row.depth * 12}px` }">
+          <CommentListRow
+            :item="row.item"
+            :selected="row.item.comment.id === selectedId"
+            :forest="forest ?? []"
+            location="line"
+            @select="emit('select', $event)"
+            @assign="(commentId, labelId) => emit('assign', commentId, labelId)"
+            @reveal="emit('reveal', $event)"
+          />
+        </div>
+      </template>
       <p v-if="!loading && items.length === 0 && emptyCopy" class="ch-muted-text p-2">
         {{ emptyCopy }}
       </p>

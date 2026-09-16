@@ -723,7 +723,7 @@ Header **+** adds a root label. Header fork (enabled only when the forest is emp
 The tree defaults to expanded. The chevron expands or collapses; clicking the **name** selects (it does not expand).
 Drag uses native HTML5 only.
 
-The Comments header has list / one-comment controls. The list is for scanning. One comment shows context and metadata, with prev / pager / next at the bottom (one comment per page).
+The Comments header has list / tree / one-comment controls. The list is for scanning in incoming order. The tree nests the same comments under project / file path (grouping rows collapse, including the file that holds the open comment; selection then moves to the next visible remark when there is one). One comment shows context and metadata, with prev / pager / next at the bottom (one comment per page).
 
 Overclaiming
 A claim is stronger than the evidence supports.

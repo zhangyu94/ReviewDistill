@@ -1,6 +1,6 @@
 import type { InboxItemJson, TaxonomyNode } from '../api/client.ts'
 import { describe, expect, it } from 'vitest'
-import { commentListLeafLabelNames, commentListLeafLabels } from './commentList.ts'
+import { commentListLeafLabelNames, commentListLeafLabels, commentListLocationLabel } from './commentList.ts'
 
 const forest: TaxonomyNode[] = [
   {
@@ -54,5 +54,12 @@ describe('commentListLeafLabels', () => {
       labeled: true,
       label: { id: 'a', name: 'Overclaiming', parent_id: 'root' },
     }), forest)).toBe('Overclaiming')
+  })
+})
+
+describe('commentListLocationLabel', () => {
+  it('names the line in list and tree', () => {
+    expect(commentListLocationLabel(10)).toBe('line 10')
+    expect(commentListLocationLabel(4)).toBe('line 4')
   })
 })

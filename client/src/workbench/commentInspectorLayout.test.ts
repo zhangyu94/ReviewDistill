@@ -137,7 +137,7 @@ describe('comment inspector body order', () => {
 
   it('posts reveal from the workbench page', () => {
     expect(pageSource.includes('revealInboxFile')).toBe(true)
-    expect(pageSource.includes('@reveal="revealFile"')).toBe(true)
+    expect(pageSource.includes('@reveal="revealSelected"')).toBe(true)
   })
 
   it('shows a square insertion mark and a matching legend', () => {

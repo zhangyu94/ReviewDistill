@@ -19,7 +19,9 @@ Comments for the current chips (AND). No chips: comments to distill. The header 
 
 **Verify** toggles protect on the observation (independent of the label). Click again to unverify. **Delete** removes the observation from the store (undo from History) and is disabled while verified. Extract never Verify/Unverifies, except that a wording revision clears verified to false.
 
-Click a row to open it in the inspector. The list shows each comment’s assigned leaf label(s) when it has them. Drag an unlabeled comment onto a leaf label to assign that label.
+Click the comment text to select that row. Each row has the same leaf label menu as the inspector on its own line under the location (compact, sized to the label, with a muted **Label** prefix; pick a leaf to assign it). Location is **project · file path · line N** in the list, or **line N** in the tree. When the `.tex` file is on this computer, **file path** selects it in the file manager (same as Location **File**; not a `file://` link). In the tree, that control is the file row. Assign and reveal act on that row. Drag an unlabeled comment’s text onto a leaf label to assign that label.
+
+The Comments header switches layout: **list** (scan in incoming order), **tree** (same comments under project / file path; collapse a file to hide its remarks, including the open comment’s file — selection then moves to the next visible remark when there is one; **line N** instead of repeating the path), or **one** (inspector plus pager). List and tree are not paginated. **j** / **k** follow tree order in the tree.
 
 ## Inspector
 
@@ -30,7 +32,7 @@ Click a row to open it in the inspector. The list shows each comment’s assigne
 
 ## Selectors and pagination
 
-Selectors are chips on the left (AND). The Unlabeled control on the right adds or removes the Unlabeled chip and has no pressed state. With no chips, Comments lists comments to distill. Clicking a label still selects Label Details. Long lists paginate; the URL keeps the selected comment (`unlabeled=1`, `labelchip=0`).
+Selectors are chips on the left (AND). The Unlabeled control on the right adds or removes the Unlabeled chip and has no pressed state. With no chips, Comments lists comments to distill. Clicking a label still selects Label Details. One-at-a-time layout paginates; the URL keeps the selected comment (`unlabeled=1`, `labelchip=0`).
 
 ## Progress
 

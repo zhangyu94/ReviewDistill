@@ -1,6 +1,6 @@
 import type { TaxonomyNode } from './taxonomyTree.ts'
 import { describe, expect, it } from 'vitest'
-import { allLabelIds, exportQuery, toggleCheckedId } from './exportSelection.ts'
+import { allLabelIds, exportQuery, toggleCheckedId } from './exportSelection'
 
 const forest: TaxonomyNode[] = [
   {

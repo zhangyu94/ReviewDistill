@@ -105,12 +105,14 @@ watch(() => props.selected?.comment.id, () => {
           <p
             v-if="contextMark.marked"
             class="font-[var(--ch-font-mono)] leading-5 whitespace-pre-wrap text-[var(--ch-color-body)]"
-          ><span>{{ contextMark.before }}</span><span
-            class="ch-context-mark mx-px"
-            title="Comment sat here"
-            role="img"
-            aria-label="Comment sat here"
-          /><span>{{ contextMark.after }}</span></p>
+          >
+            <span>{{ contextMark.before }}</span><span
+              class="ch-context-mark mx-px"
+              title="Comment sat here"
+              role="img"
+              aria-label="Comment sat here"
+            /><span>{{ contextMark.after }}</span>
+          </p>
           <p
             v-else
             class="font-[var(--ch-font-mono)] leading-5 whitespace-pre-wrap text-[var(--ch-color-body)]"

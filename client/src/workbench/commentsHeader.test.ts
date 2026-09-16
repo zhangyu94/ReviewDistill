@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commentsTotalLabel } from './commentsHeader.ts'
+import { commentsTotalLabel } from './commentsHeader'
 
 describe('commentsTotalLabel', () => {
   it('is the to-distill queue size when no chips', () => {

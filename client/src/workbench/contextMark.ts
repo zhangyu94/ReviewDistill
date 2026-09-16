@@ -1,7 +1,7 @@
 /** Same window as Python ``offset_is_valid``: integer in 0..text.length, else no mark. */
-export type ContextMarkSplit =
-  | { marked: true, before: string, after: string }
-  | { marked: false, text: string }
+export type ContextMarkSplit
+  = | { marked: true, before: string, after: string }
+    | { marked: false, text: string }
 
 export function splitContextMark(
   text: string,

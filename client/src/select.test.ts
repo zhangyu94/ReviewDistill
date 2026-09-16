@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nextSelectedId, selectedIdAfterAction } from './select.ts'
+import { nextSelectedId, selectedIdAfterAction, selectedIdAfterListAssign } from './select.ts'
 
 describe('nextSelectedId', () => {
   it('selects the following id', () => {
@@ -31,5 +31,20 @@ describe('selectedIdAfterAction', () => {
   })
   it('returns undefined when the list is empty after the action', () => {
     expect(selectedIdAfterAction(['a'], 'a', [])).toBeUndefined()
+  })
+})
+
+describe('selectedIdAfterListAssign', () => {
+  it('selects the acted id when it is still in the list', () => {
+    expect(selectedIdAfterListAssign(['a', 'b', 'c'], 'b', ['a', 'b', 'c'], 'a')).toBe('b')
+  })
+  it('keeps the current id when the acted id left and the current id remains', () => {
+    expect(selectedIdAfterListAssign(['a', 'b', 'c'], 'a', ['b', 'c'], 'c')).toBe('c')
+  })
+  it('advances like selectedIdAfterAction when the acted id was the current id and left', () => {
+    expect(selectedIdAfterListAssign(['a', 'b', 'c'], 'a', ['b', 'c'], 'a')).toBe('b')
+  })
+  it('returns undefined when the list is empty after the action', () => {
+    expect(selectedIdAfterListAssign(['a'], 'a', [], 'a')).toBeUndefined()
   })
 })
