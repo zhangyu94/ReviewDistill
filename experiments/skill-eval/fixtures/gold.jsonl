@@ -1,0 +1,3 @@
+{"id": "paper-a-term", "paper_id": "paper-a", "file_path": "main.tex", "line_number": 12, "gold_names": ["Terminology Precision"]}
+{"id": "paper-a-struct", "paper_id": "paper-a", "file_path": "main.tex", "line_number": 8, "gold_names": ["Structural Clarity and Overview"]}
+{"id": "paper-b-xref", "paper_id": "paper-b", "file_path": "main.tex", "line_number": 12, "gold_names": ["Cross-Referencing and Navigation"]}

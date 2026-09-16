@@ -106,6 +106,22 @@ def example_from_dump(data: dict) -> LabelExample:
     return LabelExample(**data)
 
 
+def _invert_example_updates(session, payload: dict) -> None:
+    for row in payload.get("example_updates") or []:
+        example = session.get(LabelExample, row["id"])
+        if example is not None:
+            example.text = row["previous_text"]
+            session.add(example)
+
+
+def _apply_example_updates(session, payload: dict) -> None:
+    for row in payload.get("example_updates") or []:
+        example = session.get(LabelExample, row["id"])
+        if example is not None:
+            example.text = row["text"]
+            session.add(example)
+
+
 def label_from_dump(data: dict) -> Label:
     data = dict(data)
     data.pop("code", None)
@@ -440,6 +456,7 @@ def _invert_propose(session, payload: dict) -> None:
         existing = session.get(LabelExample, row["id"])
         if existing is not None:
             session.delete(existing)
+    _invert_example_updates(session, payload)
     for label_id in payload.get("created_label_ids") or []:
         created = session.get(Label, label_id)
         if created is not None:
@@ -473,6 +490,7 @@ def _apply_propose(session, payload: dict) -> None:
         session.add(coding_from_dump(row))
     for row in payload.get("examples") or []:
         session.add(example_from_dump(row))
+    _apply_example_updates(session, payload)
 
 
 def _invert_accept(session, payload: dict) -> None:
@@ -485,6 +503,7 @@ def _invert_accept(session, payload: dict) -> None:
         example = session.get(LabelExample, payload["example_id"])
         if example is not None:
             session.delete(example)
+    _invert_example_updates(session, payload)
 
 
 def _apply_accept(session, payload: dict) -> None:
@@ -501,6 +520,7 @@ def _apply_accept(session, payload: dict) -> None:
         if comment_id and session.get(ProofreadingComment, comment_id) is None:
             return
         session.add(example_from_dump(example))
+    _apply_example_updates(session, payload)
 
 
 def _invert_change(session, payload: dict) -> None:

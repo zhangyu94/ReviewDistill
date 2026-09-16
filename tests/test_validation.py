@@ -73,6 +73,11 @@ def test_accept_existing_marks_coding_and_adds_example(db, tmp_path):
             "rationale": "Asks why the method was chosen.",
         },
     )
+    with get_session() as session:
+        comment = session.get(ProofreadingComment, comment_id)
+        comment.raw_text = "Why did we choose this method?"
+        comment.context_text = "Peak picking follows the energy rule in the supplement."
+        session.commit()
     result = accept_coding(comment_id)
     assert result.label_id == label.id
     assert inbox_items() == []
@@ -82,6 +87,8 @@ def test_accept_existing_marks_coding_and_adds_example(db, tmp_path):
         coding = session.first(Coding)
         assert coding.status == "accepted"
         assert coding.coder_type == "ai"
+        stored = session.first(LabelExample)
+        assert stored.text == "Peak picking follows the energy rule in the supplement."
 
 
 def test_remove_drops_proposed_for_that_type(db, tmp_path):

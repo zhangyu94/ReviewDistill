@@ -89,7 +89,7 @@ class ChangeBody(BaseModel):
 
 @router.post("/inbox/code")
 def post_code():
-    """Propose labels for every unlabeled comment to distill. There is no CLI ``code`` command."""
+    """Accept-assign every unlabeled comment to distill. Snackbar uses ``coded``. There is no CLI ``code`` command."""
     try:
         summary = code_uncoded_comments()
     except httpx.HTTPError as exc:

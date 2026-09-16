@@ -17,6 +17,7 @@ describe('assignment snackbar', () => {
     expect(page.includes('afterSplitHref')).toBe(false)
     expect(page.includes('AssignmentSnackbar')).toBe(true)
     expect(page.includes('assignmentNoticeText')).toBe(true)
+    expect(page.includes('snackbarAfterClose')).toBe(true)
     expect(page.includes('privacyNoticeText')).toBe(false)
     expect(snackbar.includes('i-fa6-solid:circle-info')).toBe(true)
     expect(snackbar.includes('bottom-12')).toBe(true)

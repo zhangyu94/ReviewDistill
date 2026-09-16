@@ -4,7 +4,7 @@ import httpx
 import pytest
 from reviewdistill.cli.init import init_project
 from reviewdistill.coding.coder import build_prompt, code_uncoded_comments, parse_model_output
-from reviewdistill.db.models import LABEL_ACTIVE, Coding, Label, ProofreadingComment
+from reviewdistill.db.models import LABEL_ACTIVE, Coding, Label, LabelExample, ProofreadingComment
 from reviewdistill.db.session import get_session
 from reviewdistill.extraction.incremental import extract_project
 from reviewdistill.llm.mock import MockLLMProvider
@@ -99,6 +99,18 @@ def test_build_prompt_separates_observation_from_interpretation():
     assert "demonstrate" in prompt
 
 
+def test_build_prompt_asks_for_manuscript_pattern_definitions():
+    prompt = build_prompt(
+        raw_text="Too strong.",
+        context_text="The experiment only shows a correlation.",
+        section="Results",
+        candidates=[],
+    )
+    assert "manuscript pattern" in prompt.lower()
+    assert 'Do not start the definition with "Comments' in prompt
+    assert "what this label is not" in prompt.lower()
+
+
 def test_build_prompt_splices_remark_token():
     prompt = build_prompt(
         raw_text="Too strong.",
@@ -155,6 +167,40 @@ def test_code_uncoded_comments_writes_accepted_coding(db, tmp_path):
         assert coding.status == "accepted"
         assert coding.label_id == label.id
         assert coding.confidence == 0.91
+
+
+def test_code_uncoded_comments_stores_manuscript_context_as_example(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text('\\myremark{Too strong.}\n')
+    extract_project(repo)
+    label = create_label(
+        name="Overclaiming",
+        definition="A claim is stronger than the evidence supports.",
+    )
+    with get_session() as session:
+        comment = session.first(ProofreadingComment)
+        comment.raw_text = "Too strong."
+        comment.context_text = "The experiment only shows a correlation."
+        session.commit()
+    summary = code_uncoded_comments(
+        provider=MockLLMProvider(
+            scripted_response=json.dumps(
+                {
+                    "recommendation": "existing",
+                    "label_id": label.id,
+                    "confidence": 0.9,
+                    "rationale": "Overclaim.",
+                }
+            )
+        )
+    )
+    assert summary.coded == 1
+    with get_session() as session:
+        stored = session.first(LabelExample)
+        assert stored.text == "The experiment only shows a correlation."
+        assert stored.source_comment_id is not None
 
 
 def test_code_new_name_mints_one_label_for_the_batch(db, tmp_path):

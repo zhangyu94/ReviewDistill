@@ -127,14 +127,25 @@ describe('workbenchStore', () => {
     expect(store.assignmentNotice).toBe('')
   })
 
-  it('setErrorNotice replaces the assignment snackbar', () => {
+  it('setAssignmentNotice ignores empty so a 0-count retry keeps the last notice', () => {
+    const store = useWorkbenchStore()
+    store.setAssignmentNotice('1 comment was labeled. It appears in Label Taxonomy. Change it if it is wrong.')
+    store.setAssignmentNotice('')
+    expect(store.assignmentNotice).toBe(
+      '1 comment was labeled. It appears in Label Taxonomy. Change it if it is wrong.',
+    )
+  })
+
+  it('setErrorNotice leaves the assignment notice so dismissing the error restores it', () => {
     const store = useWorkbenchStore()
     store.setAssignmentNotice('1 comment was labeled. It appears in Label Taxonomy. Change it if it is wrong.')
     store.setErrorNotice('LLM request failed (deepseek): Connection timed out after 60.0 seconds.')
     expect(store.errorNotice).toBe(
       'LLM request failed (deepseek): Connection timed out after 60.0 seconds.',
     )
-    expect(store.assignmentNotice).toBe('')
+    expect(store.assignmentNotice).toBe(
+      '1 comment was labeled. It appears in Label Taxonomy. Change it if it is wrong.',
+    )
   })
 
   it('setErrorNotice clears a matching Label Details error', () => {

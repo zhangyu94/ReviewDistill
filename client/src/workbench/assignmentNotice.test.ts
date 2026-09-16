@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assignmentNoticeText, workbenchSnackbar } from './assignmentNotice'
+import { assignmentNoticeText, snackbarAfterClose, workbenchSnackbar } from './assignmentNotice'
 
 describe('assignmentNoticeText', () => {
   it('is empty when the count is missing or zero', () => {
@@ -40,6 +40,28 @@ describe('workbenchSnackbar', () => {
     )).toEqual({
       text: '11 comments were labeled. They appear in Label Taxonomy. Change any that are wrong.',
       kind: 'info',
+    })
+  })
+})
+
+describe('snackbarAfterClose', () => {
+  it('dismissing an error keeps the assignment notice underneath', () => {
+    expect(snackbarAfterClose(
+      'LLM request failed (deepseek): Connection timed out after 60.0 seconds.',
+      '1 comment was labeled. It appears in Label Taxonomy. Change it if it is wrong.',
+    )).toEqual({
+      errorNotice: '',
+      assignmentNotice: '1 comment was labeled. It appears in Label Taxonomy. Change it if it is wrong.',
+    })
+  })
+
+  it('dismissing an assignment notice clears it', () => {
+    expect(snackbarAfterClose(
+      '',
+      '1 comment was labeled. It appears in Label Taxonomy. Change it if it is wrong.',
+    )).toEqual({
+      errorNotice: '',
+      assignmentNotice: '',
     })
   })
 })

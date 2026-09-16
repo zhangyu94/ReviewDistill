@@ -183,7 +183,7 @@ ReviewDistill identifies new comments and extracts:
 
 Step 4 — AI-assisted coding
 
-In `reviewdistill ui`, **Label with AI** in the Comments header (shown whenever unlabeled comments still need proposals, even if the Unlabeled chip is off). A thin progress bar at the top of the window runs until the batch finishes. The batch **accept-assigns** those comments (new names are created immediately). Selectors do not change. A dismissible snackbar says they appear in Label Taxonomy. If the UI cannot reach the ReviewDistill server, that snackbar says so in plain language. **Accept** remains for leftover stored proposals.
+In `reviewdistill ui`, **Label with AI** in the Comments header (shown whenever unlabeled comments still need proposals, even if the Unlabeled chip is off). A thin progress bar at the top of the window runs until the batch finishes. The batch **accept-assigns** those comments (new names are created immediately). Selectors do not change. If Unlabeled is on, that list may empty; the snackbar and tree counts are how you find the work. A dismissible snackbar says they appear in Label Taxonomy. A failed retry leaves a previous snackbar in place. If the UI cannot reach the ReviewDistill server, that snackbar says so in plain language. **Accept** remains for leftover stored proposals.
 
 Header **Settings** (next to History and Export) has two panels. **Assistant** writes `llm.provider` / `llm.model` to the ReviewDistill home `config.yaml` and the matching API key to that folder’s `.env` (gitignored). **Data** shows the home folder (same as `reviewdistill paths`) in an editable field, or **Choose…** to pick a folder; **Save** is `paths use` (points at that folder, does not copy files). **Open folder** reveals it in the file manager. Backup and `paths move` are in that folder’s `README.md`. Opening Settings always lands on Assistant. The Unlabeled empty state **Configure LLM** opens the same dialog. GET `/api/llm-settings` returns the saved key (`api_key`) so Settings can show it (password + show/hide); it reads home files only (not `REVIEWDISTILL_LLM_*`). File editing still works. Label with AI is store-wide, so leftover paper `llm:` / `.env` are ignored. Process environment still wins over `.env`. `REVIEWDISTILL_LLM_PROVIDER` / `REVIEWDISTILL_LLM_MODEL` override home YAML at run time. Do not write `llm.api_key` into YAML; do not store keys in the JSONL store.
 
@@ -732,7 +732,7 @@ A claim is stronger than the evidence supports.
 
 16. Taxonomy Evolution View
 
-History is a chronological log of taxonomy mutations and labeling verdicts (the `taxonomy_events` table). The History dialog lists each event with a short summary. Rows that have extra information (comment text, a saved definition, merge/split names, a move destination) show a chevron that expands those details in place. **Undo** and **Redo** invert or reapply the tip of the log. They mark the row undone (`undone` column) rather than appending a new event. A new forward action deletes the redo tail. Undo/Redo act on the tip, not on a selected row. Jump-to-event restore is out of scope.
+History is a chronological log of taxonomy mutations and labeling verdicts (the `taxonomy_events` table). The History dialog lists each event with a short summary. Rows that have extra information (comment text, a saved definition, merge/split names, a move destination) show a chevron that expands those details in place. **Undo** and **Redo** invert or reapply the tip of the log. They also dismiss the assignment snackbar (it is session UI, not a History event). They mark the row undone (`undone` column) rather than appending a new event. A new forward action deletes the redo tail. Undo/Redo act on the tip, not on a selected row. Jump-to-event restore is out of scope.
 
 Label with AI is one `propose` event for the batch (accepted rows; new labels in `created_label_ids`). Accept of a leftover stored proposal that mints a label is `add` then `accept`; Undo Accept first. Old `merge`/`split` rows without invert payload fields cannot be undone (Undo disabled while they are the tip).
 
@@ -1050,6 +1050,8 @@ existing label. If so, recommend the best match.
 If no existing label adequately captures the observation,
 propose a candidate new label (parent_id of an existing
 label, or omit for a root).
+A new definition must state the manuscript pattern a reader
+would see in the passage, not a class of comments.
 Do not modify the taxonomy automatically.
 
 This helps preserve the qualitative-analysis character of the system.

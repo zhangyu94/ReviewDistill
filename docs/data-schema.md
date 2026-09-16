@@ -105,7 +105,7 @@ Path of the `.tex` file relative to the project root, using the extractor’s pa
 
 What the reviewer wrote, after extract-time normalization: strip the command body, drop empty lines, join remaining lines with a single space.
 
-The AI never writes this field. Source-driven **revision** of a still-present comment updates it in place (same `id`). Coding and export read it; they do not invent a replacement.
+The AI never writes this field. Source-driven **revision** of a still-present comment updates it in place (same `id`). Coding reads it; Export / Label Details / skill-eval examples use `context_text` when `label_examples.source_comment_id` points at this comment.
 
 #### `context_text`
 
@@ -224,7 +224,7 @@ An active label’s `parent_id` must be an active label; missing, inactive, or c
 | Table | Relationship |
 | --- | --- |
 | `codings` | many `codings.comment_id` → one comment; AI/human interpretation lives here |
-| `label_examples` | optional `source_comment_id` |
+| `label_examples` | optional `source_comment_id`; `text` is the passage excerpt (`context_text`) when sourced, not the remark |
 | `taxonomy_events` | append-only history (`event_type`, `payload_json`, `undone`); Undo/Redo set `undone` rather than inserting a new row |
 
 A comment may have several `codings` over time (`proposed`, `accepted`, `modified`). The observation row stays the evidence; coding rows stay the interpretation. Not accepting a suggestion leaves the comment unlabeled.

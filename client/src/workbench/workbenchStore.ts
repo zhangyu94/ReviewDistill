@@ -20,6 +20,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const loading = ref(false)
   const labelLoading = ref(true)
   const settingsOpen = ref(false)
+  // Last fork / Label with AI count. Not persisted; Undo/Redo clears it.
   const assignmentNotice = ref('')
   const errorNotice = ref('')
   let labelLoadGen = 0
@@ -33,6 +34,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   function setAssignmentNotice(text: string) {
+    if (!text) {
+      return
+    }
     assignmentNotice.value = text
     errorNotice.value = ''
   }
@@ -43,7 +47,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   function setErrorNotice(text: string) {
     errorNotice.value = text
-    assignmentNotice.value = ''
     if (error.value === text) {
       error.value = ''
     }
@@ -119,6 +122,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   async function refreshAfterHistory(labelId = '') {
+    // Snackbar is session-only; invert must not leave a stale count.
     clearAssignmentNotice()
     clearErrorNotice()
     try {

@@ -1,0 +1,32 @@
+labels:
+  - id: terminology-precision
+    name: Terminology Precision
+    parent_id: null
+    definition: >
+      The same concept is referred to with two or more names in the passage,
+      or a term is used in a way that conflicts with an earlier use, without
+      stating that the names are aliases.
+    examples:
+      - text: The filter is introduced as a gate and later called a mask with no note that the names refer to one step.
+        source_item_id: paper-a-term
+      - text: A quantity is called accuracy in the abstract and precision in the method without a definition change.
+  - id: cross-referencing-and-navigation
+    name: Cross-Referencing and Navigation
+    parent_id: null
+    definition: >
+      The passage points at a figure, table, section, or result that is not
+      present or not labeled, or uses a deictic like "above" with no target.
+    examples:
+      - text: The text says "see the appendix table" but the manuscript has no appendix.
+        source_item_id: paper-b-xref
+      - text: A claim cites "Section 4" in a three-section note.
+  - id: structural-clarity-and-overview
+    name: Structural Clarity and Overview
+    parent_id: null
+    definition: >
+      The passage overclaims what the work shows, skips a roadmap of the
+      argument, or dumps results without saying what the paper is doing.
+    examples:
+      - text: An introduction claims a complete proof of every case and never lists the sections that follow.
+        source_item_id: paper-a-struct
+      - text: Results appear before the reader is told the research question.

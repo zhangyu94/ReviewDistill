@@ -240,7 +240,7 @@ def _assign_working_comment(session, comment: ProofreadingComment, label_id: str
         rationale="Grouped unlabeled comments.",
     )
     session.add(human)
-    example, created = ensure_example(session, label_id, comment.raw_text, comment.id)
+    example, created, _previous = ensure_example(session, label_id, example_text(comment), comment.id)
     return {
         "coding": dump_row(human),
         "example": dump_row(example) if created else None,
@@ -326,12 +326,39 @@ def get_label(label_id: str) -> Label | None:
         return label
 
 
+def example_text(comment) -> str:
+    """Passage excerpt stored on the label for Export / spotting.
+
+    The remark stays on the coding row. Copying ``raw_text`` into the example
+    makes SKILL.md unusable once that comment is held out. Whitespace is
+    collapsed so markdown export stays one list item per example.
+    """
+    context = (getattr(comment, "context_text", None) or "").strip()
+    raw = context if context else (getattr(comment, "raw_text", None) or "").strip()
+    return " ".join(raw.split())
+
+
+def _sourced_example_text(session, example: LabelExample) -> str:
+    """Read-time passage for a sourced example. Does not write the store."""
+    if not example.source_comment_id:
+        return example.text
+    comment = session.get(ProofreadingComment, example.source_comment_id)
+    if comment is None:
+        return example.text
+    return example_text(comment) or example.text
+
+
 def ensure_example(
     session,
     label_id: str,
     text: str,
     source_comment_id: str | None = None,
-) -> tuple[LabelExample, bool]:
+) -> tuple[LabelExample, bool, str | None]:
+    """One example per ``source_comment_id``. Later calls update ``text`` in place.
+
+    Returns ``(row, created, previous_text)``. ``previous_text`` is set when an
+    existing row's text changed, so History can invert the write.
+    """
     cleaned = " ".join(text.split())
     if source_comment_id:
         existing = session.first(
@@ -340,7 +367,11 @@ def ensure_example(
             source_comment_id=source_comment_id,
         )
         if existing is not None:
-            return existing, False
+            previous = existing.text
+            if previous != cleaned:
+                existing.text = cleaned
+                return existing, False, previous
+            return existing, False, None
     row = LabelExample(
         id=str(uuid4()),
         label_id=label_id,
@@ -348,12 +379,12 @@ def ensure_example(
         source_comment_id=source_comment_id,
     )
     session.add(row)
-    return row, True
+    return row, True, None
 
 
 def add_example(label_id: str, text: str, source_comment_id: str | None = None) -> LabelExample:
     with get_session() as session:
-        row, _created = ensure_example(session, label_id, text, source_comment_id)
+        row, _created, _previous = ensure_example(session, label_id, text, source_comment_id)
         session.commit()
         session.refresh(row)
         return row
@@ -362,12 +393,21 @@ def add_example(label_id: str, text: str, source_comment_id: str | None = None) 
 def list_examples(label_id: str) -> list[LabelExample]:
     with get_session() as session:
         rows = session.find(LabelExample, label_id=label_id)
-        return [
-            row
-            for row in rows
-            if _source_in_working_set(session, row.source_comment_id)
-            and _example_matches_current_label(session, row)
-        ]
+        shown = []
+        for row in rows:
+            if not _source_in_working_set(session, row.source_comment_id):
+                continue
+            if not _example_matches_current_label(session, row):
+                continue
+            shown.append(
+                LabelExample(
+                    id=row.id,
+                    label_id=row.label_id,
+                    text=_sourced_example_text(session, row),
+                    source_comment_id=row.source_comment_id,
+                )
+            )
+        return shown
 
 
 def _source_in_working_set(session, source_comment_id: str | None) -> bool:
@@ -720,6 +760,11 @@ def remove_label(label_id: str) -> None:
 
 
 def apply_split(*, source_id: str | None, plan) -> list[Label]:
+    """Header or leaf fork: mint labels and write accepted codings plus examples.
+
+    One ``split`` History event. ``labeled`` on the HTTP body is assignment
+    count, not comments parked onto ``ungrouped``.
+    """
     from reviewdistill.coding.split import SplitPlan
 
     if not isinstance(plan, SplitPlan):
@@ -795,7 +840,9 @@ def apply_split(*, source_id: str | None, plan) -> list[Label]:
             session.add(coding)
             created_codings.append(dump_row(coding))
             if comment is not None:
-                example, made = ensure_example(session, child.id, comment.raw_text, comment.id)
+                example, made, _previous = ensure_example(
+                    session, child.id, example_text(comment), comment.id
+                )
                 if made:
                     examples.append(dump_row(example))
         created_ids = [label.id for label in created]

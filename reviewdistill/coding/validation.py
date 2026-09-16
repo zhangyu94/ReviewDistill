@@ -22,7 +22,7 @@ from reviewdistill.db.models import (
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.errors import BadInput, Conflict, NotFound
 from reviewdistill.history import dump_row, record
-from reviewdistill.taxonomy.operations import add_child_label, ensure_example
+from reviewdistill.taxonomy.operations import add_child_label, ensure_example, example_text
 from reviewdistill.taxonomy.tree import active_children
 
 VERIFY_MANUSCRIPT_CHANGED = "Verify (nearby manuscript changed)"
@@ -200,7 +200,12 @@ def accept_coding(comment_id: str) -> Coding:
         coding.label_id = label_id
         coding.status = CODING_ACCEPTED
         session.add(coding)
-        example, created = ensure_example(session, label_id, comment.raw_text, comment_id)
+        example, created, previous = ensure_example(session, label_id, example_text(comment), comment_id)
+        example_updates = []
+        if previous is not None:
+            example_updates.append(
+                {"id": example.id, "previous_text": previous, "text": example.text}
+            )
         record(
             session,
             "accept",
@@ -212,6 +217,7 @@ def accept_coding(comment_id: str) -> Coding:
                 "example_id": example.id,
                 "example_created": created,
                 "example": dump_row(example) if created else None,
+                "example_updates": example_updates,
             },
         )
         session.commit()
@@ -255,7 +261,7 @@ def change_coding(comment_id: str, *, label_id: str) -> Coding:
             rationale="Human selected an existing label.",
         )
         session.add(human)
-        example, created = ensure_example(session, label_id, comment.raw_text, comment_id)
+        example, created, _previous = ensure_example(session, label_id, example_text(comment), comment_id)
         record(
             session,
             "change",

@@ -21,7 +21,7 @@ from reviewdistill.db.models import (
 from reviewdistill.db.session import get_session, init_db
 from reviewdistill.history import dump_row, record
 from reviewdistill.llm.base import LLMProvider, get_provider, privacy_warning
-from reviewdistill.taxonomy.operations import add_label, ensure_example
+from reviewdistill.taxonomy.operations import add_label, ensure_example, example_text
 from reviewdistill.taxonomy.tree import active_children
 
 
@@ -124,6 +124,9 @@ def build_prompt(
             "If so, recommend the best match using recommendation=existing and label_id.",
             "If no existing label adequately captures the observation, propose a candidate new label.",
             "If recommendation is new, label_name and definition are required. Do not omit them.",
+            "A new definition must state the manuscript pattern a reader would see in the passage.",
+            'Do not start the definition with "Comments that" or "Comments indicating".',
+            "If a nearby label could also apply, say what this label is not.",
             "Return JSON with keys:",
             "recommendation, label_id, label_name, parent_id, definition,",
             "confidence, rationale, suggested_evidence",
@@ -192,6 +195,11 @@ def uncoded_comments(*, provider_name: str | None | object = _UNSET) -> list[Pro
 
 
 def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
+    """Label with AI: accept-assign each unlabeled comment in one ``propose`` event.
+
+    New names are minted with ``add_label(log=False)`` in this batch (not a
+    separate ``add`` per name). Leftover stored proposals are skipped.
+    """
     init_db()
     provider = provider or get_provider()
     coded = 0
@@ -234,6 +242,7 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
             minted: dict[str, str] = {}
             created_label_ids: list[str] = []
             examples: list[dict] = []
+            example_updates: list[dict] = []
             seen_names: set[str] = set()
             for comment, proposal, label_id in pending:
                 if label_id:
@@ -284,11 +293,15 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
                 )
                 session.add(coding)
                 created.append(dump_row(coding))
-                example, made = ensure_example(
-                    session, label_id, comment.raw_text, comment.id
+                example, made, previous = ensure_example(
+                    session, label_id, example_text(comment), comment.id
                 )
                 if made:
                     examples.append(dump_row(example))
+                elif previous is not None:
+                    example_updates.append(
+                        {"id": example.id, "previous_text": previous, "text": example.text}
+                    )
                 named = session.get(Label, label_id)
                 if named is not None and named.name not in seen_names:
                     seen_names.add(named.name)
@@ -301,6 +314,7 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
                     "replaced": replaced,
                     "created_label_ids": created_label_ids,
                     "examples": examples,
+                    "example_updates": example_updates,
                 },
             )
             session.commit()

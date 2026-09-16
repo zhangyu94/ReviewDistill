@@ -10,7 +10,7 @@ from reviewdistill.coding.split import (
     run_header_split,
     run_leaf_split,
 )
-from reviewdistill.db.models import Coding, Label, ProofreadingComment, TaxonomyEvent, is_labeled
+from reviewdistill.db.models import Coding, Label, LabelExample, ProofreadingComment, TaxonomyEvent, is_labeled
 from reviewdistill.db.session import get_session
 from reviewdistill.errors import BadInput
 from reviewdistill.history import list_history, redo, undo
@@ -128,6 +128,26 @@ def test_build_split_prompt_includes_source_and_comment_ids():
     assert "Too strong." in prompt
 
 
+def test_build_split_prompt_asks_for_manuscript_pattern_definitions():
+    comment = type(
+        "C",
+        (),
+        {
+            "id": "c1",
+            "raw_text": "Too strong.",
+            "context_text": "We demonstrate X.",
+            "section": "Results",
+        },
+    )()
+    prompt = build_split_prompt(
+        source_name="Overclaiming",
+        source_definition="A claim is stronger than the evidence.",
+        comments=[comment],
+    )
+    assert "manuscript pattern" in prompt.lower()
+    assert 'Do not start the definition with "Comments' in prompt
+
+
 def _add_comment(
     comment_id: str,
     text: str,
@@ -135,6 +155,7 @@ def _add_comment(
     label_id: str | None = None,
     coding_status: str = "accepted",
     status: str = "active",
+    context_text: str = "",
 ):
     with get_session() as session:
         session.add(
@@ -146,6 +167,7 @@ def _add_comment(
                 file_path="main.tex",
                 line_number=1,
                 raw_text=text,
+                context_text=context_text,
                 status=status,
             )
         )
@@ -165,7 +187,12 @@ def _add_comment(
 
 def test_apply_split_keeps_source_and_accepts_children(db):
     source = create_label(name="Overclaiming", definition="too strong")
-    _add_comment("c1", "Too strong.", label_id=source.id)
+    _add_comment(
+        "c1",
+        "Too strong.",
+        label_id=source.id,
+        context_text="The experiment only shows a correlation.",
+    )
     _add_comment("c2", "Hedge this.", label_id=source.id)
     created = apply_split(
         source_id=source.id,
@@ -191,6 +218,8 @@ def test_apply_split_keeps_source_and_accepts_children(db):
         assert accepted.label_id == created[0].id
         assert accepted.coder_type == "ai"
         assert session.find(Coding, comment_id="c1", status="proposed") == []
+        example = session.first(LabelExample, source_comment_id="c1")
+        assert example.text == "The experiment only shows a correlation."
 
 
 def test_apply_split_moves_leftover_labels_onto_ungrouped(db):
@@ -385,6 +414,7 @@ def test_keep_source_split_is_invertible(db):
         payload = json.loads(event.payload_json)
     assert payload["keep_source"] is True
     assert "created" in payload
+    assert "example_updates" not in payload
     assert list_history()["can_undo"] is True
 
 

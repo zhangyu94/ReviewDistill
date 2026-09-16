@@ -30,7 +30,7 @@ import ProgressBar from '../components/workbench/ProgressBar.vue'
 import SelectorsBar from '../components/workbench/SelectorsBar.vue'
 import { inboxLocationRows, safeHttpHref } from '../inboxLocation.ts'
 import { selectedIdAfterAction } from '../select.ts'
-import { assignmentNoticeText, workbenchSnackbar } from '../workbench/assignmentNotice.ts'
+import { assignmentNoticeText, snackbarAfterClose, workbenchSnackbar } from '../workbench/assignmentNotice.ts'
 import {
   applyCommentSelectors,
   commentsEmptyCopy,
@@ -85,8 +85,11 @@ function showActionError(err: unknown) {
 }
 
 function onSnackbarClose() {
+  const next = snackbarAfterClose(store.errorNotice, store.assignmentNotice)
   store.clearErrorNotice()
-  store.clearAssignmentNotice()
+  if (!next.assignmentNotice) {
+    store.clearAssignmentNotice()
+  }
 }
 
 async function loadLabel() {
@@ -225,6 +228,7 @@ function onSelectEntry(id: string) {
 
 const runLabelWithAi = withProgressBar(async () => {
   const result = await postInboxCode()
+  // Count 0 or a failed request leaves any previous snackbar in place.
   store.setAssignmentNotice(assignmentNoticeText(result.coded))
   await invalidate({ inbox: true, labels: true })
 })

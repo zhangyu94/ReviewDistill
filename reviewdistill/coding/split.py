@@ -75,6 +75,8 @@ def build_split_prompt(
             "labels is a list of {name, definition}. assignments is a list of {comment_id, label_index}.",
             "Every comment id appears exactly once. label_index is 0-based into labels.",
             "Create at least two labels. Names and definitions are required and non-empty.",
+            "Each definition must state the manuscript pattern a reader would see in the passage.",
+            'Do not start the definition with "Comments that" or "Comments indicating".',
             "Do not include the source label in labels.",
         ]
     )

@@ -11,13 +11,14 @@ from reviewdistill.coding.validation import (
     inbox_items,
     verify_comment,
 )
-from reviewdistill.db.models import CODING_MODIFIED, Coding, Label, ProofreadingComment, is_labeled
+from reviewdistill.db.models import CODING_MODIFIED, Coding, Label, LabelExample, ProofreadingComment, is_labeled
 from reviewdistill.coding.split import SplitPlan
 from reviewdistill.db.session import get_session
 from reviewdistill.extraction.incremental import extract_project
 from reviewdistill.history import list_history, record, redo, undo
 from reviewdistill.llm.mock import MockLLMProvider
 from reviewdistill.taxonomy.operations import (
+    add_example,
     apply_split,
     create_empty_label,
     create_label,
@@ -646,6 +647,45 @@ def test_accept_is_logged_and_undo_returns_to_inbox(db, tmp_path):
         assert coding.status == "proposed"
 
 
+def test_accept_undo_restores_previous_example_text(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Why this method?}\n")
+    extract_project(repo)
+    label = create_label(
+        name="Missing methodological justification",
+        definition="A design choice is unexplained.",
+    )
+    with get_session() as session:
+        comment = session.first(ProofreadingComment)
+        comment_id = comment.id
+        comment.raw_text = "Why this method?"
+        comment.context_text = "The experiment only shows a correlation."
+        session.add(
+            Coding(
+                id="seed-proposed",
+                comment_id=comment.id,
+                label_id=label.id,
+                coder_type="ai",
+                status="proposed",
+                confidence=0.84,
+                rationale="Asks why the method was chosen.",
+            )
+        )
+        session.commit()
+    add_example(label.id, text="Why this method?", source_comment_id=comment_id)
+    accept_coding(comment_id)
+    with get_session() as session:
+        assert session.first(LabelExample).text == "The experiment only shows a correlation."
+    undo()
+    with get_session() as session:
+        assert session.first(LabelExample).text == "Why this method?"
+    redo()
+    with get_session() as session:
+        assert session.first(LabelExample).text == "The experiment only shows a correlation."
+
+
 def test_undo_change_restores_previous_label(db, tmp_path):
     repo = tmp_path / "paper"
     repo.mkdir()
@@ -674,6 +714,8 @@ def test_undo_change_restores_previous_label(db, tmp_path):
     )
     comment_id = list_working_observations(first.id)[0].id
     change_coding(comment_id, label_id=second.id)
+    change = next(event for event in list_history()["events"] if event["event_type"] == "change")
+    assert "example_updates" not in change["payload"]
     assert [row.id for row in list_working_observations(second.id)] == [comment_id]
     assert list_working_observations(first.id) == []
     undo()
@@ -713,6 +755,48 @@ def test_propose_is_one_event_and_undo_removes_suggestions(db, tmp_path):
         minted = session.get(Label, propose[0]["payload"]["created_label_ids"][0])
         assert minted.status == "inactive"
     assert len(inbox_items()) == 2
+
+
+def test_propose_undo_redo_restores_previous_example_text(db, tmp_path):
+    repo = tmp_path / "paper"
+    repo.mkdir()
+    init_project(name="paper-01", commands=["myremark"], cwd=repo)
+    (repo / "main.tex").write_text("\\myremark{Why this method?}\n")
+    extract_project(repo)
+    label = create_label(
+        name="Missing methodological justification",
+        definition="A design choice is unexplained.",
+    )
+    with get_session() as session:
+        comment = session.first(ProofreadingComment)
+        comment_id = comment.id
+        comment.raw_text = "Why this method?"
+        comment.context_text = "The experiment only shows a correlation."
+        session.commit()
+    add_example(label.id, text="Why this method?", source_comment_id=comment_id)
+    summary = code_uncoded_comments(
+        provider=MockLLMProvider(
+            scripted_response=json.dumps(
+                {
+                    "recommendation": "existing",
+                    "label_id": label.id,
+                    "confidence": 0.84,
+                    "rationale": "Asks why the method was chosen.",
+                }
+            )
+        )
+    )
+    assert summary.coded == 1
+    propose = next(event for event in list_history()["events"] if event["event_type"] == "propose")
+    assert propose["payload"]["example_updates"]
+    with get_session() as session:
+        assert session.first(LabelExample).text == "The experiment only shows a correlation."
+    undo()
+    with get_session() as session:
+        assert session.first(LabelExample).text == "Why this method?"
+    redo()
+    with get_session() as session:
+        assert session.first(LabelExample).text == "The experiment only shows a correlation."
 
 
 def test_new_action_drops_redo_tail(db):
