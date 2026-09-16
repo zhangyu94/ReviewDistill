@@ -208,7 +208,7 @@ watch(() => props.selected?.comment.id, () => {
           <h2 class="ch-kicker">
             Triage
           </h2>
-          <!-- Protect or remove the observation — not a quality rating. -->
+          <!-- Verify keeps the observation. Delete removes it. -->
           <p v-if="selected.guess" class="mb-3">
             {{ selected.guess }}
           </p>

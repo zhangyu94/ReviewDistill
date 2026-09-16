@@ -2,17 +2,17 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
 const sidebars: SidebarsConfig = {
   docsSidebar: [
-    'intro',
-    'install',
-    'workflow',
     {
       type: 'category',
-      label: 'Using ReviewDistill',
-      items: ['ui', 'llm', 'history', 'extract'],
+      label: 'Guide',
+      collapsed: false,
+      items: ['intro', 'install', 'first-paper', 'labeling', 'export'],
     },
-    'export',
-    'cli',
-    'internals',
+    {
+      type: 'category',
+      label: 'Reference',
+      items: ['cli', 'workbench', 'extract', 'llm', 'history', 'data', 'internals'],
+    },
   ],
 };
 

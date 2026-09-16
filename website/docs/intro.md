@@ -1,11 +1,16 @@
-# Overview
+# Introduction
 
-When you proofread, comments usually stay buried in the `.tex` file. The next paper, you start over. An AI assistant that edits the text has no idea what you usually flag.
+If you proofread in LaTeX, you already leave a remark on the sentence that is wrong:
 
-ReviewDistill reads those comments and the sentences around them. You group similar comments into labels (for example, “this claim is too strong”). Then you save that list as a file you can reuse — yourself, or by handing it to an assistant.
+```latex
+The results demonstrate that the method is effective.
+\myremark{Demonstrate is too strong here.}
+```
 
-If you add an API key, an LLM can suggest a label assignment. You still choose. Comments and keys stay on your computer.
+That note helps this draft. A week later you open another paper and type the same kind of comment, because the last round never left that file.
 
-It does **not** replace your editor or your judgment.
+ReviewDistill is for that loop. It pulls the remarks out with the sentence they sit in. You group the ones that keep coming back into labels, then export a skill (`SKILL.md`) into the folder your coding agent already reads. On the next paper the agent can reuse those checks, so you spend less time catching the same issues by hand.
 
-Continue with [Install](./install.md).
+Comments and API keys stay on your computer.
+
+Next: [Install](./install.md).

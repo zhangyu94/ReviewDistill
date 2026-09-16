@@ -6,7 +6,7 @@ The mark is seen at **16×16** in the app header and as a favicon. That size is 
 
 ## Concept
 
-A **comment bubble with two text lines** — the proofreading notes ReviewDistill starts from. One silhouette. No second icon (document, fold, funnel) competing at 16px.
+A **comment bubble with two text lines**, the proofreading notes ReviewDistill starts from. One silhouette. No second icon (document, fold, funnel) competing at 16px.
 
 The folded-corner “skill file” was dropped: at 16px it reads as a clipped chip, and it optically shifts the top text slot so the two lines look staggered even when their coordinates match.
 
@@ -58,5 +58,5 @@ The folded-corner “skill file” was dropped: at 16px it reads as a clipped ch
 - Canonical logo: `docs/assets/logo.svg`
 - This doc: `docs/assets/logo-design.md`
 - Client copies (keep in sync with canonical):
-  - `client/public/logo.svg` — header mark
-  - `client/public/favicon.svg` — browser tab icon
+  - `client/public/logo.svg`: header mark
+  - `client/public/favicon.svg`: browser tab icon

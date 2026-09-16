@@ -2,17 +2,19 @@
 
 Stored shape of a **project** (paper), a proofreading **observation**, and a **label** in the ReviewDistill store.
 
-Identity (when a source comment is new, a revision, a move, or gone) is defined in [`comment-identity.md`](comment-identity.md). Product spec: [`spec.md`](spec.md). This file is the schema of the rows that identity acts on.
+Identity (when a source comment is new, a revision, a move, or gone) is defined in [`comment-identity.md`](comment-identity.md). Product spec: [`README.md`](README.md). This file is the schema of the rows that identity acts on.
 
 Implementation: one JSONL file per collection in the ReviewDistill home folder (default `~/.reviewdistill`): `projects.jsonl`, `comments.jsonl`, `assignments.jsonl`, `labels.jsonl`, `label_examples.jsonl`, `history.jsonl`. One JSON object per line, sorted by `id`. `reviewdistill paths use` / `move` choose that folder. `comments.project_id` is the `projects.id` of the paper.
 
-The JSON object under `comment` in `GET /api/inbox` is the comment row (`created_at` as ISO-8601). `items` is the Unlabeled queue; `working_items` is every comment to distill (labeled included) so the UI can AND selectors without extra fetches. Each item has `in_working_set`. `progress.working_set` is the **to distill** headline. `progress` has no `absent` key; presence is `in_manuscript` on the item. Response extras (`project_name`, `permalink`, `guess`, `in_manuscript`, `labeled`, `label`, `assignment`, `in_working_set`, `local_file`) are not columns on `comments`; `project_name` is `projects.name`. `in_manuscript` is `status == "active"`. `local_file` is true when `{projects.root_path}/{file_path}` resolves to a file that stays under that root (`..` does not count). The absolute path is not in the JSON. `POST /api/inbox/{comment_id}/reveal` (empty body) re-checks that path and selects the file in the OS file manager. Unknown comment is 404 (`Unknown comment {id}`); missing project, missing file, or path escape is 404 (`This file is not on this computer.`); file-manager failure is 400. Reveal does not write store rows or History.
+The JSON object under `comment` in `GET /api/inbox` is the comment row (`created_at` as ISO-8601). `items` is the Unlabeled queue; `working_items` is every comment to distill (labeled included) so the UI can AND selectors without extra fetches. Each item has `in_working_set`. `progress.working_set` is the **to distill** headline. `progress` has no `absent` key; presence is `in_manuscript` on the item.
+
+Response extras (`project_name`, `permalink`, `guess`, `in_manuscript`, `labeled`, `label`, `assignment`, `in_working_set`, `local_file`) are not columns on `comments`; `project_name` is `projects.name`. `in_manuscript` is `status == "active"`. `local_file` is true when `{projects.root_path}/{file_path}` resolves to a file that stays under that root (`..` does not count). The absolute path is not in the JSON. `POST /api/inbox/{comment_id}/reveal` (empty body) re-checks that path and selects the file in the OS file manager. Unknown comment is 404 (`Unknown comment {id}`); missing project, missing file, or path escape is 404 (`This file is not on this computer.`); file-manager failure is 400. Reveal does not write store rows or History.
 
 ---
 
 ## Project
 
-A paper repository registered with ReviewDistill. One shared database holds many projects so the taxonomy accumulates across papers.
+A paper repository registered with ReviewDistill. One store holds many papers so the taxonomy accumulates across them.
 
 On-disk companion (not this table): `{root}/.reviewdistill/config.yaml` stores `project.id`, `project.name`, and `comments.latex_commands`. Comment-command names live only in that YAML; they are not columns on `projects`.
 
@@ -113,10 +115,10 @@ Nearby manuscript text at last extract, **not** the comment body.
 
 Built as source TeX of the insertion neighborhood:
 
-1. Find complete configured macros on the raw file (same brace rule as harvest; a `}` after `%` still closes).
-2. Strip those macros (optional space before `{`; do not drop the rest of the line). A blank line inside `{...}` does not split the outer paragraph.
+1. Find complete configured macros on the raw file (same brace rule as harvest; a `}` after `%` still closes). Harvest skips a macro whose opener sits after a `%` that is not inside a live configured argument. Context still strips that span — including an unclosed `% \command{` through the next configured command — so a commented-out body is not treated as prose.
+2. Strip those macros (spaces or tabs before `{`; do not drop the rest of the line). A blank line inside `{...}` does not split the outer paragraph.
 3. Drop unescaped `%` tails (line count unchanged).
-4. Take the blank-line block that contains the opening command line.
+4. Take the blank-line block that contains the opening command line. A heading or `\label` after `}` on the closer line (one-line or multiline) is not neighborhood and ends the block. A heading that shares a block with sentences counts as prose: that whole block is kept.
 5. If the span is empty, walk **up**, skipping blocks that are also empty after strip: consecutive heading / `\label` blocks (sectioning commands `\chapter` through `\subparagraph`, optional `*`), or the previous prose paragraph. Never a block below the comment.
 6. Keep line breaks. Trim edge blanks. Do not append `Citations:` / `Refs:`.
 
@@ -188,8 +190,8 @@ AI suggestions, taxonomy examples, label-chip counts, recent observations, and e
 
 Selector views:
 
-- **Unlabeled** — comments to distill with no **active** label, plus absent + not verified (so you can Verify or Delete). No Reject: not accepting a suggestion leaves the comment unlabeled. An accepted label on an inactive label does not count.
-- **Label chip** — that label’s labeled comments to distill.
+- **Unlabeled**: comments to distill with no **active** label, plus absent + not verified (so you can Verify or Delete). No Reject: not accepting a suggestion leaves the comment unlabeled. An accepted label on an inactive label does not count.
+- **Label chip**: that label’s labeled comments to distill.
 
 ### What extract updates in place
 

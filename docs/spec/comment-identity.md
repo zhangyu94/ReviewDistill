@@ -1,8 +1,8 @@
 # Comment identity
 
-How ReviewDistill decides whether a proofreading comment is **new**, a **revision** of an existing observation, a **move**, or **gone from the source** — and how presence and Verify combine.
+How ReviewDistill decides whether a proofreading comment is **new**, a **revision** of an existing observation, a **move**, or **gone from the source**, and how presence and Verify combine.
 
-The stored columns of a project and observation are in [`data-schema.md`](data-schema.md). Product spec: [`spec.md`](spec.md).
+The stored columns of a project and observation are in [`data-schema.md`](data-schema.md). Product spec: [`README.md`](README.md).
 
 ## Comments in the manuscript
 
@@ -79,8 +79,8 @@ The observation is **not** discarded. Presence becomes “not in the manuscript�
 
 Two common meanings of “gone”:
 
-1. **The manuscript was fixed** (or the comment is still useful evidence). **Verify** — it is still to distill even though the comment command is gone.
-2. **A bad extract.** **Delete** — the observation is removed. Undo from History.
+1. **The manuscript was fixed** (or the comment is still useful evidence). **Verify**: it is still to distill even though the comment command is gone.
+2. **A bad extract.** **Delete**: the observation is removed. Undo from History.
 
 Each comment that left the manuscript and is not verified can show a **guess**. The guess is never applied automatically:
 
@@ -135,9 +135,9 @@ It does not run AI labeling. It does not Verify or Delete. It follows the files 
 
 In `reviewdistill ui`, Selectors chips AND. The right-hand **Unlabeled** control toggles a left-hand Unlabeled chip and is never pressed. No chips: Comments lists comments to distill.
 
-- **Unlabeled** — inbox queue: comments to distill with no **active** label, plus comments that left the manuscript and are still not verified so you can Verify or Delete. Those rows show a **Left the manuscript** chip. There is no Reject button: not accepting a suggestion leaves the comment unlabeled.
-- **Label chip** — named with the label (for example `Missing introduction (3)`). Clicking a label opens Label Details and replaces the label chip; it does not clear Unlabeled. × on the label chip sets `labelchip=0` and keeps `/labels/:id` (Label Details stays). Comments then lists comments to distill, or the inbox if Unlabeled is still on.
+- **Unlabeled**: inbox queue: comments to distill with no **active** label, plus comments that left the manuscript and are still not verified so you can Verify or Delete. Those rows show a **Left the manuscript** chip. There is no Reject button: not accepting a suggestion leaves the comment unlabeled.
+- **Label chip**: named with the label (for example `Missing introduction (3)`). Clicking a label opens Label Details and replaces the label chip; it does not clear Unlabeled. × on the label chip sets `labelchip=0` and keeps `/labels/:id` (Label Details stays). Comments then lists comments to distill, or the inbox if Unlabeled is still on.
 
 **Verify** stamps the observation on the comment inspector. **Delete** removes the observation (undo from History). They are independent of the label. **Accept** applies the AI suggestion. Picking a label in the menu assigns it.
 
-The Comments panel switches between a list, a project file tree, and a single comment. Each list row is a card with the inspector’s leaf label menu (own line, compact) and, when the `.tex` file is on this computer, a **file path** control that shows that file in the file manager. Assign and reveal use that row’s comment. The tree nests the same comments under project / file path; grouping rows collapse. Tree comment rows show **line N** instead of repeating the path. The list and the inspector Comment header show a **Left the manuscript** chip when the remark is no longer in the `.tex` file. The single-comment view shows manuscript context, type, Triage (Verify / Delete), location, record metadata, and the guess under Triage when present. Location **File** can still show the `.tex` file in the file manager if that path exists on this computer.
+The Comments panel switches between a list, a project file tree, and a single comment. Each list row is a card with the inspector’s leaf label menu (own line, compact) and, when the `.tex` file is on this computer, a **file path** control that shows that file in the file manager. Assign and reveal use that row’s comment. The tree nests the same comments under project / file path; grouping rows collapse. Tree comment rows show **line N** instead of repeating the path. The list and the inspector Comment header show a **Left the manuscript** chip when the remark is no longer in the `.tex` file. The single-comment view shows manuscript context, the current label, Triage (Verify / Delete), location, record metadata, and the guess under Triage when present. Location **File** can still show the `.tex` file in the file manager if that path exists on this computer.

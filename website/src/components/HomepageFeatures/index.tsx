@@ -1,61 +1,71 @@
 import type {ReactNode} from 'react';
-import clsx from 'clsx';
 import Heading from '@theme/Heading';
 import styles from './styles.module.css';
 
-type FeatureItem = {
-  title: string;
-  description: ReactNode;
-};
-
-const FeatureList: FeatureItem[] = [
+const steps = [
   {
-    title: 'Proofread in the paper',
-    description: (
+    n: '1',
+    title: 'Comment in the paper',
+    body: (
+      <pre className={styles.tex}>{`The results demonstrate
+that the method is
+effective.
+\\myremark{Demonstrate is
+too strong here.}`}</pre>
+    ),
+  },
+  {
+    n: '2',
+    title: 'Extract the comments',
+    body: (
       <>
-        Keep using LaTeX comment commands. ReviewDistill extracts them and the
-        nearby manuscript so you never maintain a parallel review file.
+        <pre className={styles.tex}>reviewdistill extract</pre>
+        <p>
+          After <code>reviewdistill init</code> in the paper folder. That
+          finds the macros in the <code>.tex</code> file and stores each
+          remark with the sentence it sits in. It does not change the paper.
+        </p>
       </>
     ),
   },
   {
-    title: 'Group comments',
-    description: (
-      <>
-        Issue taxonomy, comments, and an inspector. Optional LLM suggestions; you accept
-        or pick a type. History undoes a bad label.
-      </>
+    n: '3',
+    title: 'Label in the UI',
+    body: (
+      <p>
+        Open the workbench with <code>reviewdistill ui</code>. Assign a{' '}
+        <strong>leaf</strong> (a label with no children). You can also let an
+        LLM suggest labels if you add an API key in Settings.
+      </p>
     ),
   },
   {
-    title: 'Export skills for agents',
-    description: (
-      <>
-        The taxonomy grows across papers. Export Markdown as a review skill,
-        or YAML/JSON as a taxonomy dump, and give the skill to a coding agent.
-      </>
+    n: '4',
+    title: 'Export a skill',
+    body: (
+      <p>
+        Click <strong>Export</strong> in the workbench, or run{' '}
+        <code>reviewdistill export</code>. Put <code>SKILL.md</code> where
+        your coding agent reads skills so it can reuse those checks on the
+        next paper.
+      </p>
     ),
   },
 ];
-
-function Feature({title, description}: FeatureItem) {
-  return (
-    <div className={clsx('col col--4')}>
-      <div className="padding-horiz--md">
-        <Heading as="h3">{title}</Heading>
-        <p>{description}</p>
-      </div>
-    </div>
-  );
-}
 
 export default function HomepageFeatures(): ReactNode {
   return (
     <section className={styles.features}>
       <div className="container">
         <div className="row">
-          {FeatureList.map((props, idx) => (
-            <Feature key={idx} {...props} />
+          {steps.map((step) => (
+            <div key={step.n} className="col col--3">
+              <div className="padding-horiz--md">
+                <p className={styles.num}>{step.n}</p>
+                <Heading as="h3">{step.title}</Heading>
+                {step.body}
+              </div>
+            </div>
           ))}
         </div>
       </div>

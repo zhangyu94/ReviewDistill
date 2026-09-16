@@ -5,7 +5,7 @@
 <h1 align="center">ReviewDistill</h1>
 
 <p align="center">
-  Turn the comments you already write in a LaTeX paper into a reusable guide — for you, and for an AI assistant.
+  Distill the comments you write in a LaTeX paper into a reusable agent skill to save your proofreading time.
 </p>
 
 <p align="center">
@@ -22,37 +22,33 @@
 
 ## What is ReviewDistill?
 
-When you proofread, comments usually stay buried in the `.tex` file. The next paper, you start over. An AI assistant that edits the text has no idea what you usually flag.
+You already write comments in the `.tex` file. Those remarks stay in that paper. ReviewDistill groups them into labels and exports a skill you reuse: an agent applies the same checks on the next paper.
 
-ReviewDistill reads those comments and the sentences around them. You group similar comments into labels (for example, “this claim is too strong”). Then you save that list as a file you can reuse — yourself, or by handing it to an assistant.
-
-If you add an API key, an LLM can suggest a label assignment. You still choose. Comments and keys stay on your computer.
+You can add an API key if you want an LLM to suggest labels. Comments and keys stay on your computer.
 
 ## Start using it
 
-Clone this repository. You need **Python ≥ 3.11**, **Node ≥ 22**, and [pnpm](https://pnpm.io/). Then:
+Clone this repository. You need **Python ≥ 3.11**. Then:
 
-`pip install -e ".[dev]"`
+`pip install -e .`
 
-That puts the `reviewdistill` command on your `PATH`. In a paper repository:
+That puts the `reviewdistill` command on your `PATH` and compiles the workbench. You do not need Node to run the UI. Compiling it from this repository needs **Node ≥ 22** and [pnpm](https://pnpm.io/) once.
+
+In a paper repository:
 
 1. `reviewdistill init --name paper-01 --command myremark`
 2. Proofread with `\myremark{...}` (or the commands you passed to `init`). Define `\newcommand{\myremark}[1]{#1}` in the preamble if needed.
 3. `reviewdistill extract` (add `--watch` to keep extracting).
-4. `reviewdistill ui` → http://127.0.0.1:8765 — **Label with AI**, then Accept a suggestion or pick a label in the menu. **Verify** stamps the observation; **Delete** removes a bad extract.
+4. `reviewdistill ui` → http://127.0.0.1:8765. Pick a leaf label, or **Label with AI** if a key is set. **Verify** stamps the observation; **Delete** removes a bad extract.
 5. Repeat on the next paper; the taxonomy is reused.
-6. `reviewdistill export --format md -o SKILL.md`
+6. **Export** in the workbench, or `reviewdistill export` (writes `SKILL.md`)
 7. Put that file in `.cursor/skills/scholarly-review/` (or the equivalent for another coding agent).
 
-The full guide: [Install](./website/docs/install.md), [Workflow](./website/docs/workflow.md), [UI](./website/docs/ui.md), [LLM settings](./website/docs/llm.md), [Export](./website/docs/export.md).
+The full guide: [Introduction](./website/docs/intro.md), [Install](./website/docs/install.md), [Your first paper](./website/docs/first-paper.md), [Label comments](./website/docs/labeling.mdx), [Export](./website/docs/export.md).
 
-To see the data folder: `reviewdistill paths`, or header **Settings → Data** (Open folder, or Save a new path). To copy it somewhere else: `reviewdistill paths move ~/Documents/reviewdistill`.
+To see the data folder: `reviewdistill paths`, or header **Settings → Data**. To copy it somewhere else: `reviewdistill paths move ~/Documents/reviewdistill`.
 
 Run the documentation site locally: `pnpm --dir website start`. GitHub Pages will serve it at `https://zhangyu94.github.io/ReviewDistill/` when you enable Pages.
-
-## Who it is for
-
-Researchers and authors who proofread their own (or others’) manuscripts in LaTeX and want those comments to become a reusable review skill for coding agents.
 
 ## For developers
 
@@ -65,9 +61,10 @@ Researchers and authors who proofread their own (or others’) manuscripts in La
 | `pnpm --dir client up` | Bump client npm deps (taze) |
 | `pnpm --dir client dev` | Vite on :5173, proxies `/api` |
 | `pnpm --dir website start` | Documentation site |
+| `pnpm --dir website capture` | Rebuild docs screenshots and CLI GIFs |
 | `python client_build.py` | Rebuild packaged UI without reinstalling |
 
-Client source: [`client/`](./client/). Docs site: [`website/`](./website/). Product spec and schema: [`docs/spec.md`](./docs/spec.md), [`docs/data-schema.md`](./docs/data-schema.md), [`docs/comment-identity.md`](./docs/comment-identity.md).
+Client source: [`client/`](./client/). Docs site: [`website/`](./website/). Product spec: [`docs/spec/README.md`](./docs/spec/README.md), [`docs/spec/data-schema.md`](./docs/spec/data-schema.md), [`docs/spec/comment-identity.md`](./docs/spec/comment-identity.md).
 
 ## License
 

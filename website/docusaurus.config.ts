@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'ReviewDistill',
-  tagline: 'Distill human proofreading comments into reusable skills for agents.',
+  tagline: 'Distill the comments you write in a LaTeX paper into a reusable agent skill to save your proofreading time.',
   favicon: 'img/logo.svg',
 
   url: 'https://zhangyu94.github.io',
@@ -67,9 +67,8 @@ const config: Config = {
         {
           title: 'Docs',
           items: [
-            {label: 'Install', to: '/docs/install'},
-            {label: 'Workflow', to: '/docs/workflow'},
-            {label: 'UI', to: '/docs/ui'},
+            {label: 'Introduction', to: '/docs/intro'},
+            {label: 'Workbench', to: '/docs/workbench'},
           ],
         },
         {
@@ -79,14 +78,10 @@ const config: Config = {
               label: 'GitHub',
               href: 'https://github.com/zhangyu94/ReviewDistill',
             },
-            {
-              label: 'MIT License',
-              href: 'https://github.com/zhangyu94/ReviewDistill/blob/main/LICENSE',
-            },
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Yu Zhang. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Yu Zhang.`,
     },
     prism: {
       theme: prismThemes.github,

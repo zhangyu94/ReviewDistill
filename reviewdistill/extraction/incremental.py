@@ -1,6 +1,6 @@
 """Idempotent extract: match source comments to stored observations.
 
-Behavior: ``docs/comment-identity.md``. CLI extract (including ``--watch``) calls ``extract_project``.
+Behavior: ``docs/spec/comment-identity.md``. CLI extract (including ``--watch``) calls ``extract_project``.
 
 Per stable ``.tex`` file: pair exact fingerprints in file order, then
 ``difflib.SequenceMatcher`` on leftovers (revision if similar and same command,

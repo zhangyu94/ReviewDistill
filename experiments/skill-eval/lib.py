@@ -49,7 +49,7 @@ JSON_INSTRUCTION = (
 def parse_types(text: str) -> set[str]:
     """Last JSON object in the reply with a ``types`` list of strings.
 
-    Parse failure or no such object is predicted empty — same as a model that
+    Parse failure or no such object is predicted empty, same as a model that
     refuses to name anything. Use ``parse_types_result`` when the caller needs
     to distinguish a parse miss from ``{"types": []}``.
     """
@@ -564,7 +564,7 @@ def skill_markdown(
 
     Types stay the full active taxonomy (same names Export would use). A label
     with no remaining train examples still appears with definition and empty
-    examples — matching today's export, not a different skill format.
+    examples, matching today's export.
     Does not write the store.
     """
     init_db()

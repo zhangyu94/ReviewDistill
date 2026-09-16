@@ -1,24 +1,18 @@
-# LLM settings
+# LLM
 
-There is no default model. Until `llm.provider` is set, the Unlabeled inspector shows **No AI suggestion** and **Label with AI** stays disabled. Mock proposals from older runs are ignored.
+There is no default model. Until you set a provider, **Label with AI** stays off.
 
-Header **Settings** (next to History and Export) **Assistant** panel writes `llm.provider` / `llm.model` to the ReviewDistill home `config.yaml` and the API key to that folder’s `.env` (gitignored). **Configure LLM** in the Unlabeled empty state opens the same dialog. There is no paper picker.
-
-## Config you can commit
+**Settings → Assistant** writes `llm.provider` / `llm.model` to the home `config.yaml` and the API key to that folder’s `.env` (gitignored). **Configure LLM** in the empty unlabeled state opens the same dialog.
 
 ```yaml
-# ReviewDistill home config.yaml  (Settings → Data / `reviewdistill paths`)
+# ~/.reviewdistill/config.yaml  (or Settings → Data)
 llm:
-  provider: deepseek    # openai | anthropic | deepseek  (mock is tests-only)
+  provider: deepseek    # openai | anthropic | deepseek
   model: deepseek-chat
 ```
 
-Do not put the key in YAML. Paper `.reviewdistill/config.yaml` is comments-only (`project` and latex commands). Leftover paper `llm:` / `.env` are ignored.
-
-## Key file (gitignored)
-
 ```
-# ReviewDistill home .env
+# ~/.reviewdistill/.env
 DEEPSEEK_API_KEY=sk-...
 ```
 
@@ -28,16 +22,8 @@ DEEPSEEK_API_KEY=sk-...
 | `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` |
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
 
-A process environment variable of the same name wins if both are set. Settings loads the saved key into the API key field (password until **Show**). **Save** with a blank key field keeps the existing `.env` value.
+A process environment variable of the same name wins if both are set. **Save** with a blank key field keeps the existing `.env` value.
 
-Calls go through [LiteLLM](https://github.com/BerriAI/litellm).
+**Label with AI** sends every unlabeled comment in one request (comment, nearby manuscript, candidate label summaries) and assigns them. Taxonomy **fork** uses the same provider. Nothing else on disk is sent.
 
-## Label with AI
-
-The button sends every unlabeled comment to distill in one request and **accept-assigns** them (new names are created immediately). A new name’s definition describes the **manuscript pattern**, not a class of comments. A thin progress bar at the top of the window runs until that request and the UI refresh finish. A dismissible snackbar says they appear in Label Taxonomy. A failed retry leaves a previous snackbar in place. If the provider call fails, that snackbar shows the error (timeout, missing key, and similar) instead of painting it into Comments or Label Details. If the ReviewDistill server is not running, the snackbar says it cannot be reached. Selectors do not change. Label with AI is store-wide: the assistant is the home folder’s `llm` block and `.env`, not a paper.
-
-Taxonomy **fork** (header on an empty forest, or hover on a leaf with at least two labeled comments) uses the same provider in one prompt and also accept-assigns. New names get a definition that describes the **manuscript pattern** (what a reader would see in the passage), not a class of comments. Invalid JSON writes nothing. Header fork includes unlabeled comments that already have a leftover proposal; Label with AI skips those. Once a taxonomy exists, header fork is off: use header recycle to park leftover unlabeled comments on `ungrouped`, then leaf-fork that node.
-
-External providers receive the comment, nearby manuscript context, and candidate label summaries — not the rest of your disk. The CLI prints that warning; the UI does not.
-
-Lookup: process environment `REVIEWDISTILL_LLM_PROVIDER` / `REVIEWDISTILL_LLM_MODEL` if set, else home `config.yaml`. Key: process environment for that provider, then the home folder’s `.env`. Settings shows the home files, not those process-env overrides.
+`REVIEWDISTILL_LLM_PROVIDER` / `REVIEWDISTILL_LLM_MODEL` override YAML. Settings shows the home files, not those overrides.

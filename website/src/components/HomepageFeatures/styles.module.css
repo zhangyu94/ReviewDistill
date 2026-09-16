@@ -1,6 +1,19 @@
 .features {
-  display: flex;
-  align-items: center;
-  padding: 2rem 0;
-  width: 100%;
+  padding: 2rem 0 4rem;
+}
+
+.num {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ifm-color-primary);
+}
+
+.tex {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: left;
+  white-space: pre;
+  margin: 0;
+  overflow-x: auto;
 }

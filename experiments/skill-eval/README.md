@@ -17,8 +17,8 @@ Public scholarly-writing datasets use other taxonomies, so they cannot score thi
 3. Each test item is a **passage** = the comment’s `context_text` with Citations/Refs stripped. The model never sees `raw_text` (that would leak the author’s wording of the issue).
 4. **Distractors** are unused **prose** paragraphs from the same paper (no working-set comment on them). Gold for those is `[]`. Command-only blocks such as `\end{document}` are skipped. They catch a skill that flags everything.
 5. Two **conditions** see the same items:
-   - **skill** — current `SKILL.md` shape (examples from *train* comments only), then the passage, then “return JSON `{"types": [...]}` using heading names from the skill”. The key `types` is this eval protocol, not product JSON. A label with no remaining train examples still appears (same as Export). The runner does not write the ReviewDistill store.
-   - **baseline** — same `##` heading names, no definitions or examples. A lift means the skill body is doing work, not that the prompt listed the taxonomy. Invented names that are not heading names never count as hits.
+   - **skill**: current `SKILL.md` shape (examples from *train* comments only), then the passage, then "return JSON `{"types": [...]}` using heading names from the skill". The key `types` is this eval protocol, not product JSON. A label with no remaining train examples still appears (same as Export). The runner does not write the ReviewDistill store.
+   - **baseline**: same `##` heading names, no definitions or examples. A lift means the skill body is doing work, not that the prompt listed the taxonomy. Invented names that are not heading names never count as hits.
 6. **Scoring** is exact label-name match (micro P/R/F1). Extra names = false positives; `[]` on a gold passage = miss. Hierarchical recall (gold name *or an ancestor*) is secondary; precision stays exact.
 
 Then `analyze.ipynb` plots the run. It does not call the LLM.

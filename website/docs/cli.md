@@ -1,21 +1,19 @@
 # CLI
 
-Visible commands:
-
 | Command | Role |
 | --- | --- |
-| `reviewdistill init` | Create `.reviewdistill/` in the current paper repo |
+| `reviewdistill init` | Create `.reviewdistill/` in this paper repo |
 | `reviewdistill extract` | Pull comments from `.tex` (`--watch` keeps going) |
-| `reviewdistill ui` | UI + API on `:8765` |
-| `reviewdistill export` | Write a review skill (`md`) or taxonomy dump (`yaml` / `json`) (`--format`, `--output`) |
-| `reviewdistill paths` | Print the data folder and comments JSONL path |
-| `reviewdistill paths use DIR` | Use `DIR` for comments and labels from now on |
-| `reviewdistill paths move DIR` | Copy the current data folder to `DIR` and keep using it |
+| `reviewdistill ui` | Open the workbench at http://127.0.0.1:8765 |
+| `reviewdistill export` | Write a skill (`md`); `yaml` / `json` dump the taxonomy |
+| `reviewdistill paths` | Print the data folder |
+| `reviewdistill paths use DIR` | Use `DIR` from now on |
+| `reviewdistill paths move DIR` | Copy the current folder to `DIR` and keep using it |
 
-`extract` finds configured macros and stores the insertion-neighborhood context. Details: [Extract](./extract.md).
+`init`: `--name`, `--command` (repeatable; default `myremark`).
 
-`init` options: `--name`, `--command` (repeatable; default `myremark`).
+`ui`: `--host` (default `127.0.0.1`), `--port` (default `8765`).
 
-`ui` options: `--host` (default `127.0.0.1`), `--port` (default `8765`).
+`export`: `--format` (default `md`), `--output` / `-o` (default `SKILL.md` for `md`, `review-taxonomy.yaml` / `review-taxonomy.json` for those formats), `--id` (repeatable).
 
-`move` copies the whole current folder into an empty `DIR` and leaves the old folder in place. Quit `ui` and `extract --watch` first; restart them after `use` or `move`.
+`move` needs an empty destination. Quit `ui` and `extract --watch` first; restart them after `use` or `move`.
