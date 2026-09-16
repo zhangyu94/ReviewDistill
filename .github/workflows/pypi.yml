@@ -36,7 +36,8 @@ jobs:
           import tomllib
           from pathlib import Path
 
-          version = tomllib.loads(Path("pyproject.toml").read_bytes())["project"]["version"]
+          with Path("pyproject.toml").open("rb") as fh:
+              version = tomllib.load(fh)["project"]["version"]
           tag = os.environ["GITHUB_REF_NAME"]
           if tag not in {version, f"v{version}"}:
               sys.exit(f"release tag {tag!r} does not match pyproject version {version}")
