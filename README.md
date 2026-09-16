@@ -48,7 +48,7 @@ The full guide: [Introduction](./website/docs/intro.md), [Install](./website/doc
 
 To see the data folder: `reviewdistill paths`, or header **Settings → Data**. To copy it somewhere else: `reviewdistill paths move ~/Documents/reviewdistill`.
 
-Run the documentation site locally: `pnpm --dir website start`. GitHub Pages will serve it at `https://zhangyu94.github.io/ReviewDistill/` when you enable Pages.
+Run the documentation site locally: `pnpm --dir website start`.
 
 ## For developers
 

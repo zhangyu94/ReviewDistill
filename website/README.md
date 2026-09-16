@@ -7,7 +7,7 @@ pnpm --dir website install
 pnpm --dir website start
 ```
 
-Production build: `pnpm --dir website build`. GitHub Pages URL (when enabled): `https://zhangyu94.github.io/ReviewDistill/` (`baseUrl` is `/ReviewDistill/`).
+Production build: `pnpm --dir website build`. Push to `main` deploys `website/build` to GitHub Pages.
 
 Rebuild screenshots and CLI GIFs:
 

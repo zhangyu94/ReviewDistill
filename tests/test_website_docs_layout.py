@@ -190,3 +190,13 @@ def test_docs_voice_avoids_banned_phrases():
         text = path.read_text(encoding="utf-8")
         for phrase in BANNED:
             assert phrase not in text, f"{path.name}: {phrase}"
+
+
+def test_pages_workflow_deploys_website_build():
+    text = (ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
+    assert "website/build" in text
+    assert "actions/upload-pages-artifact@v3" in text
+    assert "actions/deploy-pages@v4" in text
+    assert "pnpm build" in text
+    assert "pages: write" in text
+    assert "id-token: write" in text
