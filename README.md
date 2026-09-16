@@ -66,6 +66,8 @@ Run the documentation site locally: `pnpm --dir website start`.
 
 Client source: [`client/`](./client/). Docs site: [`website/`](./website/). Product spec: [`docs/spec/README.md`](./docs/spec/README.md), [`docs/spec/data-schema.md`](./docs/spec/data-schema.md), [`docs/spec/comment-identity.md`](./docs/spec/comment-identity.md).
 
+A GitHub Release whose tag matches `pyproject.toml` (`v0.1.0` or `0.1.0`) publishes to PyPI via Trusted Publishing.
+
 ## License
 
 ReviewDistill is released under the [MIT License](./LICENSE).

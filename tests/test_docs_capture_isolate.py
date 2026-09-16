@@ -53,3 +53,18 @@ def test_capture_runner_rebuilds_client():
     assert "client_build.py" in text
     shots = (ROOT / "website" / "captures" / "ui_shots.py").read_text(encoding="utf-8")
     assert "Show comments in a project file tree" in shots
+
+
+def test_first_paper_vhs_uses_starter_tex():
+    captures = ROOT / "website" / "captures"
+    tape = (captures / "tapes" / "first-paper.tape").read_text(encoding="utf-8")
+    starter = (captures / "fixtures" / "starter" / "main.tex").read_text(encoding="utf-8")
+    guide = (ROOT / "website" / "docs" / "first-paper.md").read_text(encoding="utf-8")
+    runner = (captures / "run.py").read_text(encoding="utf-8")
+    assert "--name paper-01" in tape
+    assert "--name paper-01" in guide
+    assert "--name demo" not in tape
+    assert starter.count(r"\myremark{") == 1
+    assert starter.strip() in guide
+    assert "copytree(STARTER" in runner
+    assert "_run_vhs(first_tape" in runner
