@@ -86,10 +86,10 @@ def test_export_unknown_id_is_bad_input(db):
 
 def test_export_omits_examples_from_dropped_comments(db, tmp_path):
     from reviewdistill.cli.init import init_project
-    from reviewdistill.coding.validation import delete_comment
+    from reviewdistill.labeling.validation import delete_comment
     from reviewdistill.extraction.incremental import extract_project
     from reviewdistill.llm.mock import MockLLMProvider
-    from reviewdistill.coding.coder import code_uncoded_comments
+    from reviewdistill.labeling.coder import label_unlabeled_comments
     import json
 
     repo = tmp_path / "paper"
@@ -101,7 +101,7 @@ def test_export_omits_examples_from_dropped_comments(db, tmp_path):
         name="Overclaiming",
         definition="A claim is too strong.",
     )
-    code_uncoded_comments(
+    label_unlabeled_comments(
         provider=MockLLMProvider(
             scripted_response=json.dumps(
                 {

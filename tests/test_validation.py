@@ -1,27 +1,24 @@
-import json
-
 import pytest
 
 from reviewdistill.cli.init import init_project
-from reviewdistill.coding.coder import code_uncoded_comments, uncoded_comments
-from reviewdistill.coding.validation import (
+from reviewdistill.labeling.coder import unlabeled_for_ai
+from reviewdistill.labeling.validation import (
     DELETE_UNCHANGED,
     VERIFY_FILE_MISSING,
     VERIFY_MANUSCRIPT_CHANGED,
-    accept_coding,
-    change_coding,
+    accept_assignment,
+    change_assignment,
     disappearance_guess,
     delete_comment,
     inbox_items,
     verify_comment,
 )
 from reviewdistill.context.manuscript import extract_context
-from reviewdistill.db.models import Coding, LabelExample, Label, ProofreadingComment
+from reviewdistill.db.models import Assignment, LabelExample, Label, ProofreadingComment
 from reviewdistill.db.session import get_session
 from reviewdistill.errors import BadInput, Conflict, NotFound
 from reviewdistill.extraction.incremental import extract_project
 from reviewdistill.history import list_history, undo
-from reviewdistill.llm.mock import MockLLMProvider
 from reviewdistill.taxonomy.operations import (
     accepted_counts_by_label,
     create_label,
@@ -42,7 +39,7 @@ def _seed_proposed(tmp_path, response: dict) -> str:
     with get_session() as session:
         comment = session.first(ProofreadingComment)
         session.add(
-            Coding(
+            Assignment(
                 id="seed-proposed",
                 comment_id=comment.id,
                 label_id=response.get("label_id"),
@@ -59,7 +56,7 @@ def _seed_proposed(tmp_path, response: dict) -> str:
         return comment.id
 
 
-def test_accept_existing_marks_coding_and_adds_example(db, tmp_path):
+def test_accept_existing_marks_assignment_and_adds_example(db, tmp_path):
     label = create_label(
         name="Missing methodological justification",
         definition="A design choice is unexplained.",
@@ -78,13 +75,13 @@ def test_accept_existing_marks_coding_and_adds_example(db, tmp_path):
         comment.raw_text = "Why did we choose this method?"
         comment.context_text = "Peak picking follows the energy rule in the supplement."
         session.commit()
-    result = accept_coding(comment_id)
+    result = accept_assignment(comment_id)
     assert result.label_id == label.id
     assert inbox_items() == []
     examples = list_examples(label.id)
     assert examples[0].source_comment_id == comment_id
     with get_session() as session:
-        coding = session.first(Coding)
+        coding = session.first(Assignment)
         assert coding.status == "accepted"
         assert coding.coder_type == "ai"
         stored = session.first(LabelExample)
@@ -110,10 +107,10 @@ def test_remove_drops_proposed_for_that_type(db, tmp_path):
     assert [item.comment.id for item in items] == [comment_id]
     assert items[0].labeled is False
     with get_session() as session:
-        assert session.find(Coding, comment_id=comment_id) == []
+        assert session.find(Assignment, comment_id=comment_id) == []
         assert session.find(LabelExample) == []
-    with pytest.raises(BadInput, match="No proposed coding"):
-        accept_coding(comment_id)
+    with pytest.raises(BadInput, match="No proposed assignment"):
+        accept_assignment(comment_id)
 
 
 def test_remove_undo_restores_proposed_so_accept_works(db, tmp_path):
@@ -132,7 +129,7 @@ def test_remove_undo_restores_proposed_so_accept_works(db, tmp_path):
     )
     remove_label(label.id)
     undo()
-    result = accept_coding(comment_id)
+    result = accept_assignment(comment_id)
     assert result.label_id == label.id
     assert inbox_items() == []
 
@@ -155,8 +152,8 @@ def test_deactivate_drops_proposed_for_that_type(db, tmp_path):
     items = inbox_items()
     assert [item.comment.id for item in items] == [comment_id]
     assert items[0].labeled is False
-    with pytest.raises(BadInput, match="No proposed coding"):
-        accept_coding(comment_id)
+    with pytest.raises(BadInput, match="No proposed assignment"):
+        accept_assignment(comment_id)
 
 
 def test_accept_rejects_an_inactive_type(db, tmp_path):
@@ -179,9 +176,9 @@ def test_accept_rejects_an_inactive_type(db, tmp_path):
         session.add(row)
         session.commit()
     with pytest.raises(NotFound, match="Unknown label"):
-        accept_coding(comment_id)
+        accept_assignment(comment_id)
     with get_session() as session:
-        coding = session.first(Coding, comment_id=comment_id)
+        coding = session.first(Assignment, comment_id=comment_id)
         assert coding.status == "proposed"
         assert session.find(LabelExample) == []
 
@@ -199,7 +196,7 @@ def test_accept_new_creates_issue_type(db, tmp_path):
             "rationale": "Unexplained design decision.",
         },
     )
-    result = accept_coding(comment_id)
+    result = accept_assignment(comment_id)
     with get_session() as session:
         label = session.get(Label, result.label_id)
         assert label is not None
@@ -221,9 +218,9 @@ def test_unknown_proposed_parent_id_becomes_root(db, tmp_path):
         },
     )
     with get_session() as session:
-        coding = session.first(Coding)
+        coding = session.first(Assignment)
         assert coding.proposed_parent_id == "not-a-type"
-    result = accept_coding(comment_id)
+    result = accept_assignment(comment_id)
     with get_session() as session:
         label = session.get(Label, result.label_id)
         assert label.parent_id is None
@@ -244,9 +241,9 @@ def test_existing_proposed_parent_id_is_kept(db, tmp_path):
         },
     )
     with get_session() as session:
-        coding = session.first(Coding)
+        coding = session.first(Assignment)
         assert coding.proposed_parent_id == parent.id
-    result = accept_coding(comment_id)
+    result = accept_assignment(comment_id)
     with get_session() as session:
         label = session.get(Label, result.label_id)
         assert label.parent_id == parent.id
@@ -268,7 +265,7 @@ def test_accept_new_type_under_leaf_moves_existing_labels_onto_ungrouped(db, tmp
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="k-kept",
                 comment_id="c-kept",
                 label_id=parent.id,
@@ -289,13 +286,13 @@ def test_accept_new_type_under_leaf_moves_existing_labels_onto_ungrouped(db, tmp
             "rationale": "Unexplained design decision.",
         },
     )
-    result = accept_coding(comment_id)
+    result = accept_assignment(comment_id)
     with get_session() as session:
         label = session.get(Label, result.label_id)
         assert label.parent_id == parent.id
         kids = [row for row in session.find(Label, status="active") if row.parent_id == parent.id]
         ungrouped = next(row for row in kids if row.name == "ungrouped")
-        kept = session.first(Coding, comment_id="c-kept", status="accepted")
+        kept = session.first(Assignment, comment_id="c-kept", status="accepted")
         assert kept.label_id == ungrouped.id
         assert label.id != ungrouped.id
 
@@ -323,7 +320,7 @@ def test_accept_new_issue_commits_once(db, tmp_path, monkeypatch):
         return original(self)
 
     monkeypatch.setattr(StoreSession, "commit", counting)
-    accept_coding(comment_id)
+    accept_assignment(comment_id)
     assert commits["n"] == 1
 
 
@@ -349,7 +346,7 @@ def test_verify_comment_commits_once(db, tmp_path, monkeypatch):
     assert commits["n"] == 1
 
 
-def test_accept_new_reuses_existing_code(db, tmp_path):
+def test_accept_new_reuses_existing_label(db, tmp_path):
     existing = create_label(
         name="Overclaiming",
         definition="too strong",
@@ -366,12 +363,12 @@ def test_accept_new_reuses_existing_code(db, tmp_path):
             "rationale": "duplicate proposal",
         },
     )
-    result = accept_coding(comment_id)
+    result = accept_assignment(comment_id)
     assert result.label_id == existing.id
     assert [label.name for label in list_active_labels()] == ["Overclaiming"]
 
 
-def test_change_creates_human_coding(db, tmp_path):
+def test_change_creates_human_assignment(db, tmp_path):
     chosen = create_label(
         name="Overclaiming",
         definition="too strong",
@@ -389,10 +386,10 @@ def test_change_creates_human_coding(db, tmp_path):
             "rationale": "wrong guess",
         },
     )
-    change_coding(comment_id, label_id=chosen.id)
+    change_assignment(comment_id, label_id=chosen.id)
     assert inbox_items() == []
     with get_session() as session:
-        rows = session.find(Coding, comment_id=comment_id)
+        rows = session.find(Assignment, comment_id=comment_id)
         statuses = {row.coder_type: row.status for row in rows}
         assert statuses["ai"] == "modified"
         assert statuses["human"] == "accepted"
@@ -418,12 +415,12 @@ def test_change_reassigns_from_one_type_to_another(db, tmp_path):
             "rationale": "too strong",
         },
     )
-    accept_coding(comment_id)
+    accept_assignment(comment_id)
     assert [row.id for row in list_working_observations(first.id)] == [comment_id]
     assert list_working_observations(second.id) == []
     assert [row.source_comment_id for row in list_examples(first.id)] == [comment_id]
 
-    change_coding(comment_id, label_id=second.id)
+    change_assignment(comment_id, label_id=second.id)
 
     assert list_working_observations(first.id) == []
     assert [row.id for row in list_working_observations(second.id)] == [comment_id]
@@ -433,7 +430,7 @@ def test_change_reassigns_from_one_type_to_another(db, tmp_path):
     assert [row.source_comment_id for row in list_examples(second.id)] == [comment_id]
     with get_session() as session:
         accepted = [
-            row for row in session.find(Coding, comment_id=comment_id) if row.status == "accepted"
+            row for row in session.find(Assignment, comment_id=comment_id) if row.status == "accepted"
         ]
         assert len(accepted) == 1
         assert accepted[0].label_id == second.id
@@ -460,10 +457,10 @@ def test_change_rejects_an_inactive_type(db, tmp_path):
             "rationale": "too strong",
         },
     )
-    accept_coding(comment_id)
+    accept_assignment(comment_id)
     deactivate_label(inactive.id)
     with pytest.raises(ValueError, match="Unknown label"):
-        change_coding(comment_id, label_id=inactive.id)
+        change_assignment(comment_id, label_id=inactive.id)
 
 
 def test_change_rejects_the_current_type(db, tmp_path):
@@ -480,18 +477,18 @@ def test_change_rejects_the_current_type(db, tmp_path):
             "rationale": "too strong",
         },
     )
-    accept_coding(comment_id)
+    accept_assignment(comment_id)
     with get_session() as session:
         before = [
             (row.id, row.status, row.label_id, row.coder_type)
-            for row in session.find(Coding, comment_id=comment_id)
+            for row in session.find(Assignment, comment_id=comment_id)
         ]
     with pytest.raises(ValueError, match="already labeled"):
-        change_coding(comment_id, label_id=label.id)
+        change_assignment(comment_id, label_id=label.id)
     with get_session() as session:
         after = [
             (row.id, row.status, row.label_id, row.coder_type)
-            for row in session.find(Coding, comment_id=comment_id)
+            for row in session.find(Assignment, comment_id=comment_id)
         ]
     assert after == before
     accepted = [row for row in after if row[1] == "accepted"]
@@ -511,9 +508,9 @@ def test_change_rejects_a_type_that_has_children(db, tmp_path):
             "rationale": "too strong",
         },
     )
-    accept_coding(comment_id)
+    accept_assignment(comment_id)
     with pytest.raises(ValueError, match="leaf"):
-        change_coding(comment_id, label_id=parent.id)
+        change_assignment(comment_id, label_id=parent.id)
 
 
 def test_labeled_absent_unreviewed_stays_in_unlabeled_inbox(db, tmp_path):
@@ -530,7 +527,7 @@ def test_labeled_absent_unreviewed_stays_in_unlabeled_inbox(db, tmp_path):
             "rationale": "too strong",
         },
     )
-    accept_coding(comment_id)
+    accept_assignment(comment_id)
     assert inbox_items() == []
     (tmp_path / "paper" / "main.tex").write_text("no comments\n")
     extract_project(tmp_path / "paper")
@@ -561,7 +558,7 @@ def test_verify_labeled_absent_moves_off_unlabeled_onto_type(db, tmp_path):
             "rationale": "too strong",
         },
     )
-    accept_coding(comment_id)
+    accept_assignment(comment_id)
     (tmp_path / "paper" / "main.tex").write_text("no comments\n")
     extract_project(tmp_path / "paper")
     verify_comment(comment_id)
@@ -598,7 +595,7 @@ def test_verified_absent_comment_stays_in_working_set(db, tmp_path):
     with get_session() as session:
         row = session.first(ProofreadingComment)
         verify_comment(row.id)
-    assert len(uncoded_comments()) == 1
+    assert len(unlabeled_for_ai()) == 1
     assert len(inbox_items()) == 1
 
 
@@ -614,13 +611,13 @@ def test_deleted_comment_is_gone(db, tmp_path):
     delete_comment(comment_id)
     with get_session() as session:
         assert session.get(ProofreadingComment, comment_id) is None
-    assert uncoded_comments() == []
+    assert unlabeled_for_ai() == []
     assert inbox_items() == []
     with pytest.raises(NotFound, match="Unknown comment"):
         delete_comment(comment_id)
 
 
-def test_delete_removes_codings_and_sourced_examples(db, tmp_path):
+def test_delete_removes_assignments_and_sourced_examples(db, tmp_path):
     from reviewdistill.taxonomy.operations import add_example
 
     repo = tmp_path / "paper"
@@ -631,12 +628,12 @@ def test_delete_removes_codings_and_sourced_examples(db, tmp_path):
     label = create_label(name="Overclaiming", definition="too strong")
     with get_session() as session:
         comment_id = session.first(ProofreadingComment).id
-    change_coding(comment_id, label_id=label.id)
+    change_assignment(comment_id, label_id=label.id)
     add_example(label.id, text="Too strong.", source_comment_id=comment_id)
     delete_comment(comment_id)
     with get_session() as session:
         assert session.get(ProofreadingComment, comment_id) is None
-        assert session.find(Coding, comment_id=comment_id) == []
+        assert session.find(Assignment, comment_id=comment_id) == []
         assert session.find(LabelExample, source_comment_id=comment_id) == []
     assert list_examples(label.id) == []
 
@@ -738,7 +735,7 @@ def test_disappearance_guess_compares_full_prose_not_first_line():
 
 
 
-def test_accept_uses_newest_proposed_coding_not_lexicographic_id(db):
+def test_accept_uses_newest_proposed_assignment_not_lexicographic_id(db):
     from datetime import UTC, datetime
 
     from reviewdistill.db.models import Project
@@ -758,7 +755,7 @@ def test_accept_uses_newest_proposed_coding_not_lexicographic_id(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="aaa-older-id",
                 comment_id="c1",
                 coder_type="ai",
@@ -769,7 +766,7 @@ def test_accept_uses_newest_proposed_coding_not_lexicographic_id(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="zzz-newer-id",
                 comment_id="c1",
                 coder_type="ai",
@@ -782,14 +779,14 @@ def test_accept_uses_newest_proposed_coding_not_lexicographic_id(db):
         session.commit()
     items = inbox_items()
     assert len(items) == 1
-    assert items[0].coding is not None
-    assert items[0].coding.id == "zzz-newer-id"
-    accepted = accept_coding("c1")
+    assert items[0].assignment is not None
+    assert items[0].assignment.id == "zzz-newer-id"
+    accepted = accept_assignment("c1")
     assert accepted.id == "zzz-newer-id"
     assert accepted.status == "accepted"
 
 
-def test_inbox_and_uncoded_order_by_created_at_not_id(db):
+def test_inbox_and_unlabeled_order_by_created_at_not_id(db):
     from datetime import UTC, datetime
 
     from reviewdistill.db.models import Project
@@ -823,5 +820,5 @@ def test_inbox_and_uncoded_order_by_created_at_not_id(db):
             )
         )
         session.commit()
-    assert [row.id for row in uncoded_comments()] == ["zzz-older", "aaa-newer"]
+    assert [row.id for row in unlabeled_for_ai()] == ["zzz-older", "aaa-newer"]
     assert [item.comment.id for item in inbox_items()] == ["zzz-older", "aaa-newer"]

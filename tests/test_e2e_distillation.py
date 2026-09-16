@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 
 from reviewdistill.cli.init import init_project
-from reviewdistill.coding.coder import code_uncoded_comments
-from reviewdistill.coding.validation import inbox_items
+from reviewdistill.labeling.coder import label_unlabeled_comments
+from reviewdistill.labeling.validation import inbox_items
 from reviewdistill.extraction.incremental import extract_project
 from reviewdistill.llm.mock import MockLLMProvider
 from reviewdistill.taxonomy.export import export_rubric
@@ -30,7 +30,7 @@ def test_second_paper_reuses_accepted_taxonomy(db, tmp_path):
             }
         )
     )
-    code_uncoded_comments(provider=provider_new)
+    label_unlabeled_comments(provider=provider_new)
 
     types = list_active_labels()
     assert any(label.name == "Overclaiming" for label in types)
@@ -41,7 +41,7 @@ def test_second_paper_reuses_accepted_taxonomy(db, tmp_path):
     init_project(name="paper-02", commands=["myremark"], cwd=paper2)
     (paper2 / "main.tex").write_text(Path("tests/fixtures/paper-02/main.tex").read_text())
     extract_project(paper2)
-    code_uncoded_comments(
+    label_unlabeled_comments(
         provider=MockLLMProvider(
             scripted_response=json.dumps(
                 {

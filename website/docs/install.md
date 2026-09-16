@@ -29,7 +29,7 @@ reviewdistill --help
 Comments and labels are stored in one folder on your computer (not in the paper repo):
 
 - Default: `~/.reviewdistill`
-- Comments: `~/.reviewdistill/comments.jsonl` (plus `projects.jsonl`, `codings.jsonl`, `labels.jsonl`, …)
+- Comments: `~/.reviewdistill/comments.jsonl` (plus `projects.jsonl`, `assignments.jsonl`, `labels.jsonl`, …)
 
 Print the resolved paths:
 

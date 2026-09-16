@@ -7,9 +7,10 @@ from pathlib import Path
 import pytest
 
 from reviewdistill.db.models import (
-    Coding,
+    Assignment,
     Project,
     ProofreadingComment,
+    TaxonomyEvent,
     normalize_comment_record,
 )
 from reviewdistill.db.session import FILES, get_session, init_db, reset_engine
@@ -20,11 +21,34 @@ def test_store_files_are_the_live_collections():
     assert set(FILES.values()) == {
         "projects.jsonl",
         "comments.jsonl",
-        "codings.jsonl",
+        "assignments.jsonl",
         "labels.jsonl",
         "label_examples.jsonl",
-        "taxonomy_events.jsonl",
+        "history.jsonl",
     }
+
+
+def test_load_ignores_taxonomy_events_jsonl(rd_home):
+    reset_engine()
+    (rd_home / "taxonomy_events.jsonl").write_text(
+        json.dumps(
+            {
+                "id": "e1",
+                "event_type": "add",
+                "payload_json": "{}",
+                "undone": False,
+                "created_at": "2026-09-16T00:00:00Z",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    init_db()
+    with get_session() as session:
+        assert session.get(TaxonomyEvent, "e1") is None
+    history = rd_home / "history.jsonl"
+    assert not history.is_file() or "e1" not in history.read_text(encoding="utf-8")
+    assert (rd_home / "taxonomy_events.jsonl").is_file()
 
 
 def test_init_db_creates_and_round_trips_project(rd_home):
@@ -250,7 +274,7 @@ def test_load_purges_dropped_comment_and_dependents(rd_home):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="k1",
                 comment_id="c-drop",
                 label_id=None,
@@ -267,7 +291,7 @@ def test_load_purges_dropped_comment_and_dependents(rd_home):
     reset_engine()
     with get_session() as session:
         assert session.get(ProofreadingComment, "c-drop") is None
-        assert session.get(Coding, "k1") is None
+        assert session.get(Assignment, "k1") is None
     assert "dropped" not in (rd_home / "comments.jsonl").read_text(encoding="utf-8")
 
 
@@ -331,6 +355,10 @@ def test_init_db_writes_home_readme(rd_home):
     text = (rd_home / "README.md").read_text(encoding="utf-8")
     assert "paths move" in text
     assert "paths use" in text
+    assert "`projects.jsonl`" in text
+    assert "`comments.jsonl`" in text
+    assert "`labels.jsonl`" in text
+    assert "`config.yaml`" in text
     assert ".env" in text
 
 

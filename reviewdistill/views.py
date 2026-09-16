@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from reviewdistill.coding.coder import effective_provider_name, uncoded_comments
+from reviewdistill.labeling.coder import effective_provider_name, unlabeled_for_ai
 from reviewdistill.config import load_project_config
-from reviewdistill.coding.validation import _latest_proposed, disappearance_guess, inbox_items
+from reviewdistill.labeling.validation import _latest_proposed, disappearance_guess, inbox_items
 from reviewdistill.db.models import (
-    CODING_ACCEPTED,
+    ASSIGNMENT_ACCEPTED,
     LABEL_ACTIVE,
-    Coding,
+    Assignment,
     Label,
     Project,
     ProofreadingComment,
@@ -47,17 +47,17 @@ def comment_json(comment: ProofreadingComment) -> dict:
     return data
 
 
-def _coding_json(coding) -> dict | None:
-    if coding is None:
+def _assignment_json(row) -> dict | None:
+    if row is None:
         return None
     return {
-        "id": coding.id,
-        "status": coding.status,
-        "label_id": coding.label_id,
-        "proposed_label_name": coding.proposed_label_name,
-        "confidence": coding.confidence,
-        "rationale": coding.rationale,
-        "kind": "existing" if coding.label_id else "new",
+        "id": row.id,
+        "status": row.status,
+        "label_id": row.label_id,
+        "proposed_label_name": row.proposed_label_name,
+        "confidence": row.confidence,
+        "rationale": row.rationale,
+        "kind": "existing" if row.label_id else "new",
     }
 
 
@@ -133,7 +133,7 @@ def comment_progress(comments: list, labeled_ids: set[str]) -> dict:
     }
 
 
-def _item_dict(comment, *, labeled: bool, label, coding, project: Project | None) -> dict:
+def _item_dict(comment, *, labeled: bool, label, assignment, project: Project | None) -> dict:
     source = _source_file(comment, project)
     return {
         "comment": comment_json(comment),
@@ -156,7 +156,7 @@ def _item_dict(comment, *, labeled: bool, label, coding, project: Project | None
             if label is not None
             else None
         ),
-        "coding": _coding_json(coding),
+        "assignment": _assignment_json(assignment),
         "in_working_set": in_working_set(comment),
         "local_file": source is not None,
     }
@@ -180,7 +180,7 @@ def inbox_payload() -> dict:
                 item.comment,
                 labeled=item.labeled,
                 label=item.label,
-                coding=item.coding,
+                assignment=item.assignment,
                 project=projects.get(item.comment.project_id),
             )
             for item in unlabeled
@@ -200,7 +200,7 @@ def inbox_payload() -> dict:
                     comment,
                     labeled=labeled,
                     label=label,
-                    coding=_latest_proposed(
+                    assignment=_latest_proposed(
                         session, comment.id, provider_name=provider_name, skip_placeholders=True
                     ),
                     project=projects.get(comment.project_id),
@@ -216,12 +216,12 @@ def inbox_payload() -> dict:
         }
         labeled_ids = {
             row.comment_id
-            for row in session.find(Coding)
-            if row.status == CODING_ACCEPTED and row.label_id in active_label_ids
+            for row in session.find(Assignment)
+            if row.status == ASSIGNMENT_ACCEPTED and row.label_id in active_label_ids
         }
         return {
             "unlabeled_count": len(unlabeled),
-            "pending_code_count": len(uncoded_comments()),
+            "pending_ai_count": len(unlabeled_for_ai()),
             "llm_provider": llm_name,
             "labels": labels,
             "items": payload,
@@ -231,7 +231,7 @@ def inbox_payload() -> dict:
 
 
 def _accepted_label_json(session, comment_id: str) -> dict | None:
-    for coding in session.find(Coding, comment_id=comment_id, status=CODING_ACCEPTED):
+    for coding in session.find(Assignment, comment_id=comment_id, status=ASSIGNMENT_ACCEPTED):
         if not coding.label_id:
             continue
         label = session.get(Label, coding.label_id)

@@ -13,10 +13,10 @@ class MockLLMProvider:
     def generate(self, prompt: str) -> str:
         if self.scripted_response is not None:
             return self.scripted_response
-        from reviewdistill.coding.split import SPLIT_TASK
+        from reviewdistill.labeling.split import SPLIT_TASK
 
         if SPLIT_TASK in prompt:
-            # Split prompts need labels+assignments JSON; coding prompts keep the recommendation object.
+            # Split prompts need labels+assignments JSON; labeling prompts keep the recommendation object.
             ids = re.findall(r"^- id=(\S+)", prompt, re.M)
             labels = [
                 {

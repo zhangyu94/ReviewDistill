@@ -6,13 +6,13 @@ from uuid import uuid4
 
 import httpx
 
-from reviewdistill.coding.retrieval import retrieve_candidates
+from reviewdistill.labeling.retrieval import retrieve_candidates
 from reviewdistill.context.mark import splice_remark
 from reviewdistill.db.models import (
-    CODING_ACCEPTED,
-    CODING_PROPOSED,
+    ASSIGNMENT_ACCEPTED,
+    ASSIGNMENT_PROPOSED,
     LABEL_ACTIVE,
-    Coding,
+    Assignment,
     Label,
     ProofreadingComment,
     in_working_set,
@@ -38,8 +38,8 @@ class ModelProposal:
 
 
 @dataclass
-class CodeSummary:
-    coded: int
+class LabelAiSummary:
+    assigned: int
     skipped: int
     privacy_warning: str | None = None
     label_names: list[str] = field(default_factory=list)
@@ -148,8 +148,8 @@ def _proposal_parent_id(session, parent_id: str | None) -> str | None:
 _UNSET = object()
 
 
-def is_placeholder_coding(coding: Coding | None) -> bool:
-    if coding is None or coding.status != CODING_PROPOSED:
+def is_placeholder_assignment(coding: Assignment | None) -> bool:
+    if coding is None or coding.status != ASSIGNMENT_PROPOSED:
         return False
     name = (coding.proposed_label_name or "").strip()
     rationale = coding.rationale or ""
@@ -163,11 +163,11 @@ def effective_provider_name() -> str | None:
         return None
 
 
-def hide_placeholder_coding(coding: Coding | None, *, provider_name: str | None) -> bool:
-    return is_placeholder_coding(coding) and provider_name != "mock"
+def hide_placeholder_assignment(coding: Assignment | None, *, provider_name: str | None) -> bool:
+    return is_placeholder_assignment(coding) and provider_name != "mock"
 
 
-def uncoded_comments(*, provider_name: str | None | object = _UNSET) -> list[ProofreadingComment]:
+def unlabeled_for_ai(*, provider_name: str | None | object = _UNSET) -> list[ProofreadingComment]:
     if provider_name is _UNSET:
         resolved: str | None = effective_provider_name()
     elif isinstance(provider_name, str):
@@ -184,17 +184,17 @@ def uncoded_comments(*, provider_name: str | None | object = _UNSET) -> list[Pro
         resolved_ids: set[str] = {
             comment.id for comment in comments if is_labeled(session, comment.id)
         }
-        for coding in session.find(Coding):
+        for coding in session.find(Assignment):
             if (
-                coding.status == CODING_PROPOSED
-                and not hide_placeholder_coding(coding, provider_name=resolved)
+                coding.status == ASSIGNMENT_PROPOSED
+                and not hide_placeholder_assignment(coding, provider_name=resolved)
                 and (coding.label_id or (coding.proposed_label_name or "").strip())
             ):
                 resolved_ids.add(coding.comment_id)
         return [comment for comment in comments if comment.id not in resolved_ids]
 
 
-def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
+def label_unlabeled_comments(provider: LLMProvider | None = None) -> LabelAiSummary:
     """Label with AI: accept-assign each unlabeled comment in one ``propose`` event.
 
     New names are minted with ``add_label(log=False)`` in this batch (not a
@@ -202,12 +202,12 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
     """
     init_db()
     provider = provider or get_provider()
-    coded = 0
+    assigned = 0
     skipped = 0
     created: list[dict] = []
     replaced: list[dict] = []
     with get_session():
-        comments = uncoded_comments(provider_name=provider.name)
+        comments = unlabeled_for_ai(provider_name=provider.name)
         ranked_by_id = {comment.id: retrieve_candidates(comment) for comment in comments}
     warning = None
     if provider.name != "mock" and comments:
@@ -235,7 +235,7 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
             skipped += 1
             continue
         pending.append((comment, proposal, label_id))
-        coded += 1
+        assigned += 1
     label_names: list[str] = []
     if pending:
         with get_session() as session:
@@ -255,7 +255,7 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
                         label_id = None
                 if not label_id and not proposal_has_new_label(proposal):
                     skipped += 1
-                    coded -= 1
+                    assigned -= 1
                     continue
                 if not label_id:
                     requested = (proposal.label_name or "").strip()
@@ -272,20 +272,20 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
                         minted[requested] = label.id
                         created_label_ids.append(label.id)
                         label_id = label.id
-                for row in list(session.find(Coding, comment_id=comment.id, status=CODING_PROPOSED)):
-                    if hide_placeholder_coding(row, provider_name=provider.name):
+                for row in list(session.find(Assignment, comment_id=comment.id, status=ASSIGNMENT_PROPOSED)):
+                    if hide_placeholder_assignment(row, provider_name=provider.name):
                         session.delete(row)
                     else:
                         replaced.append(dump_row(row))
                         session.delete(row)
-                coding = Coding(
+                coding = Assignment(
                     id=str(uuid4()),
                     comment_id=comment.id,
                     label_id=label_id,
                     coder_type="ai",
                     confidence=proposal.confidence,
                     rationale=proposal.rationale,
-                    status=CODING_ACCEPTED,
+                    status=ASSIGNMENT_ACCEPTED,
                     proposed_label_name=proposal.label_name,
                     proposed_parent_id=_proposal_parent_id(session, proposal.parent_id),
                     proposed_label_definition=proposal.definition,
@@ -318,8 +318,8 @@ def code_uncoded_comments(provider: LLMProvider | None = None) -> CodeSummary:
                 },
             )
             session.commit()
-    return CodeSummary(
-        coded=coded,
+    return LabelAiSummary(
+        assigned=assigned,
         skipped=skipped,
         privacy_warning=warning,
         label_names=label_names,

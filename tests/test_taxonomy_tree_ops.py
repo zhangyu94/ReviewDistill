@@ -3,11 +3,11 @@ import json
 import pytest
 
 from reviewdistill.db.models import (
-    CODING_ACCEPTED,
-    CODING_MODIFIED,
-    CODING_PROPOSED,
+    ASSIGNMENT_ACCEPTED,
+    ASSIGNMENT_MODIFIED,
+    ASSIGNMENT_PROPOSED,
     LABEL_INACTIVE,
-    Coding,
+    Assignment,
     Label,
     LabelExample,
     ProofreadingComment,
@@ -15,7 +15,7 @@ from reviewdistill.db.models import (
     is_labeled,
 )
 from reviewdistill.db.session import get_session
-from reviewdistill.coding.split import SplitPlan
+from reviewdistill.labeling.split import SplitPlan
 from reviewdistill.errors import BadInput, NotFound
 from reviewdistill.taxonomy.operations import (
     apply_split,
@@ -66,9 +66,9 @@ def test_first_child_adds_ungrouped_and_moves_parent_labels(db):
             file_path="main.tex", line_number=1, raw_text="too strong",
             status="active",
         ))
-        session.add(Coding(
+        session.add(Assignment(
             id="k1", comment_id="c1", label_id=parent.id, coder_type="human",
-            status=CODING_ACCEPTED,
+            status=ASSIGNMENT_ACCEPTED,
         ))
         session.commit()
     created = create_empty_label(parent_id=parent.id)
@@ -78,7 +78,7 @@ def test_first_child_adds_ungrouped_and_moves_parent_labels(db):
     assert created.id == kids[0].id
     ungrouped = kids[1]
     with get_session() as session:
-        assert session.get(Coding, "k1").label_id == ungrouped.id
+        assert session.get(Assignment, "k1").label_id == ungrouped.id
         events = session.find(TaxonomyEvent)
         adds = [row for row in events if row.event_type == "add"]
         assert len(adds) == 2
@@ -150,15 +150,15 @@ def test_flatten_reassigns_descendant_comments(db):
             file_path="main.tex", line_number=1, raw_text="too strong",
             status="active",
         ))
-        session.add(Coding(
+        session.add(Assignment(
             id="k1", comment_id="c1", label_id=child.id, coder_type="human",
-            status=CODING_ACCEPTED,
+            status=ASSIGNMENT_ACCEPTED,
         ))
         session.commit()
     flatten_label(parent.id)
     with get_session() as session:
         child_row = session.get(Label, child.id)
-        coding = session.get(Coding, "k1")
+        coding = session.get(Assignment, "k1")
         assert child_row.status == LABEL_INACTIVE
         assert coding.label_id == parent.id
 
@@ -178,16 +178,16 @@ def test_remove_deletes_subtree_and_unlabels(db):
             file_path="main.tex", line_number=1, raw_text="too strong",
             status="active",
         ))
-        session.add(Coding(
+        session.add(Assignment(
             id="k1", comment_id="c1", label_id=child.id, coder_type="human",
-            status=CODING_ACCEPTED,
+            status=ASSIGNMENT_ACCEPTED,
         ))
         session.commit()
     remove_label(root.id)
     with get_session() as session:
         assert session.get(Label, root.id) is None
         assert session.get(Label, child.id) is None
-        assert session.find(Coding, comment_id="c1") == []
+        assert session.find(Assignment, comment_id="c1") == []
 
 
 def test_deactivate_reparents_children(db):
@@ -330,9 +330,9 @@ def test_move_under_labeled_leaf_parks_labels_on_ungrouped(db):
             file_path="main.tex", line_number=1, raw_text="too strong",
             status="active",
         ))
-        session.add(Coding(
+        session.add(Assignment(
             id="k1", comment_id="c1", label_id=parent.id, coder_type="human",
-            status=CODING_ACCEPTED,
+            status=ASSIGNMENT_ACCEPTED,
         ))
         session.commit()
     move_label(child.id, parent_id=parent.id, position=0)
@@ -341,7 +341,7 @@ def test_move_under_labeled_leaf_parks_labels_on_ungrouped(db):
     ungrouped = next(row for row in kids if row.name == "ungrouped")
     assert {row.name for row in kids} == {"Child", "ungrouped"}
     with get_session() as session:
-        assert session.get(Coding, "k1").label_id == ungrouped.id
+        assert session.get(Assignment, "k1").label_id == ungrouped.id
         moves = [row for row in session.find(TaxonomyEvent) if row.event_type == "move"]
         payload = json.loads(moves[-1].payload_json)
         assert payload["ungrouped_id"] == ungrouped.id
@@ -357,18 +357,18 @@ def test_merge_parent_into_labeled_leaf_parks_labels_on_ungrouped(db):
             file_path="main.tex", line_number=1, raw_text="on target",
             status="active",
         ))
-        session.add(Coding(
+        session.add(Assignment(
             id="k-tgt", comment_id="c-tgt", label_id=target.id, coder_type="human",
-            status=CODING_ACCEPTED,
+            status=ASSIGNMENT_ACCEPTED,
         ))
         session.add(ProofreadingComment(
             id="c-src", project_id="p", source_type="latex_command", source_command="myremark",
             file_path="main.tex", line_number=2, raw_text="on source",
             status="active",
         ))
-        session.add(Coding(
+        session.add(Assignment(
             id="k-src", comment_id="c-src", label_id=source.id, coder_type="human",
-            status=CODING_ACCEPTED,
+            status=ASSIGNMENT_ACCEPTED,
         ))
         session.commit()
     merge_labels(source_ids=[source.id], target_id=target.id)
@@ -376,8 +376,8 @@ def test_merge_parent_into_labeled_leaf_parks_labels_on_ungrouped(db):
     ungrouped = next(row for row in kids if row.name == "ungrouped")
     with get_session() as session:
         assert session.get(Label, kid.id).parent_id == target.id
-        assert session.get(Coding, "k-tgt").label_id == ungrouped.id
-        assert session.get(Coding, "k-src").label_id == ungrouped.id
+        assert session.get(Assignment, "k-tgt").label_id == ungrouped.id
+        assert session.get(Assignment, "k-src").label_id == ungrouped.id
         merges = [row for row in session.find(TaxonomyEvent) if row.event_type == "merge"]
         payload = json.loads(merges[-1].payload_json)
         assert payload["ungrouped_id"] == ungrouped.id
@@ -404,12 +404,12 @@ def test_recycle_assigns_unlabeled_working_set_onto_ungrouped(db):
     _working_comment("gone", "left", status="pending_disappeared", quality="unreviewed")
     with get_session() as session:
         session.add(
-            Coding(
+            Assignment(
                 id="k-prop",
                 comment_id="c1",
                 label_id=None,
                 coder_type="ai",
-                status=CODING_PROPOSED,
+                status=ASSIGNMENT_PROPOSED,
                 proposed_label_name="Maybe",
                 proposed_label_definition="too strong",
             )
@@ -425,13 +425,13 @@ def test_recycle_assigns_unlabeled_working_set_onto_ungrouped(db):
         assert not is_labeled(session, "gone")
         accepted = [
             row
-            for row in session.find(Coding, status=CODING_ACCEPTED)
+            for row in session.find(Assignment, status=ASSIGNMENT_ACCEPTED)
             if row.label_id == created.id
         ]
         assert {row.comment_id for row in accepted} == {"c1", "c2"}
         assert all(row.coder_type == "human" for row in accepted)
         assert all(row.rationale == "Grouped unlabeled comments." for row in accepted)
-        assert session.get(Coding, "k-prop").status == CODING_MODIFIED
+        assert session.get(Assignment, "k-prop").status == ASSIGNMENT_MODIFIED
         examples = list(session.find(LabelExample, label_id=created.id))
         assert {row.source_comment_id for row in examples} == {"c1", "c2"}
         events = [row for row in session.find(TaxonomyEvent) if row.event_type == "recycle"]

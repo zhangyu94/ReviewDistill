@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from reviewdistill.db.session import FILES
 from reviewdistill.paths import (
+    HOME_README,
     HomePathError,
     comments_path,
     data_location,
@@ -16,6 +18,15 @@ from reviewdistill.paths import (
     move_home,
     use_home,
 )
+
+
+def test_home_readme_lists_store_files():
+    for name in FILES.values():
+        assert f"`{name}`" in HOME_README
+    for name in ("config.yaml", ".env", ".gitignore", ".lock"):
+        assert f"`{name}`" in HOME_README
+    assert "Settings → Assistant" in HOME_README
+    assert "paper" in HOME_README.lower()
 
 
 def test_locator_path_is_isolated_from_real_home(tmp_path):

@@ -4,14 +4,14 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from uuid import uuid4
 
-from reviewdistill.coding.coder import effective_provider_name, hide_placeholder_coding
+from reviewdistill.labeling.coder import effective_provider_name, hide_placeholder_assignment
 from reviewdistill.context.manuscript import extract_context
 from reviewdistill.db.models import (
-    CODING_ACCEPTED,
-    CODING_MODIFIED,
-    CODING_PROPOSED,
+    ASSIGNMENT_ACCEPTED,
+    ASSIGNMENT_MODIFIED,
+    ASSIGNMENT_PROPOSED,
     LABEL_ACTIVE,
-    Coding,
+    Assignment,
     LabelExample,
     Label,
     ProofreadingComment,
@@ -52,13 +52,13 @@ class InboxLabel:
 @dataclass
 class InboxItem:
     comment: ProofreadingComment
-    coding: Coding | None
+    assignment: Assignment | None
     labeled: bool
     label: InboxLabel | None = None
 
 
 def _accepted_label(session, comment_id: str) -> InboxLabel | None:
-    for row in session.find(Coding, comment_id=comment_id, status=CODING_ACCEPTED):
+    for row in session.find(Assignment, comment_id=comment_id, status=ASSIGNMENT_ACCEPTED):
         if not row.label_id:
             continue
         label = session.get(Label, row.label_id)
@@ -86,7 +86,7 @@ def inbox_items() -> list[InboxItem]:
             items.append(
                 InboxItem(
                     comment=comment,
-                    coding=proposed,
+                    assignment=proposed,
                     labeled=labeled,
                     label=_accepted_label(session, comment.id) if labeled else None,
                 )
@@ -123,7 +123,7 @@ def delete_comment(comment_id: str) -> None:
         payload = {
             "comment_id": comment_id,
             "comment": dump_row(comment),
-            "codings": [dump_row(row) for row in session.find(Coding, comment_id=comment_id)],
+            "assignments": [dump_row(row) for row in session.find(Assignment, comment_id=comment_id)],
             "examples": [
                 dump_row(row) for row in session.find(LabelExample, source_comment_id=comment_id)
             ],
@@ -158,27 +158,27 @@ def disappearance_guess(
 
 def _latest_proposed(
     session, comment_id: str, *, provider_name: str | None = None, skip_placeholders: bool = False
-) -> Coding | None:
-    rows = session.find(Coding, comment_id=comment_id, status=CODING_PROPOSED, order_by="created_at")
+) -> Assignment | None:
+    rows = session.find(Assignment, comment_id=comment_id, status=ASSIGNMENT_PROPOSED, order_by="created_at")
     if skip_placeholders:
         rows = [
-            row for row in rows if not hide_placeholder_coding(row, provider_name=provider_name)
+            row for row in rows if not hide_placeholder_assignment(row, provider_name=provider_name)
         ]
     return rows[-1] if rows else None
 
 
-def accept_coding(comment_id: str) -> Coding:
+def accept_assignment(comment_id: str) -> Assignment:
     with get_session() as session:
         comment = session.get(ProofreadingComment, comment_id)
         if comment is None:
             raise NotFound(f"Unknown comment {comment_id}")
         coding = _latest_proposed(session, comment_id)
         if coding is None:
-            raise BadInput(f"No proposed coding for {comment_id}")
+            raise BadInput(f"No proposed assignment for {comment_id}")
         label_id = coding.label_id
         if label_id is None:
             if not coding.proposed_label_name:
-                raise BadInput("Proposed coding has no label and no new-label fields")
+                raise BadInput("Proposed assignment has no label and no new-label fields")
             existing = session.first(Label, status=LABEL_ACTIVE, name=coding.proposed_label_name)
             if existing is not None:
                 label = existing
@@ -198,7 +198,7 @@ def accept_coding(comment_id: str) -> Coding:
         if active_children(session.find(Label), label_id):
             raise BadInput("Can only assign a leaf label")
         coding.label_id = label_id
-        coding.status = CODING_ACCEPTED
+        coding.status = ASSIGNMENT_ACCEPTED
         session.add(coding)
         example, created, previous = ensure_example(session, label_id, example_text(comment), comment_id)
         example_updates = []
@@ -211,9 +211,9 @@ def accept_coding(comment_id: str) -> Coding:
             "accept",
             {
                 "comment_id": comment_id,
-                "coding_id": coding.id,
+                "assignment_id": coding.id,
                 "label_id": label_id,
-                "previous_status": CODING_PROPOSED,
+                "previous_status": ASSIGNMENT_PROPOSED,
                 "example_id": example.id,
                 "example_created": created,
                 "example": dump_row(example) if created else None,
@@ -225,7 +225,7 @@ def accept_coding(comment_id: str) -> Coding:
         return coding
 
 
-def change_coding(comment_id: str, *, label_id: str) -> Coding:
+def change_assignment(comment_id: str, *, label_id: str) -> Assignment:
     with get_session() as session:
         label = session.get(Label, label_id)
         if label is None or label.status != LABEL_ACTIVE:
@@ -235,29 +235,29 @@ def change_coding(comment_id: str, *, label_id: str) -> Coding:
         comment = session.get(ProofreadingComment, comment_id)
         if comment is None:
             raise NotFound(f"Unknown comment {comment_id}")
-        current_accepted = list(session.find(Coding, comment_id=comment_id, status=CODING_ACCEPTED))
+        current_accepted = list(session.find(Assignment, comment_id=comment_id, status=ASSIGNMENT_ACCEPTED))
         if any(row.label_id == label_id for row in current_accepted):
             raise Conflict(f"Comment {comment_id} is already labeled with this label")
         proposed = _latest_proposed(session, comment_id)
         proposed_id = proposed.id if proposed is not None else None
         if proposed is not None:
-            proposed.status = CODING_MODIFIED
+            proposed.status = ASSIGNMENT_MODIFIED
             session.add(proposed)
         retired_accepted = []
         for row in current_accepted:
             retired_accepted.append(dump_row(row))
-            row.status = CODING_MODIFIED
+            row.status = ASSIGNMENT_MODIFIED
             session.add(row)
         deleted_examples = []
         for example in list(session.find(LabelExample, source_comment_id=comment_id)):
             deleted_examples.append(dump_row(example))
             session.delete(example)
-        human = Coding(
+        human = Assignment(
             id=str(uuid4()),
             comment_id=comment_id,
             label_id=label_id,
             coder_type="human",
-            status=CODING_ACCEPTED,
+            status=ASSIGNMENT_ACCEPTED,
             rationale="Human selected an existing label.",
         )
         session.add(human)
@@ -268,8 +268,8 @@ def change_coding(comment_id: str, *, label_id: str) -> Coding:
             {
                 "comment_id": comment_id,
                 "proposed_id": proposed_id,
-                "coding_id": human.id,
-                "coding": dump_row(human),
+                "assignment_id": human.id,
+                "assignment": dump_row(human),
                 "example_id": example.id,
                 "example_created": created,
                 "example": dump_row(example) if created else None,

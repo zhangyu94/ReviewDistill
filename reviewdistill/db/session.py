@@ -13,7 +13,7 @@ from typing import Self, TypeVar
 
 from reviewdistill.db.models import (
     LABEL_ACTIVE,
-    Coding,
+    Assignment,
     LabelExample,
     Label,
     Project,
@@ -30,20 +30,20 @@ T = TypeVar("T")
 MODELS = (
     Project,
     ProofreadingComment,
-    Coding,
+    Assignment,
     Label,
     LabelExample,
     TaxonomyEvent,
 )
 
-# Label is a category row (labels.jsonl). TaxonomyEvent is the scheme-mutation log.
+# Label is a category row (labels.jsonl). TaxonomyEvent is the History undo log.
 FILES = {
     Project: "projects.jsonl",
     ProofreadingComment: "comments.jsonl",
-    Coding: "codings.jsonl",
+    Assignment: "assignments.jsonl",
     Label: "labels.jsonl",
     LabelExample: "label_examples.jsonl",
-    TaxonomyEvent: "taxonomy_events.jsonl",
+    TaxonomyEvent: "history.jsonl",
 }
 
 SENTINEL_NAME = "COMMIT"
@@ -82,9 +82,9 @@ class StoreSession:
         self._tables[type(obj)].pop(obj.id, None)  # type: ignore[attr-defined]
 
     def delete_comment_graph(self, comment: ProofreadingComment) -> None:
-        """Drop the comment, its codings, and sourced examples. Labels stay."""
+        """Drop the comment, its assignments, and sourced examples. Labels stay."""
         comment_id = comment.id
-        for row in self.find(Coding, comment_id=comment_id):
+        for row in self.find(Assignment, comment_id=comment_id):
             self.delete(row)
         for row in self.find(LabelExample, source_comment_id=comment_id):
             self.delete(row)
@@ -127,8 +127,8 @@ class StoreSession:
         self._tables = {model: {} for model in MODELS}
         dropped_ids: list[str] = []
         rewrote_comments = False
-        for model, name in FILES.items():
-            path = self._home / name
+        for model in FILES:
+            path = self._home / FILES[model]
             if not path.is_file():
                 continue
             for line in path.read_text(encoding="utf-8").splitlines():
@@ -138,7 +138,7 @@ class StoreSession:
                 try:
                     data = json.loads(line)
                 except json.JSONDecodeError as exc:
-                    raise CorruptStore(f"Invalid JSON in {name}") from exc
+                    raise CorruptStore(f"Invalid JSON in {path.name}") from exc
                 if model is ProofreadingComment:
                     # Map leftover quality / fingerprint; None means purge a dropped row.
                     had_legacy = "quality" in data or "fingerprint" in data
@@ -157,7 +157,7 @@ class StoreSession:
                 self._tables[model][row.id] = row
         _validate_issue_parents(self._tables[Label])
         for comment_id in dropped_ids:
-            for row in list(self.find(Coding, comment_id=comment_id)):
+            for row in list(self.find(Assignment, comment_id=comment_id)):
                 self.delete(row)
             for row in list(self.find(LabelExample, source_comment_id=comment_id)):
                 self.delete(row)

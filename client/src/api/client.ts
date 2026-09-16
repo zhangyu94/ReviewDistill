@@ -25,7 +25,7 @@ export interface CommentJson {
   created_at: string
 }
 
-export interface CodingJson {
+export interface AssignmentJson {
   id: string
   status: string
   label_id: string | null
@@ -43,7 +43,7 @@ export interface InboxItemJson {
   in_manuscript: boolean
   labeled: boolean
   label: LabelOption | null
-  coding: CodingJson | null
+  assignment: AssignmentJson | null
   in_working_set: boolean
   local_file: boolean
 }
@@ -58,7 +58,7 @@ export interface CommentProgress {
 
 export interface InboxResponse {
   unlabeled_count: number
-  pending_code_count: number
+  pending_ai_count: number
   llm_provider: string | null
   labels: LabelOption[]
   items: InboxItemJson[]
@@ -123,14 +123,14 @@ export function revealInboxFile(commentId: string): Promise<{ ok: true }> {
   return api(`/api/inbox/${commentId}/reveal`, { method: 'POST' })
 }
 
-export function postInboxCode(): Promise<{
+export function postInboxLabel(): Promise<{
   ok: true
-  coded: number
+  assigned: number
   failed: number
   privacy_warning: string | null
   label_names?: string[]
 }> {
-  return api('/api/inbox/code', { method: 'POST' })
+  return api('/api/inbox/label', { method: 'POST' })
 }
 
 export function changeInbox(commentId: string, labelId: string): Promise<{ ok: true }> {

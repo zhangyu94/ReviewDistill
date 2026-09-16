@@ -16,7 +16,26 @@ STAGING_DIRNAME = ".commit"
 HOME_README = """\
 # ReviewDistill data
 
-Comments, labels, and coding live in this folder as JSONL files.
+This folder is the ReviewDistill store on this computer: comments, labels, assignments, and assistant settings. It is not a paper repo. Each paper keeps comment-command names in its own `.reviewdistill/config.yaml`.
+
+JSONL files hold one JSON object per line.
+
+## Files
+
+| File | What it is |
+| --- | --- |
+| `projects.jsonl` | Papers registered with ReviewDistill (`id`, `name`, `root_path`). |
+| `comments.jsonl` | Extracted proofreading observations from those papers. |
+| `assignments.jsonl` | AI and human label assignments on comments. |
+| `labels.jsonl` | Live taxonomy: category names, parents, definitions. |
+| `label_examples.jsonl` | Example passages attached to labels. |
+| `history.jsonl` | Undo/redo log (header **History**). |
+| `config.yaml` | Assistant provider and model (**Settings → Assistant**). |
+| `.env` | Assistant API key. Gitignored. Do not commit it. |
+| `.gitignore` | Ignores `.env` and `.lock`. |
+| `.lock` | Held while `reviewdistill ui` or `extract` is using the store. Gitignored. |
+
+`.commit/` and `*.jsonl.tmp` are write temporaries; ignore them.
 
 ## Backup
 
@@ -35,8 +54,6 @@ Or point at a folder you already copied:
     reviewdistill paths use DIR
 
 Restart `reviewdistill ui` afterwards.
-
-The assistant API key is in `.env` (gitignored). Do not commit `.env`.
 """
 
 

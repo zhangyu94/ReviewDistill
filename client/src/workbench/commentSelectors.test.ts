@@ -39,7 +39,7 @@ function item(partial: Partial<InboxItemJson> & { id: string }): InboxItemJson {
     in_manuscript: true,
     labeled: false,
     label: null,
-    coding: null,
+    assignment: null,
     in_working_set: true,
     local_file: false,
     ...rest,
@@ -142,11 +142,11 @@ describe('applyCommentSelectors', () => {
 })
 
 describe('mergeCommentPool', () => {
-  it('unions by comment id, inbox row last so coding wins', () => {
-    const working = item({ id: 'u', coding: null })
+  it('unions by comment id, inbox row last so assignment wins', () => {
+    const working = item({ id: 'u', assignment: null })
     const inbox = item({
       id: 'u',
-      coding: {
+      assignment: {
         id: 'c',
         status: 'proposed',
         label_id: null,
@@ -156,7 +156,7 @@ describe('mergeCommentPool', () => {
         kind: 'new',
       },
     })
-    expect(mergeCommentPool([working], [inbox])[0].coding?.id).toBe('c')
+    expect(mergeCommentPool([working], [inbox])[0].assignment?.id).toBe('c')
   })
 })
 

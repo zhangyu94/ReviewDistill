@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 from reviewdistill.cli.init import init_project
-from reviewdistill.db.models import Coding, ProofreadingComment
+from reviewdistill.db.models import Assignment, ProofreadingComment
 from reviewdistill.db.session import get_session
 from reviewdistill.extraction.incremental import extract_project, fingerprint_for, similar_text
 
@@ -158,7 +158,7 @@ def test_short_distinct_same_line_replacement_is_disappeared_and_new(db, tmp_pat
         old = session.first(ProofreadingComment)
         old_id = old.id
         session.add(
-            Coding(
+            Assignment(
                 id="coding-old",
                 comment_id=old_id,
                 coder_type="human",
@@ -179,7 +179,7 @@ def test_short_distinct_same_line_replacement_is_disappeared_and_new(db, tmp_pat
             for row in session.find(ProofreadingComment)
             if row.id != old_id
         )
-        coding = session.get(Coding, "coding-old")
+        coding = session.get(Assignment, "coding-old")
         assert old.status == "pending_disappeared"
         assert old.raw_text == "Too strong."
         assert new.status == "active"
@@ -282,7 +282,7 @@ def test_verified_reappears_same_id(db, tmp_path: Path):
 
 
 def test_deleted_comment_same_text_is_new_id(db, tmp_path: Path):
-    from reviewdistill.coding.validation import delete_comment
+    from reviewdistill.labeling.validation import delete_comment
 
     repo = tmp_path / "paper"
     repo.mkdir()

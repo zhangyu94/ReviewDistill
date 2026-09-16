@@ -1,4 +1,4 @@
-from reviewdistill.coding.retrieval import retrieve_candidates
+from reviewdistill.labeling.retrieval import retrieve_candidates
 from reviewdistill.db.models import ProofreadingComment
 from reviewdistill.taxonomy.operations import add_example, create_label, deactivate_label, list_examples
 

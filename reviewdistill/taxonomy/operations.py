@@ -3,12 +3,12 @@ from __future__ import annotations
 from uuid import uuid4
 
 from reviewdistill.db.models import (
-    CODING_ACCEPTED,
-    CODING_MODIFIED,
-    CODING_PROPOSED,
+    ASSIGNMENT_ACCEPTED,
+    ASSIGNMENT_MODIFIED,
+    ASSIGNMENT_PROPOSED,
     LABEL_ACTIVE,
     LABEL_INACTIVE,
-    Coding,
+    Assignment,
     LabelExample,
     Label,
     ProofreadingComment,
@@ -40,23 +40,23 @@ def _log(session, event_type: str, payload: dict) -> None:
     record(session, event_type, payload)
 
 
-def _retire_codings_for_labels(
+def _retire_assignments_for_labels(
     session, label_ids: set[str], comment_ids: set[str] | None = None
 ) -> list[dict]:
     deleted = []
     labeled_comments = {
-        coding.comment_id
+        assignment.comment_id
         for label_id in label_ids
-        for coding in session.find(Coding, label_id=label_id)
-        if coding.status == CODING_ACCEPTED
-        and (comment_ids is None or coding.comment_id in comment_ids)
+        for assignment in session.find(Assignment, label_id=label_id)
+        if assignment.status == ASSIGNMENT_ACCEPTED
+        and (comment_ids is None or assignment.comment_id in comment_ids)
     }
     for comment_id in labeled_comments:
-        for row in list(session.find(Coding, comment_id=comment_id)):
+        for row in list(session.find(Assignment, comment_id=comment_id)):
             deleted.append(dump_row(row))
             session.delete(row)
     for label_id in label_ids:
-        for row in list(session.find(Coding, label_id=label_id, status=CODING_PROPOSED)):
+        for row in list(session.find(Assignment, label_id=label_id, status=ASSIGNMENT_PROPOSED)):
             deleted.append(dump_row(row))
             session.delete(row)
     return deleted
@@ -119,9 +119,9 @@ def create_label(
 
 
 def _reassign_own_labels(session, from_id: str, to_id: str) -> dict:
-    reassigned_codings = []
-    for coding in session.find(Coding, label_id=from_id):
-        reassigned_codings.append(
+    reassigned_assignments = []
+    for coding in session.find(Assignment, label_id=from_id):
+        reassigned_assignments.append(
             {"id": coding.id, "comment_id": coding.comment_id, "from_label_id": from_id}
         )
         coding.label_id = to_id
@@ -132,13 +132,13 @@ def _reassign_own_labels(session, from_id: str, to_id: str) -> dict:
         example.label_id = to_id
         session.add(example)
     return {
-        "reassigned_codings": reassigned_codings,
+        "reassigned_assignments": reassigned_assignments,
         "reassigned_examples": reassigned_examples,
     }
 
 
 def _has_own_labels(session, label_id: str) -> bool:
-    if session.first(Coding, label_id=label_id) is not None:
+    if session.first(Assignment, label_id=label_id) is not None:
         return True
     if session.first(LabelExample, label_id=label_id) is not None:
         return True
@@ -211,7 +211,7 @@ def create_empty_label(*, parent_id: str | None) -> Label:
 
 
 def _latest_proposed(session, comment_id: str):
-    rows = session.find(Coding, comment_id=comment_id, status=CODING_PROPOSED, order_by="created_at")
+    rows = session.find(Assignment, comment_id=comment_id, status=ASSIGNMENT_PROPOSED, order_by="created_at")
     return rows[-1] if rows else None
 
 
@@ -219,30 +219,30 @@ def _assign_working_comment(session, comment: ProofreadingComment, label_id: str
     proposed = _latest_proposed(session, comment.id)
     modified_proposed = []
     if proposed is not None:
-        proposed.status = CODING_MODIFIED
+        proposed.status = ASSIGNMENT_MODIFIED
         session.add(proposed)
         modified_proposed.append({"id": proposed.id})
     retired_accepted = []
-    for row in list(session.find(Coding, comment_id=comment.id, status=CODING_ACCEPTED)):
+    for row in list(session.find(Assignment, comment_id=comment.id, status=ASSIGNMENT_ACCEPTED)):
         retired_accepted.append(dump_row(row))
-        row.status = CODING_MODIFIED
+        row.status = ASSIGNMENT_MODIFIED
         session.add(row)
     deleted_examples = []
     for example in list(session.find(LabelExample, source_comment_id=comment.id)):
         deleted_examples.append(dump_row(example))
         session.delete(example)
-    human = Coding(
+    human = Assignment(
         id=str(uuid4()),
         comment_id=comment.id,
         label_id=label_id,
         coder_type="human",
-        status=CODING_ACCEPTED,
+        status=ASSIGNMENT_ACCEPTED,
         rationale="Grouped unlabeled comments.",
     )
     session.add(human)
     example, created, _previous = ensure_example(session, label_id, example_text(comment), comment.id)
     return {
-        "coding": dump_row(human),
+        "assignment": dump_row(human),
         "example": dump_row(example) if created else None,
         "modified_proposed": modified_proposed,
         "retired_accepted": retired_accepted,
@@ -258,7 +258,7 @@ def recycle_ungrouped() -> Label:
     the LLM. The new root shares the ``ungrouped`` name family with the parking
     child created by hover-plus on a leaf; they are different nodes.
     """
-    from reviewdistill.coding.split import unlabeled_working_comments
+    from reviewdistill.labeling.split import unlabeled_working_comments
     from reviewdistill.db.models import is_labeled
 
     comments = unlabeled_working_comments()
@@ -285,7 +285,7 @@ def recycle_ungrouped() -> Label:
             if live is None or is_labeled(session, live.id):
                 continue
             assigned = _assign_working_comment(session, live, label.id)
-            created.append(assigned["coding"])
+            created.append(assigned["assignment"])
             if assigned["example"]:
                 examples.append(assigned["example"])
             retired_accepted.extend(assigned["retired_accepted"])
@@ -329,7 +329,7 @@ def get_label(label_id: str) -> Label | None:
 def example_text(comment) -> str:
     """Passage excerpt stored on the label for Export / spotting.
 
-    The remark stays on the coding row. Copying ``raw_text`` into the example
+    The remark stays on the assignment row. Copying ``raw_text`` into the example
     makes SKILL.md unusable once that comment is held out. Whitespace is
     collapsed so markdown export stays one list item per example.
     """
@@ -421,8 +421,8 @@ def _example_matches_current_label(session, example: LabelExample) -> bool:
     if example.source_comment_id is None:
         return True
     return any(
-        coding.status == CODING_ACCEPTED and coding.label_id == example.label_id
-        for coding in session.find(Coding, comment_id=example.source_comment_id)
+        coding.status == ASSIGNMENT_ACCEPTED and coding.label_id == example.label_id
+        for coding in session.find(Assignment, comment_id=example.source_comment_id)
     )
 
 
@@ -430,7 +430,7 @@ def accepted_counts_by_label() -> dict[str, int]:
     init_db()
     counts: dict[str, int] = {}
     with get_session() as session:
-        for coding in session.find(Coding, status=CODING_ACCEPTED):
+        for coding in session.find(Assignment, status=ASSIGNMENT_ACCEPTED):
             if not coding.label_id:
                 continue
             if not _source_in_working_set(session, coding.comment_id):
@@ -446,7 +446,7 @@ def list_working_observations(label_id: str) -> list[ProofreadingComment]:
         ids = descendant_ids(labels, label_id) | {label_id}
         seen: set[str] = set()
         comments: list[ProofreadingComment] = []
-        for coding in session.find(Coding, status=CODING_ACCEPTED):
+        for coding in session.find(Assignment, status=ASSIGNMENT_ACCEPTED):
             if coding.label_id not in ids or coding.comment_id in seen:
                 continue
             comment = session.get(ProofreadingComment, coding.comment_id)
@@ -571,7 +571,7 @@ def deactivate_label(label_id: str) -> Label:
         label = session.get(Label, label_id)
         if label is None:
             raise NotFound(f"Unknown label {label_id}")
-        deleted_codings = _retire_codings_for_labels(session, {label_id})
+        deleted_assignments = _retire_assignments_for_labels(session, {label_id})
         reparented_children = lift_children(session.find(Label), label)
         for row in session.find(Label):
             session.add(row)
@@ -583,7 +583,7 @@ def deactivate_label(label_id: str) -> Label:
             {
                 "label_id": label_id,
                 "name": label.name,
-                "deleted_codings": deleted_codings,
+                "deleted_assignments": deleted_assignments,
                 "reparented_children": reparented_children,
             },
         )
@@ -594,10 +594,10 @@ def deactivate_label(label_id: str) -> Label:
 
 
 def merge_labels(*, source_ids: list[str], target_id: str) -> Label:
-    """Fold sources into target: reassign codings and examples, then deactivate sources."""
+    """Fold sources into target: reassign assignments and examples, then deactivate sources."""
     with get_session() as session:
         target = _require_active(session, target_id)
-        reassigned_codings = []
+        reassigned_assignments = []
         reassigned_examples = []
         deleted_examples = []
         reparented_children = []
@@ -631,8 +631,8 @@ def merge_labels(*, source_ids: list[str], target_id: str) -> Label:
                 child.parent_id = target_id
                 session.add(child)
             compact_positions(session.find(Label), target_id)
-            for coding in session.find(Coding, label_id=source_id):
-                reassigned_codings.append(
+            for coding in session.find(Assignment, label_id=source_id):
+                reassigned_assignments.append(
                     {"id": coding.id, "comment_id": coding.comment_id, "from_label_id": source_id}
                 )
                 coding.label_id = label_dest
@@ -661,7 +661,7 @@ def merge_labels(*, source_ids: list[str], target_id: str) -> Label:
             {
                 "source_ids": source_ids,
                 "target_id": target_id,
-                "reassigned_codings": list(parked.get("reassigned_codings") or []) + reassigned_codings,
+                "reassigned_assignments": list(parked.get("reassigned_assignments") or []) + reassigned_assignments,
                 "reassigned_examples": list(parked.get("reassigned_examples") or []) + reassigned_examples,
                 "deleted_examples": deleted_examples,
                 "reparented_children": reparented_children,
@@ -681,14 +681,14 @@ def flatten_label(label_id: str) -> Label:
         desc = descendant_ids(labels, label_id)
         if not desc:
             raise BadInput("Cannot flatten a label with no children")
-        reassigned_codings = []
+        reassigned_assignments = []
         reassigned_examples = []
         deleted_examples = []
         descendant_ids_list = list(desc)
         for source_id in descendant_ids_list:
             source = session.get(Label, source_id)
-            for coding in session.find(Coding, label_id=source_id):
-                reassigned_codings.append(
+            for coding in session.find(Assignment, label_id=source_id):
+                reassigned_assignments.append(
                     {"id": coding.id, "comment_id": coding.comment_id, "from_label_id": source_id}
                 )
                 coding.label_id = label_id
@@ -717,7 +717,7 @@ def flatten_label(label_id: str) -> Label:
                 "label_id": label_id,
                 "name": label.name,
                 "descendant_ids": descendant_ids_list,
-                "reassigned_codings": reassigned_codings,
+                "reassigned_assignments": reassigned_assignments,
                 "reassigned_examples": reassigned_examples,
                 "deleted_examples": deleted_examples,
             },
@@ -735,7 +735,7 @@ def remove_label(label_id: str) -> None:
             label_id
         }
         dumped_labels = [dump_row(session.get(Label, i)) for i in ids]
-        deleted_codings = _retire_codings_for_labels(session, ids)
+        deleted_assignments = _retire_assignments_for_labels(session, ids)
         dumped_examples = []
         for removed_id in ids:
             for example in list(session.find(LabelExample, label_id=removed_id)):
@@ -752,7 +752,7 @@ def remove_label(label_id: str) -> None:
                 "label_id": label_id,
                 "name": label.name,
                 "types": dumped_labels,
-                "deleted_codings": deleted_codings,
+                "deleted_assignments": deleted_assignments,
                 "examples": dumped_examples,
             },
         )
@@ -760,12 +760,12 @@ def remove_label(label_id: str) -> None:
 
 
 def apply_split(*, source_id: str | None, plan) -> list[Label]:
-    """Header or leaf fork: mint labels and write accepted codings plus examples.
+    """Header or leaf fork: mint labels and write accepted assignments plus examples.
 
     One ``split`` History event. ``labeled`` on the HTTP body is assignment
     count, not comments parked onto ``ungrouped``.
     """
-    from reviewdistill.coding.split import SplitPlan
+    from reviewdistill.labeling.split import SplitPlan
 
     if not isinstance(plan, SplitPlan):
         raise BadInput("Split plan is invalid")
@@ -779,15 +779,15 @@ def apply_split(*, source_id: str | None, plan) -> list[Label]:
         elif any(row.status == LABEL_ACTIVE for row in session.find(Label)):
             raise BadInput("Cannot split unlabeled comments while a taxonomy exists")
         comment_ids = [row["comment_id"] for row in plan.assignments]
-        deleted_codings: list[dict] = []
+        deleted_assignments: list[dict] = []
         replaced: list[dict] = []
         if source is not None:
-            deleted_codings = _retire_codings_for_labels(
+            deleted_assignments = _retire_assignments_for_labels(
                 session, {source_id}, comment_ids=set(comment_ids)
             )
         else:
             for comment_id in comment_ids:
-                for row in list(session.find(Coding, comment_id=comment_id, status=CODING_PROPOSED)):
+                for row in list(session.find(Assignment, comment_id=comment_id, status=ASSIGNMENT_PROPOSED)):
                     replaced.append(dump_row(row))
                     session.delete(row)
         created = []
@@ -805,8 +805,8 @@ def apply_split(*, source_id: str | None, plan) -> list[Label]:
         if source is not None:
             leftover = [
                 row
-                for row in session.find(Coding, label_id=source_id)
-                if row.status == CODING_ACCEPTED
+                for row in session.find(Assignment, label_id=source_id)
+                if row.status == ASSIGNMENT_ACCEPTED
             ]
             if leftover:
                 parked = _park_own_labels_on_ungrouped(session, source_id)
@@ -820,7 +820,7 @@ def apply_split(*, source_id: str | None, plan) -> list[Label]:
         for index, row in enumerate(siblings):
             row.position = index
             session.add(row)
-        created_codings = []
+        created_assignments = []
         examples = []
         deleted_examples = []
         for row in plan.assignments:
@@ -830,15 +830,15 @@ def apply_split(*, source_id: str | None, plan) -> list[Label]:
                 for example in list(session.find(LabelExample, source_comment_id=comment.id)):
                     deleted_examples.append(dump_row(example))
                     session.delete(example)
-            coding = Coding(
+            coding = Assignment(
                 id=str(uuid4()),
                 comment_id=row["comment_id"],
                 label_id=child.id,
                 coder_type="ai",
-                status=CODING_ACCEPTED,
+                status=ASSIGNMENT_ACCEPTED,
             )
             session.add(coding)
-            created_codings.append(dump_row(coding))
+            created_assignments.append(dump_row(coding))
             if comment is not None:
                 example, made, _previous = ensure_example(
                     session, child.id, example_text(comment), comment.id
@@ -856,8 +856,8 @@ def apply_split(*, source_id: str | None, plan) -> list[Label]:
                 "source_id": source_id,
                 "source_name": None if source is None else source.name,
                 "created_ids": created_ids,
-                "deleted_codings": deleted_codings,
-                "created": created_codings,
+                "deleted_assignments": deleted_assignments,
+                "created": created_assignments,
                 "replaced": replaced,
                 "examples": examples,
                 "deleted_examples": deleted_examples,

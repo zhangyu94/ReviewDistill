@@ -57,7 +57,7 @@ const changeMenuTitle = computed(() => (
     : 'The menu shows the current label. Pick another label to assign it.'
 ))
 const suggestion = computed(() =>
-  assignSuggestion(props.selected?.coding, changeLabels.value),
+  assignSuggestion(props.selected?.assignment, changeLabels.value),
 )
 const contextMark = computed(() => {
   const text = props.selected?.comment.context_text ?? ''

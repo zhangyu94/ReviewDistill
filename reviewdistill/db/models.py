@@ -12,9 +12,9 @@ from reviewdistill.errors import CorruptStore
 STATUS_ACTIVE = "active"
 STATUS_PENDING_DISAPPEARED = "pending_disappeared"
 
-CODING_PROPOSED = "proposed"
-CODING_ACCEPTED = "accepted"
-CODING_MODIFIED = "modified"
+ASSIGNMENT_PROPOSED = "proposed"
+ASSIGNMENT_ACCEPTED = "accepted"
+ASSIGNMENT_MODIFIED = "modified"
 
 LABEL_ACTIVE = "active"
 LABEL_INACTIVE = "inactive"
@@ -85,7 +85,7 @@ class ProofreadingComment(SQLModel):
     created_at: datetime = Field(default_factory=utcnow)
 
 
-class Coding(SQLModel):
+class Assignment(SQLModel):
     id: str
     comment_id: str
     label_id: str | None = None
@@ -102,16 +102,16 @@ class Coding(SQLModel):
 
 def is_labeled(session, comment_id: str) -> bool:
     return any(
-        row.status == CODING_ACCEPTED
+        row.status == ASSIGNMENT_ACCEPTED
         and row.label_id
         and (label := session.get(Label, row.label_id)) is not None
         and label.status == LABEL_ACTIVE
-        for row in session.find(Coding, comment_id=comment_id)
+        for row in session.find(Assignment, comment_id=comment_id)
     )
 
 
 class Label(SQLModel):
-    """Category in the taxonomy. Assignment lives on Coding.label_id."""
+    """Category in the taxonomy. Whether a comment is labeled lives on Assignment.label_id."""
     id: str
     name: str
     parent_id: str | None = None  # null = root; must be active when this row is active
@@ -132,7 +132,7 @@ class LabelExample(SQLModel):
 
 
 class TaxonomyEvent(SQLModel):
-    """Scheme mutation log (add/rename/move/merge/split/…). Not a Label row."""
+    """History undo log (tree edits, labeling, verify, delete). Not a Label row."""
     id: str
     event_type: str
     payload_json: str

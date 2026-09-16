@@ -3,16 +3,16 @@ import json
 from fastapi.testclient import TestClient
 
 from reviewdistill.cli.init import init_project
-from reviewdistill.coding.coder import code_uncoded_comments
-from reviewdistill.coding.validation import (
-    accept_coding,
-    change_coding,
+from reviewdistill.labeling.coder import label_unlabeled_comments
+from reviewdistill.labeling.validation import (
+    accept_assignment,
+    change_assignment,
     delete_comment,
     inbox_items,
     verify_comment,
 )
-from reviewdistill.db.models import CODING_MODIFIED, Coding, Label, LabelExample, ProofreadingComment, is_labeled
-from reviewdistill.coding.split import SplitPlan
+from reviewdistill.db.models import ASSIGNMENT_MODIFIED, Assignment, Label, LabelExample, ProofreadingComment, is_labeled
+from reviewdistill.labeling.split import SplitPlan
 from reviewdistill.db.session import get_session
 from reviewdistill.extraction.incremental import extract_project
 from reviewdistill.history import list_history, record, redo, undo
@@ -123,7 +123,7 @@ def test_flatten_undo_restores_descendants(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="coding-flat",
                 comment_id="c-flat",
                 label_id=child.id,
@@ -138,11 +138,11 @@ def test_flatten_undo_restores_descendants(db):
         child_row = session.get(Label, child.id)
         assert child_row.status == "active"
         assert child_row.parent_id == parent.id
-        coding = session.get(Coding, "coding-flat")
+        coding = session.get(Assignment, "coding-flat")
         assert coding.label_id == child.id
 
 
-def test_flatten_undo_redo_restores_nested_tree_and_coding(db):
+def test_flatten_undo_redo_restores_nested_tree_and_assignment(db):
     parent = create_label(name="Parent", definition="")
     child = create_label(name="Child", definition="", parent_id=parent.id)
     grand = create_label(name="Grand", definition="", parent_id=child.id)
@@ -160,7 +160,7 @@ def test_flatten_undo_redo_restores_nested_tree_and_coding(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="coding-nest",
                 comment_id="c-nest",
                 label_id=grand.id,
@@ -176,12 +176,12 @@ def test_flatten_undo_redo_restores_nested_tree_and_coding(db):
         assert session.get(Label, grand.id).parent_id == child.id
         assert session.get(Label, child.id).status == "active"
         assert session.get(Label, grand.id).status == "active"
-        assert session.get(Coding, "coding-nest").label_id == grand.id
+        assert session.get(Assignment, "coding-nest").label_id == grand.id
     redo()
     with get_session() as session:
         assert session.get(Label, child.id).status == "inactive"
         assert session.get(Label, grand.id).status == "inactive"
-        assert session.get(Coding, "coding-nest").label_id == parent.id
+        assert session.get(Assignment, "coding-nest").label_id == parent.id
 
 
 def test_deactivate_parent_redo_then_create_appends_last(db):
@@ -228,7 +228,7 @@ def test_move_under_labeled_leaf_undo_redo_restores_labels(db):
             file_path="main.tex", line_number=1, raw_text="too strong",
             status="active",
         ))
-        session.add(Coding(
+        session.add(Assignment(
             id="k-move", comment_id="c-move", label_id=parent.id, coder_type="human",
             status="accepted",
         ))
@@ -236,7 +236,7 @@ def test_move_under_labeled_leaf_undo_redo_restores_labels(db):
     move_label(child.id, parent_id=parent.id, position=0)
     undo()
     with get_session() as session:
-        assert session.get(Coding, "k-move").label_id == parent.id
+        assert session.get(Assignment, "k-move").label_id == parent.id
         assert session.get(Label, child.id).parent_id is None
         kids = [
             row for row in session.find(Label)
@@ -248,7 +248,7 @@ def test_move_under_labeled_leaf_undo_redo_restores_labels(db):
         kids = _active_siblings(parent.id)
         ungrouped = next(row for row in kids if row.name == "ungrouped")
         assert session.get(Label, child.id).parent_id == parent.id
-        assert session.get(Coding, "k-move").label_id == ungrouped.id
+        assert session.get(Assignment, "k-move").label_id == ungrouped.id
 
 
 def _active_siblings(parent_id: str | None) -> list[Label]:
@@ -305,7 +305,7 @@ def test_undo_first_child_restores_parent_labels(db):
             file_path="main.tex", line_number=1, raw_text="too strong",
             status="active",
         ))
-        session.add(Coding(
+        session.add(Assignment(
             id="k1", comment_id="c1", label_id=parent.id, coder_type="human",
             status="accepted",
         ))
@@ -319,7 +319,7 @@ def test_undo_first_child_restores_parent_labels(db):
         ]
         assert kids == []
         assert session.get(Label, created.id).status == "inactive"
-        assert session.get(Coding, "k1").label_id == parent.id
+        assert session.get(Assignment, "k1").label_id == parent.id
     redo()
     with get_session() as session:
         kids = sorted(
@@ -330,7 +330,7 @@ def test_undo_first_child_restores_parent_labels(db):
             key=lambda row: row.position,
         )
         assert [row.name for row in kids] == ["New label", "ungrouped"]
-        assert session.get(Coding, "k1").label_id == kids[1].id
+        assert session.get(Assignment, "k1").label_id == kids[1].id
 
 
 def test_merge_undo_restores_child_positions(db):
@@ -426,7 +426,7 @@ def test_merge_parent_into_labeled_leaf_undo_redo_restores_labels(db):
             file_path="main.tex", line_number=1, raw_text="on target",
             status="active",
         ))
-        session.add(Coding(
+        session.add(Assignment(
             id="k-tgt", comment_id="c-tgt", label_id=target.id, coder_type="human",
             status="accepted",
         ))
@@ -435,7 +435,7 @@ def test_merge_parent_into_labeled_leaf_undo_redo_restores_labels(db):
             file_path="main.tex", line_number=2, raw_text="on source",
             status="active",
         ))
-        session.add(Coding(
+        session.add(Assignment(
             id="k-src", comment_id="c-src", label_id=source.id, coder_type="human",
             status="accepted",
         ))
@@ -443,8 +443,8 @@ def test_merge_parent_into_labeled_leaf_undo_redo_restores_labels(db):
     merge_labels(source_ids=[source.id], target_id=target.id)
     undo()
     with get_session() as session:
-        assert session.get(Coding, "k-tgt").label_id == target.id
-        assert session.get(Coding, "k-src").label_id == source.id
+        assert session.get(Assignment, "k-tgt").label_id == target.id
+        assert session.get(Assignment, "k-src").label_id == source.id
         assert session.get(Label, kid.id).parent_id == source.id
         assert session.get(Label, source.id).status == "active"
         extras = [
@@ -458,8 +458,8 @@ def test_merge_parent_into_labeled_leaf_undo_redo_restores_labels(db):
         ungrouped = next(row for row in kids if row.name == "ungrouped")
         assert session.get(Label, kid.id).parent_id == target.id
         assert session.get(Label, source.id).status == "inactive"
-        assert session.get(Coding, "k-tgt").label_id == ungrouped.id
-        assert session.get(Coding, "k-src").label_id == ungrouped.id
+        assert session.get(Assignment, "k-tgt").label_id == ungrouped.id
+        assert session.get(Assignment, "k-src").label_id == ungrouped.id
 
 
 def test_split_undo_then_create_appends_last(db):
@@ -555,7 +555,7 @@ def test_legacy_split_payload_still_inverts(db):
             {
                 "source_id": source.id,
                 "created_ids": [left.id, right.id],
-                "deleted_codings": [],
+                "deleted_assignments": [],
             },
         )
         session.commit()
@@ -623,7 +623,7 @@ def test_accept_is_logged_and_undo_returns_to_inbox(db, tmp_path):
         comment = session.first(ProofreadingComment)
         comment_id = comment.id
         session.add(
-            Coding(
+            Assignment(
                 id="seed-proposed",
                 comment_id=comment.id,
                 label_id=label.id,
@@ -634,7 +634,7 @@ def test_accept_is_logged_and_undo_returns_to_inbox(db, tmp_path):
             )
         )
         session.commit()
-    accept_coding(comment_id)
+    accept_assignment(comment_id)
     assert "accept" in _event_types()
     assert inbox_items() == []
     undo()
@@ -643,7 +643,7 @@ def test_accept_is_logged_and_undo_returns_to_inbox(db, tmp_path):
     assert items[0].comment.id == comment_id
     assert list_examples(label.id) == []
     with get_session() as session:
-        coding = session.first(Coding)
+        coding = session.first(Assignment)
         assert coding.status == "proposed"
 
 
@@ -663,7 +663,7 @@ def test_accept_undo_restores_previous_example_text(db, tmp_path):
         comment.raw_text = "Why this method?"
         comment.context_text = "The experiment only shows a correlation."
         session.add(
-            Coding(
+            Assignment(
                 id="seed-proposed",
                 comment_id=comment.id,
                 label_id=label.id,
@@ -675,7 +675,7 @@ def test_accept_undo_restores_previous_example_text(db, tmp_path):
         )
         session.commit()
     add_example(label.id, text="Why this method?", source_comment_id=comment_id)
-    accept_coding(comment_id)
+    accept_assignment(comment_id)
     with get_session() as session:
         assert session.first(LabelExample).text == "The experiment only shows a correlation."
     undo()
@@ -700,7 +700,7 @@ def test_undo_change_restores_previous_label(db, tmp_path):
         name="Weak evidence",
         definition="evidence is thin",
     )
-    code_uncoded_comments(
+    label_unlabeled_comments(
         provider=MockLLMProvider(
             scripted_response=json.dumps(
                 {
@@ -713,7 +713,7 @@ def test_undo_change_restores_previous_label(db, tmp_path):
         )
     )
     comment_id = list_working_observations(first.id)[0].id
-    change_coding(comment_id, label_id=second.id)
+    change_assignment(comment_id, label_id=second.id)
     change = next(event for event in list_history()["events"] if event["event_type"] == "change")
     assert "example_updates" not in change["payload"]
     assert [row.id for row in list_working_observations(second.id)] == [comment_id]
@@ -736,14 +736,14 @@ def test_propose_is_one_event_and_undo_removes_suggestions(db, tmp_path):
     init_project(name="paper-01", commands=["myremark"], cwd=repo)
     (repo / "main.tex").write_text("\\myremark{First.}\n\\myremark{Second.}\n")
     extract_project(repo)
-    summary = code_uncoded_comments(
+    summary = label_unlabeled_comments(
         provider=MockLLMProvider(
             scripted_response=json.dumps(
                 {"recommendation": "new", "label_name": "Unclear thesis", "confidence": 0.7, "rationale": "Unclear."}
             )
         )
     )
-    assert summary.coded == 2
+    assert summary.assigned == 2
     propose = [event for event in list_history()["events"] if event["event_type"] == "propose"]
     assert len(propose) == 1
     assert len(propose[0]["payload"]["created"]) == 2
@@ -751,7 +751,7 @@ def test_propose_is_one_event_and_undo_removes_suggestions(db, tmp_path):
     assert propose[0]["summary"].startswith("Label with AI")
     undo()
     with get_session() as session:
-        assert session.find(Coding, status="accepted") == []
+        assert session.find(Assignment, status="accepted") == []
         minted = session.get(Label, propose[0]["payload"]["created_label_ids"][0])
         assert minted.status == "inactive"
     assert len(inbox_items()) == 2
@@ -774,7 +774,7 @@ def test_propose_undo_redo_restores_previous_example_text(db, tmp_path):
         comment.context_text = "The experiment only shows a correlation."
         session.commit()
     add_example(label.id, text="Why this method?", source_comment_id=comment_id)
-    summary = code_uncoded_comments(
+    summary = label_unlabeled_comments(
         provider=MockLLMProvider(
             scripted_response=json.dumps(
                 {
@@ -786,7 +786,7 @@ def test_propose_undo_redo_restores_previous_example_text(db, tmp_path):
             )
         )
     )
-    assert summary.coded == 1
+    assert summary.assigned == 1
     propose = next(event for event in list_history()["events"] if event["event_type"] == "propose")
     assert propose["payload"]["example_updates"]
     with get_session() as session:
@@ -825,7 +825,7 @@ def test_delete_undo_restores_comment_and_dependents(db, tmp_path):
     with get_session() as session:
         comment_id = session.first(ProofreadingComment).id
         raw = session.get(ProofreadingComment, comment_id).raw_text
-    change_coding(comment_id, label_id=label.id)
+    change_assignment(comment_id, label_id=label.id)
     add_example(label.id, text="Too strong.", source_comment_id=comment_id)
     delete_comment(comment_id)
     assert "delete" in _event_types()
@@ -834,7 +834,7 @@ def test_delete_undo_restores_comment_and_dependents(db, tmp_path):
         row = session.get(ProofreadingComment, comment_id)
         assert row is not None
         assert row.raw_text == raw
-        assert session.find(Coding, comment_id=comment_id)
+        assert session.find(Assignment, comment_id=comment_id)
         assert session.find(LabelExample, source_comment_id=comment_id)
     assert list_examples(label.id)
     redo()
@@ -930,7 +930,7 @@ def test_list_history_sorts_naive_and_aware_created_at(rd_home):
     from reviewdistill.db.session import init_db, reset_engine
 
     reset_engine()
-    (rd_home / "taxonomy_events.jsonl").write_text(
+    (rd_home / "history.jsonl").write_text(
         json.dumps(
             {
                 "id": "old",
@@ -976,7 +976,7 @@ def test_recycle_undo_redo_restores_unlabeled(db):
                 )
             )
         session.add(
-            Coding(
+            Assignment(
                 id="k-prop",
                 comment_id="c1",
                 label_id=None,
@@ -997,11 +997,11 @@ def test_recycle_undo_redo_restores_unlabeled(db):
         assert session.get(Label, created.id).status == "inactive"
         assert not is_labeled(session, "c1")
         assert not is_labeled(session, "c2")
-        assert session.get(Coding, "k-prop").status == "proposed"
+        assert session.get(Assignment, "k-prop").status == "proposed"
     redo()
     with get_session() as session:
         assert session.get(Label, created.id).status == "active"
         assert is_labeled(session, "c1")
         assert is_labeled(session, "c2")
-        assert session.get(Coding, "k-prop").status == CODING_MODIFIED
+        assert session.get(Assignment, "k-prop").status == ASSIGNMENT_MODIFIED
 

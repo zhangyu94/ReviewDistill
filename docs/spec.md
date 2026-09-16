@@ -26,9 +26,9 @@ Classification uses one family with three roles:
 | Category | an abstract class in that scheme | **label** |
 | Assignment | a comment classified with a category | **labeled** / **unlabeled**; a **label assignment** |
 
-The tree header is **Label Taxonomy**, not **Labels** (that would read as a bag of assignments). Keep **taxonomy** only where it names the scheme: dump filenames `review-taxonomy.yaml` / `.json`, package `reviewdistill/taxonomy/`, History log `taxonomy_events.jsonl`, client `taxonomyTree.ts`. Product copy, HTTP, JSON, and store files use **label**, not **type** / **issue type**.
+The tree header is **Label Taxonomy**, not **Labels** (that would read as a bag of assignments). Keep **taxonomy** only where it names the scheme: dump filenames `review-taxonomy.yaml` / `.json`, package `reviewdistill/taxonomy/`, client `taxonomyTree.ts`. Product copy, HTTP, JSON, and store files use **label**, not **type** / **issue type**. The History undo log is `history.jsonl`.
 
-Unchanged: `Coding` rows, parking name **ungrouped**, inbox **Unlabeled**, **Label with AI**, Verify / unreviewed / to distill. YAML/JSON export wraps the list in `labels`. Skill-eval still scores `{"types": [...]}`.
+Unchanged: `Assignment` rows (`assignments.jsonl`), parking name **ungrouped**, inbox **Unlabeled**, **Label with AI**, Verify / unreviewed / to distill. YAML/JSON export wraps the list in `labels`. Skill-eval still scores `{"types": [...]}`.
 
 The resulting knowledge can be exported as a review skill for coding agents such as Cursor.
 
@@ -241,7 +241,7 @@ Location
 file (click shows it on this computer when the `.tex` file still exists), line, heading, …
 ────────────────────────────────────────
 
-A leftover stored proposal stays until Accept or a label is picked in the menu. **Label with AI**, header fork, and leaf fork accept-assign in the same batch; they do not leave new proposals. Selecting a label assigns it; there is no Change button. The menu shows the current label when the comment is labeled. Label with AI does not have to be clicked again this session. An existing-label id that is not in the active taxonomy is treated as a new name when the model also sent one. A new recommendation without `proposed_label_name` is **No AI suggestion**, is not stored, and stays in the Label with AI queue. An accepted coding on an inactive label is unlabeled and stays in that queue too.
+A leftover stored proposal stays until Accept or a label is picked in the menu. **Label with AI**, header fork, and leaf fork accept-assign in the same batch; they do not leave new proposals. Selecting a label assigns it; there is no Change button. The menu shows the current label when the comment is labeled. Label with AI does not have to be clicked again this session. An existing-label id that is not in the active taxonomy is treated as a new name when the model also sent one. A new recommendation without `proposed_label_name` is **No AI suggestion**, is not stored, and stays in the Label with AI queue. An accepted assignment on an inactive label is unlabeled and stays in that queue too.
 
 The user should be able to validate a suggestion with minimal interaction.
 
@@ -298,11 +298,11 @@ The original observation is the primary evidence.
 
 ⸻
 
-6.2 Coding
+6.2 Assignment
 
 Represents an AI or human interpretation of a comment.
 
-Coding(
+Assignment(
     id,
     comment_id,
     label_id,
@@ -324,7 +324,7 @@ proposed
 accepted
 modified
 
-A comment may eventually have multiple codings.
+A comment may eventually have multiple assignments.
 
 ⸻
 
@@ -424,7 +424,7 @@ Delete this label and its subtree. Undo restores the dump.
 
 Deactivate
 
-There is no Deactivate button and no HTTP deactivate route. Flatten, split, and merge still retire labels this way: the group leaves the live taxonomy, children become siblings, and labeled comments on that label return to Unlabeled. Codings are stored on the history event so undo restores them. A leftover accepted assignment on an inactive label does not count as labeled. Export unchecking a label is a one-shot filter (`--id`); it does not deactivate the row.
+There is no Deactivate button and no HTTP deactivate route. Flatten, split, and merge still retire labels this way: the group leaves the live taxonomy, children become siblings, and labeled comments on that label return to Unlabeled. Assignments are stored on the history event so undo restores them. A leftover accepted assignment on an inactive label does not count as labeled. Export unchecking a label is a one-shot filter (`--id`); it does not deactivate the row.
 
 Historical data must never be silently deleted when the taxonomy changes.
 
@@ -438,7 +438,7 @@ For every new comment:
 
 Stage 1 — Retrieve potentially relevant existing issues
 
-Search the existing taxonomy and previously coded comments.
+Search the existing taxonomy and previously assigned comments.
 
 Possible approaches:
 
@@ -528,9 +528,9 @@ For each comment, extract:
 * if that paragraph is empty after strip, headings / `\label` immediately above, or the previous prose paragraph, skipping other empty-after-strip remarks (never the next paragraph after a heading);
 * section/subsection titles (separate field);
 * source file and line number;
-* character offset of this remark’s insertion hole in that neighborhood (`context_offset`: opening line + command + normalized body, not a search of words copied from the remark), shown as a square in the inspector (with a parenthetical legend beside the heading that shows the same square) and as `‹remark›` in the coding prompt.
+* character offset of this remark’s insertion hole in that neighborhood (`context_offset`: opening line + command + normalized body, not a search of words copied from the remark), shown as a square in the inspector (with a parenthetical legend beside the heading that shows the same square) and as `‹remark›` in the labeling prompt.
 
-The inspector and the coding prompt see that same source TeX. Details: website `docs/extract.md`.
+The inspector and the labeling prompt see that same source TeX. Details: website `docs/extract.md`.
 
 Example:
 
@@ -596,9 +596,9 @@ Current review corpus
 
 All raw comments accumulated across papers.
 
-Current coding state
+Current assignment state
 
-The latest accepted coding of those comments.
+The latest accepted assignment of those comments.
 
 Current taxonomy
 
@@ -684,11 +684,11 @@ The top bar stays on this screen. **History**, **Settings**, and **Export** are 
 
 `labelchip=0` means Label Details is open and the label chip is off. Selecting a label (click, hover **+**, merge) writes it when Unlabeled is on; × on the label chip always writes it. Split and Label with AI do not change selectors. Clicking a label while Unlabeled is off omits `labelchip=0` (label chip on). `?id=` still names the open comment.
 
-Selectors and Progress span the window. Under Selectors, two cards: Label Taxonomy over Label Details, and Comments, equal width. Clicking a label opens Label Details. The label chip turns on only when Unlabeled is off; with Unlabeled on it stays off so the unlabeled queue is not ANDed empty. The Comments header shows **N to distill** with no chips, or **N matching · M to distill** when chips AND. **Label with AI** appears whenever unlabeled comments still need proposals. The open comment is the highlighted row (list) or the inspector plus pager (one-at-a-time); it is not a second count.
+Selectors and Progress span the window. Under Selectors, two cards: Label Taxonomy over Label Details, and Comments, equal width. Clicking a label opens Label Details. The label chip turns on only when Unlabeled is off; with Unlabeled on it stays off so the unlabeled queue is not ANDed empty. The Comments header shows **N to distill** with no chips, or **N matching · M to distill** when chips AND. **Label with AI** appears whenever unlabeled comments still need proposals. The open comment is the highlighted row (list or tree) or the inspector plus pager (one-at-a-time); it is not a second count.
 
 A bottom Progress strip is display-only. The headline is the count of comments to distill. unlabeled is comments to distill with no label (labeled is the rest of those comments). verified is comments to distill that have been Verified (the rest of those comments are still not verified). The Unlabeled chip has no count. With no chips, Comments lists comments to distill. With only Unlabeled, Comments is the inbox queue (unlabeled comments to distill plus left-the-manuscript + not verified), not `progress.unlabeled`. The strip is not clickable.
 
-The Comments panel can switch between a list of comments and a single comment. The list shows truncated text so you can scan, the assigned **leaf label(s)** when the comment has them, and a **Left the manuscript** chip when the remark is no longer in the `.tex` file. The single-comment view shows the full text, manuscript context, location, and record metadata. When `{projects.root_path}/{file_path}` is still a file, Location **File** is a control (same blue as Remote; title **Show this file on this computer**; not a `file://` link). Click `POST /api/inbox/{comment_id}/reveal` with no body: the server selects that file in the OS file manager (`open -R` on macOS — it does not open the default editor). If the checkout is gone, File stays plain text. A comment that left the manuscript can still reveal if the `.tex` file exists. Reveal does not write the store or History. Unknown comment is 404 (`Unknown comment {id}`); missing or escaped path is 404 (`This file is not on this computer.`); file-manager failure is 400. Failures show in a dismissible snackbar, not in Comments or Label Details. If the UI cannot reach the ReviewDistill server (proxy 502/503/504 or a failed fetch), that snackbar says the server is not running — not HTTP status names such as Bad Gateway. **Accept** applies the AI suggestion. Picking a label in the menu assigns or changes it (there is no Change button and no Reject: not accepting a suggestion leaves the comment unlabeled). **Verify** stamps quality, independent of the label. **Delete** removes the observation (undo from History).
+The Comments panel can switch between a list of comments, a project file tree, and a single comment. The list shows truncated text so you can scan. The tree is the same comments nested under **project / file path**, in path then line order; grouping rows collapse and are not comments (no select, drag, or assign). Collapsing a group hides its remarks even when the open comment is inside; selection moves to the next visible comment when there is one. Tree comment rows omit the repeated project · file path and show **line N**. The file row is the reveal control when the file is on this computer. List and tree scroll the full matching set; only one-at-a-time paginates. **j** / **k** follow tree order while the tree is showing. Each row is a card (not a wrapping button, so the menu and file control can be nested): click the text to select (`?id=`); unlabeled text still drags onto a leaf. Every row has the same leaf label menu as the inspector on its own line under location (compact chrome, sized to the label, with a muted **Label** prefix; current label, or **Choose a label…**; a leftover parent still shows as the current value; picking a leaf assigns it). Assign and reveal use that **row’s** comment id. After assign, if the acted comment is still in the list it becomes selected; if it left, keep the current selection when that id is still present; otherwise the same advance as labeling the open comment. Reveal does not change selection. List location is **project · file path · line N**; tree comment rows omit project and path. Project name and **line N** stay text. When `{projects.root_path}/{file_path}` is still a file, **file path** is the same reveal control as Location **File** (same blue as Remote; title **Show this file on this computer**; not a `file://` link; `POST /api/inbox/{comment_id}/reveal`). If the checkout is gone, the location line stays plain text. A **Left the manuscript** chip still appears when the remark is no longer in the `.tex` file. The single-comment view shows the full text, manuscript context, location, and record metadata. When `{projects.root_path}/{file_path}` is still a file, Location **File** is a control (same blue as Remote; title **Show this file on this computer**; not a `file://` link). Click `POST /api/inbox/{comment_id}/reveal` with no body: the server selects that file in the OS file manager (`open -R` on macOS — it does not open the default editor). If the checkout is gone, File stays plain text. A comment that left the manuscript can still reveal if the `.tex` file exists. Reveal does not write the store or History. Unknown comment is 404 (`Unknown comment {id}`); missing or escaped path is 404 (`This file is not on this computer.`); file-manager failure is 400. Failures show in a dismissible snackbar, not in Comments or Label Details. If the UI cannot reach the ReviewDistill server (proxy 502/503/504 or a failed fetch), that snackbar says the server is not running — not HTTP status names such as Bad Gateway. **Accept** applies the AI suggestion. Picking a label in the menu assigns or changes it (there is no Change button and no Reject: not accepting a suggestion leaves the comment unlabeled). **Verify** stamps quality, independent of the label. **Delete** removes the observation (undo from History).
 
 Present chips AND. Sure/Unsure confidence chips are not in this product. **Remove** (undoable) is how a label leaves the live taxonomy. There is no Deactivate control.
 
@@ -732,7 +732,7 @@ A claim is stronger than the evidence supports.
 
 16. Taxonomy Evolution View
 
-History is a chronological log of taxonomy mutations and labeling verdicts (the `taxonomy_events` table). The History dialog lists each event with a short summary. Rows that have extra information (comment text, a saved definition, merge/split names, a move destination) show a chevron that expands those details in place. **Undo** and **Redo** invert or reapply the tip of the log. They also dismiss the assignment snackbar (it is session UI, not a History event). They mark the row undone (`undone` column) rather than appending a new event. A new forward action deletes the redo tail. Undo/Redo act on the tip, not on a selected row. Jump-to-event restore is out of scope.
+History is a chronological log of taxonomy mutations and labeling verdicts (`history.jsonl`). The History dialog lists each event with a short summary. Rows that have extra information (comment text, a saved definition, merge/split names, a move destination) show a chevron that expands those details in place. **Undo** and **Redo** invert or reapply the tip of the log. They also dismiss the assignment snackbar (it is session UI, not a History event). They mark the row undone (`undone` column) rather than appending a new event. A new forward action deletes the redo tail. Undo/Redo act on the tip, not on a selected row. Jump-to-event restore is out of scope.
 
 Label with AI is one `propose` event for the batch (accepted rows; new labels in `created_label_ids`). Accept of a leftover stored proposal that mints a label is `add` then `accept`; Undo Accept first. Old `merge`/`split` rows without invert payload fields cannot be undone (Undo disabled while they are the tip).
 
@@ -744,16 +744,16 @@ Label with AI is one `propose` event for the batch (accepted rows; new labels in
 | `edit` | Definition (`before`/`after` have `definition` and `detection_guidance`; leftover `notes` ignored) | Restore `before` |
 | `move` | Parent/position change (`from_parent_id` / `to_parent_id`) | Move back |
 | `flatten` | Descendants deactivated; their comments reassigned to this label | Reactivate descendants; restore labels |
-| `remove` | Delete subtree (payload includes label/coding dumps) | Restore the dump |
+| `remove` | Delete subtree (payload includes label/assignment dumps) | Restore the dump |
 | `deactivate` | Leftover only (no UI control). Children became siblings; labeled comments on this label returned to Unlabeled | Reactivate; restore child parents and labels |
 | `merge` | Merge (payload includes reassigned ids; source children reparented) | Reactivate sources; move rows back |
-| `split` | LLM split (`keep_source: true`): parent stays; `source_id` is the leaf (omitted for header bootstrap); `created_ids` stay in the store (deactivated on undo); restore `deleted_codings`; delete `created` accepted rows and `examples`; restore `replaced` and `deleted_examples`. Legacy rows without `keep_source`: reactivate source; deactivate created labels; restore deleted codings |
+| `split` | LLM split (`keep_source: true`): parent stays; `source_id` is the leaf (omitted for header bootstrap); `created_ids` stay in the store (deactivated on undo); restore `deleted_assignments`; delete `created` accepted rows and `examples`; restore `replaced` and `deleted_examples`. Legacy rows without `keep_source`: reactivate source; deactivate created labels; restore deleted assignments |
 | `propose` | Label with AI | Delete created accepted rows and examples; deactivate `created_label_ids`; restore any it replaced |
-| `accept` | Accept | Coding back to proposed; delete example if this accept created it |
-| `change` | Change | Delete human coding; restore proposal; delete example if created |
+| `accept` | Accept | Assignment back to proposed; delete example if this accept created it |
+| `change` | Change | Delete human assignment; restore proposal; delete example if created |
 | `verify` | Verify | Set `verified=false` |
 | `unverify` | Unverify (toggle protect off) | Set `verified=true` |
-| `delete` | Delete (payload dumps the comment plus its codings and sourced examples/counters) | Restore the dump |
+| `delete` | Delete (payload dumps the comment plus its assignments and sourced examples/counters) | Restore the dump |
 
 `GET /api/history` — events newest first, each with `undone`, `summary`, and `details`: `{ explanation, comments: [{ text, label_name }], quotes: [{ heading, body }] }`. `payload` remains on the API for undo internals and is not shown in the UI. Top-level `can_undo`, `can_redo`. `POST /api/history/undo` and `POST /api/history/redo` — `{ ok: true }` or 400 if nothing to do / cannot invert.
 
@@ -916,7 +916,7 @@ For example:
 
 \question{This argument does not follow.}
 
-could still be coded as:
+could still be assigned as:
 
 Logical gap
 
@@ -944,10 +944,10 @@ Suggested entities:
 
 projects
 comments
-codings
+assignments
 labels
 label_examples
-taxonomy_events
+history
 
 JSONL files in the home folder, one object per line. SQLModel (or Pydantic) records are fine.
 
@@ -1014,7 +1014,7 @@ reviewdistill/
 │
 ├── cli/          init, extract, export, ui
 ├── extraction/   LaTeX comments + incremental match
-├── coding/       AI propose, retrieve, validate
+├── labeling/     AI propose, retrieve, validate
 ├── taxonomy/     labels, merge/split, export
 ├── context/      manuscript neighborhood
 ├── llm/          provider interface
@@ -1095,7 +1095,7 @@ Potential future capabilities include:
 
 Review-pattern discovery
 
-Automatically identify patterns that have not yet been formally coded.
+Automatically identify patterns that have not yet been formally assigned.
 
 Taxonomy refinement
 

@@ -1,6 +1,6 @@
 import json
 
-from reviewdistill.db.models import Coding, LabelExample, ProofreadingComment, TaxonomyEvent
+from reviewdistill.db.models import Assignment, LabelExample, ProofreadingComment, TaxonomyEvent
 from reviewdistill.db.session import get_session
 from reviewdistill.taxonomy.export import export_rubric
 from reviewdistill.taxonomy.operations import (
@@ -73,7 +73,7 @@ def test_list_examples_and_export_use_current_manuscript_context(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="k1",
                 comment_id="c1",
                 label_id=label.id,
@@ -112,7 +112,7 @@ def test_export_keeps_multiline_context_as_one_list_item(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="k1",
                 comment_id="c1",
                 label_id=label.id,

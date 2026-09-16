@@ -1,10 +1,10 @@
-import type { CodingJson } from '../api/client.ts'
+import type { AssignmentJson } from '../api/client.ts'
 import { describe, expect, it } from 'vitest'
 import { assignSuggestion, shouldAssignOnSelect } from './assignLabel.ts'
 
 const labels = [{ id: 't1', name: 'Overclaiming' }]
 
-function coding(partial: Partial<CodingJson>): CodingJson {
+function assignment(partial: Partial<AssignmentJson>): AssignmentJson {
   return {
     id: 'c',
     status: 'proposed',
@@ -18,13 +18,13 @@ function coding(partial: Partial<CodingJson>): CodingJson {
 }
 
 describe('assignSuggestion', () => {
-  it('is null when there is no coding', () => {
+  it('is null when there is no assignment', () => {
     expect(assignSuggestion(null, labels)).toBeNull()
     expect(assignSuggestion(undefined, labels)).toBeNull()
   })
 
   it('uses the active type name for an existing proposal', () => {
-    expect(assignSuggestion(coding({
+    expect(assignSuggestion(assignment({
       kind: 'existing',
       label_id: 't1',
       rationale: 'too strong',
@@ -35,21 +35,21 @@ describe('assignSuggestion', () => {
   })
 
   it('treats an unresolved existing id as no suggestion', () => {
-    expect(assignSuggestion(coding({
+    expect(assignSuggestion(assignment({
       kind: 'existing',
       label_id: 'gone',
     }), labels)).toBeNull()
   })
 
   it('prefixes a new-type name', () => {
-    expect(assignSuggestion(coding({
+    expect(assignSuggestion(assignment({
       kind: 'new',
       proposed_label_name: 'Insufficient justification',
     }), labels)?.title).toBe('New: Insufficient justification')
   })
 
   it('treats a new type without a name as no suggestion', () => {
-    expect(assignSuggestion(coding({ kind: 'new' }), labels)).toBeNull()
+    expect(assignSuggestion(assignment({ kind: 'new' }), labels)).toBeNull()
   })
 })
 

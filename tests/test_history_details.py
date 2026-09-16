@@ -1,12 +1,12 @@
-from reviewdistill.coding.split import SplitPlan
-from reviewdistill.coding.validation import change_coding
+from reviewdistill.labeling.split import SplitPlan
+from reviewdistill.labeling.validation import change_assignment
 from reviewdistill.db.models import ProofreadingComment
 from reviewdistill.db.session import get_session
 from reviewdistill.history import list_history
 from reviewdistill.history_details import HistoryLookup, collect_ids, event_details
 from reviewdistill.taxonomy.operations import apply_split, create_label, flatten_label, rename_label
 
-EMPTY = HistoryLookup(comments={}, labels={}, coding_comments={})
+EMPTY = HistoryLookup(comments={}, labels={}, assignment_comments={})
 
 
 def test_rename_uses_payload_names_not_ids():
@@ -42,7 +42,7 @@ def test_add_leaf_split_mentions_ungrouped_and_lists_reassigned_comment():
     lookup = HistoryLookup(
         comments={"c1": "too strong"},
         labels={},
-        coding_comments={"k1": "c1"},
+        assignment_comments={"k1": "c1"},
     )
     details = event_details(
         "add",
@@ -51,7 +51,7 @@ def test_add_leaf_split_mentions_ungrouped_and_lists_reassigned_comment():
             "name": "New label",
             "ungrouped_id": "t-u",
             "ungrouped_name": "ungrouped",
-            "reassigned_codings": [
+            "reassigned_assignments": [
                 {"id": "k1", "comment_id": "c1", "from_label_id": "t-parent"}
             ],
         },
@@ -64,11 +64,11 @@ def test_add_leaf_split_mentions_ungrouped_and_lists_reassigned_comment():
     assert details["comments"] == [{"text": "too strong", "label_name": "ungrouped"}]
 
 
-def test_add_lists_reassigned_comment_from_payload_without_live_coding():
+def test_add_lists_reassigned_comment_from_payload_without_live_assignment():
     lookup = HistoryLookup(
         comments={"c1": "too strong"},
         labels={},
-        coding_comments={},
+        assignment_comments={},
     )
     details = event_details(
         "add",
@@ -77,7 +77,7 @@ def test_add_lists_reassigned_comment_from_payload_without_live_coding():
             "name": "New label",
             "ungrouped_id": "t-u",
             "ungrouped_name": "ungrouped",
-            "reassigned_codings": [
+            "reassigned_assignments": [
                 {"id": "k1", "comment_id": "c1", "from_label_id": "t-parent"}
             ],
         },
@@ -88,7 +88,7 @@ def test_add_lists_reassigned_comment_from_payload_without_live_coding():
 
 
 def test_edit_quotes_definition_and_ignores_notes():
-    lookup = HistoryLookup(comments={}, labels={"t1": "Overclaiming"}, coding_comments={})
+    lookup = HistoryLookup(comments={}, labels={"t1": "Overclaiming"}, assignment_comments={})
     details = event_details(
         "edit",
         {
@@ -111,7 +111,7 @@ def test_edit_quotes_definition_and_ignores_notes():
 
 
 def test_edit_quotes_changed_detection_guidance():
-    lookup = HistoryLookup(comments={}, labels={"t1": "Overclaiming"}, coding_comments={})
+    lookup = HistoryLookup(comments={}, labels={"t1": "Overclaiming"}, assignment_comments={})
     details = event_details(
         "edit",
         {
@@ -133,7 +133,7 @@ def test_edit_quotes_changed_detection_guidance():
 
 
 def test_move_under_parent_and_to_root():
-    lookup = HistoryLookup(comments={}, labels={"parent": "Claims"}, coding_comments={})
+    lookup = HistoryLookup(comments={}, labels={"parent": "Claims"}, assignment_comments={})
     nested = event_details(
         "move",
         {
@@ -168,7 +168,7 @@ def test_flatten_names_descendants_and_lists_reassigned_comment():
     lookup = HistoryLookup(
         comments={"c-flat": "too strong"},
         labels={"parent": "Parent", "child": "Child"},
-        coding_comments={"coding-flat": "c-flat"},
+        assignment_comments={"coding-flat": "c-flat"},
     )
     details = event_details(
         "flatten",
@@ -176,7 +176,7 @@ def test_flatten_names_descendants_and_lists_reassigned_comment():
             "label_id": "parent",
             "name": "Parent",
             "descendant_ids": ["child"],
-            "reassigned_codings": [{"id": "coding-flat", "from_label_id": "child"}],
+            "reassigned_assignments": [{"id": "coding-flat", "from_label_id": "child"}],
         },
         lookup,
         summary="Flatten Parent",
@@ -191,7 +191,7 @@ def test_remove_names_subtree_and_lists_unlabeled_comment():
     lookup = HistoryLookup(
         comments={"c1": "too strong"},
         labels={},
-        coding_comments={},
+        assignment_comments={},
     )
     details = event_details(
         "remove",
@@ -202,7 +202,7 @@ def test_remove_names_subtree_and_lists_unlabeled_comment():
                 {"id": "root", "name": "Parent"},
                 {"id": "child", "name": "Child"},
             ],
-            "deleted_codings": [{"id": "k1", "comment_id": "c1", "label_id": "child"}],
+            "deleted_assignments": [{"id": "k1", "comment_id": "c1", "label_id": "child"}],
         },
         lookup,
         summary="Remove Parent",
@@ -226,13 +226,13 @@ def test_remove_leaf_omits_subtree_parenthetical():
 
 
 def test_deactivate_lists_unlabeled_comment():
-    lookup = HistoryLookup(comments={"c-deact": "Too strong."}, labels={}, coding_comments={})
+    lookup = HistoryLookup(comments={"c-deact": "Too strong."}, labels={}, assignment_comments={})
     details = event_details(
         "deactivate",
         {
             "label_id": "t1",
             "name": "Overclaiming",
-            "deleted_codings": [{"id": "k1", "comment_id": "c-deact", "label_id": "t1"}],
+            "deleted_assignments": [{"id": "k1", "comment_id": "c-deact", "label_id": "t1"}],
         },
         lookup,
         summary="Deactivate Overclaiming",
@@ -247,14 +247,14 @@ def test_merge_names_sources_and_target():
     lookup = HistoryLookup(
         comments={"c-a": "observation from A"},
         labels={"a": "Type A", "b": "Type B", "target": "Overclaiming"},
-        coding_comments={"k-a": "c-a"},
+        assignment_comments={"k-a": "c-a"},
     )
     details = event_details(
         "merge",
         {
             "source_ids": ["a", "b"],
             "target_id": "target",
-            "reassigned_codings": [{"id": "k-a", "from_label_id": "a"}],
+            "reassigned_assignments": [{"id": "k-a", "from_label_id": "a"}],
         },
         lookup,
         summary="Merge labels",
@@ -267,14 +267,14 @@ def test_legacy_split_still_says_unlabeled():
     lookup = HistoryLookup(
         comments={"c1": "too strong"},
         labels={"src": "Overclaiming", "left": "Evidence", "right": "Wording"},
-        coding_comments={},
+        assignment_comments={},
     )
     details = event_details(
         "split",
         {
             "source_id": "src",
             "created_ids": ["left", "right"],
-            "deleted_codings": [{"id": "k1", "comment_id": "c1", "label_id": "src"}],
+            "deleted_assignments": [{"id": "k1", "comment_id": "c1", "label_id": "src"}],
         },
         lookup,
         summary="Split label",
@@ -290,7 +290,7 @@ def test_keep_source_split_captions_labeled_child():
     lookup = HistoryLookup(
         comments={"c1": "too strong", "c2": "hedge this"},
         labels={"src": "Overclaiming", "a": "Evidence", "b": "Wording"},
-        coding_comments={},
+        assignment_comments={},
     )
     details = event_details(
         "split",
@@ -302,7 +302,7 @@ def test_keep_source_split_captions_labeled_child():
                 {"comment_id": "c1", "label_id": "a"},
                 {"comment_id": "c2", "label_id": "b"},
             ],
-            "deleted_codings": [],
+            "deleted_assignments": [],
             "replaced": [],
         },
         lookup,
@@ -322,7 +322,7 @@ def test_header_split_details_have_no_source():
     lookup = HistoryLookup(
         comments={"c1": "too strong", "c2": "hedge this"},
         labels={"a": "Evidence", "b": "Wording"},
-        coding_comments={},
+        assignment_comments={},
     )
     details = event_details(
         "split",
@@ -348,7 +348,7 @@ def test_propose_lists_every_created_comment():
     lookup = HistoryLookup(
         comments={"c1": "First.", "c2": "Second."},
         labels={},
-        coding_comments={},
+        assignment_comments={},
     )
     details = event_details(
         "propose",
@@ -370,7 +370,7 @@ def test_propose_lists_every_created_comment():
 
 
 def test_propose_skips_missing_comments():
-    lookup = HistoryLookup(comments={"c1": "First."}, labels={}, coding_comments={})
+    lookup = HistoryLookup(comments={"c1": "First."}, labels={}, assignment_comments={})
     details = event_details(
         "propose",
         {
@@ -389,11 +389,11 @@ def test_accept_shows_comment_and_type():
     lookup = HistoryLookup(
         comments={"c1": "The claim is stronger than the evidence supports."},
         labels={"t1": "Overclaiming"},
-        coding_comments={},
+        assignment_comments={},
     )
     details = event_details(
         "accept",
-        {"comment_id": "c1", "label_id": "t1", "coding_id": "k1"},
+        {"comment_id": "c1", "label_id": "t1", "assignment_id": "k1"},
         lookup,
         summary="Accept suggested label assignment",
     )
@@ -407,13 +407,13 @@ def test_change_from_previous_type():
     lookup = HistoryLookup(
         comments={"c1": "The claim is stronger than the evidence supports."},
         labels={"old": "Unsupported claim", "new": "Overclaiming"},
-        coding_comments={},
+        assignment_comments={},
     )
     details = event_details(
         "change",
         {
             "comment_id": "c1",
-            "coding": {"label_id": "new"},
+            "assignment": {"label_id": "new"},
             "retired_accepted": [{"label_id": "old"}],
         },
         lookup,
@@ -428,11 +428,11 @@ def test_change_without_previous_type():
     lookup = HistoryLookup(
         comments={"c1": "The claim is stronger than the evidence supports."},
         labels={"new": "Overclaiming"},
-        coding_comments={},
+        assignment_comments={},
     )
     details = event_details(
         "change",
-        {"comment_id": "c1", "coding": {"label_id": "new"}, "retired_accepted": []},
+        {"comment_id": "c1", "assignment": {"label_id": "new"}, "retired_accepted": []},
         lookup,
         summary="Change label assignment",
     )
@@ -452,7 +452,7 @@ def test_accept_missing_comment_uses_placeholder():
 
 
 def test_verify_shows_comment_without_type():
-    lookup = HistoryLookup(comments={"c1": "Keep me."}, labels={}, coding_comments={})
+    lookup = HistoryLookup(comments={"c1": "Keep me."}, labels={}, assignment_comments={})
     verified = event_details("verify", {"comment_id": "c1"}, lookup, summary="Verify comment")
     assert verified["explanation"] == "Verified this comment."
     assert verified["comments"] == [{"text": "Keep me.", "label_name": None}]
@@ -462,7 +462,7 @@ def test_verify_shows_comment_without_type():
 
 
 def test_delete_shows_dumped_comment_without_type():
-    lookup = HistoryLookup(comments={}, labels={}, coding_comments={})
+    lookup = HistoryLookup(comments={}, labels={}, assignment_comments={})
     details = event_details(
         "delete",
         {
@@ -499,7 +499,7 @@ def test_collect_ids_reads_nested_dumps():
             "comment_id": "c1",
             "label_id": "t1",
             "created": [{"comment_id": "c2", "label_id": "t2"}],
-            "reassigned_codings": [
+            "reassigned_assignments": [
                 {"id": "k1", "comment_id": "c9", "from_label_id": "t3"}
             ],
         }
@@ -514,8 +514,8 @@ def test_flatten_history_comments_survive_later_split(db):
     child = create_label(name="Child", definition="", parent_id=parent.id)
     _add_comment("c1", "Too strong.")
     _add_comment("c2", "Hedge this.")
-    change_coding("c1", label_id=child.id)
-    change_coding("c2", label_id=child.id)
+    change_assignment("c1", label_id=child.id)
+    change_assignment("c2", label_id=child.id)
     flatten_label(parent.id)
     apply_split(
         source_id=parent.id,
@@ -539,7 +539,7 @@ def test_flatten_history_comments_survive_later_split(db):
 def test_list_history_change_includes_comment_text(db):
     label = create_label(name="Overclaiming", definition="")
     _add_comment("c-change", "The claim is stronger than the evidence supports.")
-    change_coding("c-change", label_id=label.id)
+    change_assignment("c-change", label_id=label.id)
     event = next(item for item in list_history()["events"] if item["event_type"] == "change")
     assert event["details"]["explanation"] == "Assigned this comment to Overclaiming."
     assert event["details"]["comments"][0]["text"] == "The claim is stronger than the evidence supports."
@@ -575,7 +575,7 @@ def test_recycle_lists_assigned_comments():
     lookup = HistoryLookup(
         comments={"c1": "too strong", "c2": "hedge this"},
         labels={"u": "ungrouped"},
-        coding_comments={},
+        assignment_comments={},
     )
     details = event_details(
         "recycle",

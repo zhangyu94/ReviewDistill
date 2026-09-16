@@ -16,7 +16,7 @@ vi.mock('../api/client.ts', async (importOriginal) => {
 function emptyInbox() {
   return {
     unlabeled_count: 0,
-    pending_code_count: 0,
+    pending_ai_count: 0,
     llm_provider: null,
     labels: [],
     items: [],
@@ -51,7 +51,7 @@ describe('workbenchStore', () => {
   it('invalidates inbox and taxonomy through the store', async () => {
     vi.mocked(fetchInbox).mockResolvedValue({
       unlabeled_count: 1,
-      pending_code_count: 0,
+      pending_ai_count: 0,
       llm_provider: null,
       labels: [],
       items: [],
@@ -74,7 +74,7 @@ describe('workbenchStore', () => {
   it('refreshAfterHistory reloads label details for the open label', async () => {
     vi.mocked(fetchInbox).mockResolvedValue({
       unlabeled_count: 0,
-      pending_code_count: 0,
+      pending_ai_count: 0,
       llm_provider: null,
       labels: [],
       items: [],
@@ -107,7 +107,7 @@ describe('workbenchStore', () => {
   it('clears assignmentNotice on refreshAfterHistory', async () => {
     vi.mocked(fetchInbox).mockResolvedValue({
       unlabeled_count: 0,
-      pending_code_count: 0,
+      pending_ai_count: 0,
       llm_provider: null,
       labels: [],
       items: [],

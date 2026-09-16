@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 
 # LLM divide of a leaf or an empty forest into N ≥ 2 labels. The parent stays.
-# Assignments become accepted codings. Invalid JSON writes nothing.
+# Assignments become accepted assignment rows. Invalid JSON writes nothing.
 
 SPLIT_TASK = "Task: split these comments into more specific labels."
 

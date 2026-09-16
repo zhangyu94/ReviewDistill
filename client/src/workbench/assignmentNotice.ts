@@ -1,5 +1,5 @@
 export function assignmentNoticeText(count: number | undefined): string {
-  // Empty on 0 / missing so callers can always set from coded/labeled.
+  // Empty on 0 / missing so callers can always set from assigned/labeled.
   // The store ignores empty and keeps the last assignment notice.
   if (!Number.isFinite(count) || (count as number) < 1) { return '' }
   if (count === 1) {

@@ -2,10 +2,10 @@ import json
 
 import pytest
 
-from reviewdistill.db.models import Coding, LabelExample, Label, ProofreadingComment, TaxonomyEvent
+from reviewdistill.db.models import Assignment, LabelExample, Label, ProofreadingComment, TaxonomyEvent
 from reviewdistill.db.session import get_session
 from reviewdistill.history import list_history
-from reviewdistill.coding.split import SplitPlan
+from reviewdistill.labeling.split import SplitPlan
 from reviewdistill.taxonomy.operations import (
     add_example,
     apply_split,
@@ -74,7 +74,7 @@ def test_deactivate_hides_from_active_list(db):
 
 
 def test_deactivate_returns_accepted_comments_to_unlabeled(db):
-    from reviewdistill.coding.validation import inbox_items
+    from reviewdistill.labeling.validation import inbox_items
     from reviewdistill.history import redo, undo
 
     label = create_label(
@@ -99,7 +99,7 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="coding-deact",
                 comment_id="c-deact",
                 label_id=label.id,
@@ -108,7 +108,7 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="coding-deact-old",
                 comment_id="c-deact",
                 label_id=label.id,
@@ -129,7 +129,7 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="coding-other",
                 comment_id="c-other",
                 label_id=other.id,
@@ -138,7 +138,7 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="coding-other-old",
                 comment_id="c-other",
                 label_id=label.id,
@@ -153,27 +153,27 @@ def test_deactivate_returns_accepted_comments_to_unlabeled(db):
     assert [item.comment.id for item in items] == ["c-deact"]
     assert items[0].labeled is False
     with get_session() as session:
-        assert session.find(Coding, comment_id="c-deact") == []
-        other_codings = {row.id: row.status for row in session.find(Coding, comment_id="c-other")}
-        assert other_codings == {"coding-other": "accepted", "coding-other-old": "modified"}
+        assert session.find(Assignment, comment_id="c-deact") == []
+        other_assignments = {row.id: row.status for row in session.find(Assignment, comment_id="c-other")}
+        assert other_assignments == {"coding-other": "accepted", "coding-other-old": "modified"}
     assert [row.id for row in list_working_observations(other.id)] == ["c-other"]
     undo()
     assert inbox_items() == []
     with get_session() as session:
-        restored = session.get(Coding, "coding-deact")
+        restored = session.get(Assignment, "coding-deact")
         assert restored is not None
         assert restored.status == "accepted"
-        assert session.get(Coding, "coding-deact-old").status == "modified"
+        assert session.get(Assignment, "coding-deact-old").status == "modified"
         assert session.get(Label, label.id).status == "active"
-        assert session.get(Coding, "coding-other").status == "accepted"
+        assert session.get(Assignment, "coding-other").status == "accepted"
     redo()
     assert [item.comment.id for item in inbox_items()] == ["c-deact"]
     with get_session() as session:
-        assert session.find(Coding, comment_id="c-deact") == []
-        assert session.get(Coding, "coding-other").status == "accepted"
+        assert session.find(Assignment, comment_id="c-deact") == []
+        assert session.get(Assignment, "coding-other").status == "accepted"
 
 
-def test_merge_moves_codings_and_examples_to_target(db):
+def test_merge_moves_assignments_and_examples_to_target(db):
     a = create_label(name="Unsupported claim", definition="a")
     b = create_label(name="Overly strong claim", definition="b")
     target = create_label(
@@ -184,7 +184,7 @@ def test_merge_moves_codings_and_examples_to_target(db):
     add_example(target.id, text="already on target", source_comment_id="c1")
     with get_session() as session:
         session.add(
-            Coding(
+            Assignment(
                 id="coding-a",
                 comment_id="c1",
                 label_id=a.id,
@@ -199,7 +199,7 @@ def test_merge_moves_codings_and_examples_to_target(db):
     assert {i.id for i in list_active_labels()} == {target.id}
 
     with get_session() as session:
-        coding = session.get(Coding, "coding-a")
+        coding = session.get(Assignment, "coding-a")
         assert coding.label_id == target.id
         examples = session.find(LabelExample, label_id=target.id)
         texts = {row.text for row in examples}

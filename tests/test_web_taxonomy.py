@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from reviewdistill.db.models import Coding, ProofreadingComment
+from reviewdistill.db.models import Assignment, ProofreadingComment
 from reviewdistill.db.session import get_session
 from reviewdistill.llm.mock import MockLLMProvider
 from reviewdistill.taxonomy.operations import (
@@ -29,7 +29,7 @@ def _add_comment(comment_id: str, text: str, *, label_id: str | None = None):
         )
         if label_id:
             session.add(
-                Coding(
+                Assignment(
                     id=f"k-{comment_id}",
                     comment_id=comment_id,
                     label_id=label_id,
@@ -107,7 +107,7 @@ def test_issue_comments_include_manuscript_context(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="coding-ctx",
                 comment_id="c-ctx",
                 label_id=label.id,
@@ -166,7 +166,7 @@ def test_merged_source_observations_appear_on_target_detail(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="coding-a",
                 comment_id="c-a",
                 label_id=source.id,
@@ -212,7 +212,7 @@ def test_taxonomy_omits_comments_not_to_distill(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="coding-live",
                 comment_id="c-live",
                 label_id=label.id,
@@ -221,7 +221,7 @@ def test_taxonomy_omits_comments_not_to_distill(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="coding-dropped",
                 comment_id="c-dropped",
                 label_id=label.id,
@@ -316,7 +316,7 @@ def test_issue_comments_and_count_are_subtree(db):
             )
         )
         session.add(
-            Coding(
+            Assignment(
                 id="coding-child",
                 comment_id="c-child",
                 label_id=child.id,

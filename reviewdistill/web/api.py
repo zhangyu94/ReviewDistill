@@ -5,11 +5,11 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-from reviewdistill.coding.coder import code_uncoded_comments
-from reviewdistill.coding.split import run_header_split, run_leaf_split
-from reviewdistill.coding.validation import (
-    accept_coding,
-    change_coding,
+from reviewdistill.labeling.coder import label_unlabeled_comments
+from reviewdistill.labeling.split import run_header_split, run_leaf_split
+from reviewdistill.labeling.validation import (
+    accept_assignment,
+    change_assignment,
     delete_comment,
     verify_comment,
 )
@@ -87,11 +87,11 @@ class ChangeBody(BaseModel):
     label_id: str
 
 
-@router.post("/inbox/code")
-def post_code():
-    """Accept-assign every unlabeled comment to distill. Snackbar uses ``coded``. There is no CLI ``code`` command."""
+@router.post("/inbox/label")
+def post_label():
+    """Accept-assign every unlabeled comment to distill. Snackbar uses ``assigned``. There is no CLI ``code`` command."""
     try:
-        summary = code_uncoded_comments()
+        summary = label_unlabeled_comments()
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=400, detail=llm_http_detail(exc)) from exc
     except RuntimeError as exc:
@@ -100,7 +100,7 @@ def post_code():
         raise _domain_http(exc, mutate=True) from exc
     return {
         "ok": True,
-        "coded": summary.coded,
+        "assigned": summary.assigned,
         "failed": summary.skipped,
         "privacy_warning": summary.privacy_warning,
         "label_names": summary.label_names,
@@ -109,12 +109,12 @@ def post_code():
 
 @router.post("/inbox/{comment_id}/accept")
 def post_accept(comment_id: str):
-    return _mutate(lambda: accept_coding(comment_id))
+    return _mutate(lambda: accept_assignment(comment_id))
 
 
 @router.post("/inbox/{comment_id}/change")
 def post_change(comment_id: str, body: ChangeBody):
-    return _mutate(lambda: change_coding(comment_id, label_id=body.label_id))
+    return _mutate(lambda: change_assignment(comment_id, label_id=body.label_id))
 
 
 @router.post("/inbox/{comment_id}/verify")

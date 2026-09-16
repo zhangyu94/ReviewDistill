@@ -12,7 +12,7 @@ Public scholarly-writing datasets use other taxonomies, so they cannot score thi
 
 ## What happens in one run
 
-1. **Gold** comes from the local store: working-set comments that have at least one **accepted** coding on an **active** label. Gold names are those **label** names.
+1. **Gold** comes from the local store: working-set comments that have at least one **accepted** assignment on an **active** label. Gold names are those **label** names.
 2. **Holdout** splits gold so the skill under test never includes the test comment’s examples, or any other example whose text is the same passage (two comments can share a block). Default is leave-one-paper-out if two or more projects are labeled; otherwise leave-one-comment-out.
 3. Each test item is a **passage** = the comment’s `context_text` with Citations/Refs stripped. The model never sees `raw_text` (that would leak the author’s wording of the issue).
 4. **Distractors** are unused **prose** paragraphs from the same paper (no working-set comment on them). Gold for those is `[]`. Command-only blocks such as `\end{document}` are skipped. They catch a skill that flags everything.

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from reviewdistill.coding.split import (
+from reviewdistill.labeling.split import (
     SPLIT_TASK,
     SplitPlan,
     build_split_prompt,
@@ -10,7 +10,7 @@ from reviewdistill.coding.split import (
     run_header_split,
     run_leaf_split,
 )
-from reviewdistill.db.models import Coding, Label, LabelExample, ProofreadingComment, TaxonomyEvent, is_labeled
+from reviewdistill.db.models import Assignment, Label, LabelExample, ProofreadingComment, TaxonomyEvent, is_labeled
 from reviewdistill.db.session import get_session
 from reviewdistill.errors import BadInput
 from reviewdistill.history import list_history, redo, undo
@@ -153,7 +153,7 @@ def _add_comment(
     text: str,
     *,
     label_id: str | None = None,
-    coding_status: str = "accepted",
+    assignment_status: str = "accepted",
     status: str = "active",
     context_text: str = "",
 ):
@@ -173,12 +173,12 @@ def _add_comment(
         )
         if label_id:
             session.add(
-                Coding(
+                Assignment(
                     id=f"k-{comment_id}",
                     comment_id=comment_id,
                     label_id=label_id,
                     coder_type="human",
-                    status=coding_status,
+                    status=assignment_status,
                     rationale=None,
                 )
             )
@@ -214,10 +214,10 @@ def test_apply_split_keeps_source_and_accepts_children(db):
         kids = active_children(session.find(Label), source.id)
         assert [row.name for row in kids] == ["Evidence", "Wording"]
         assert [row.position for row in kids] == [0, 1]
-        accepted = session.first(Coding, comment_id="c1", status="accepted")
+        accepted = session.first(Assignment, comment_id="c1", status="accepted")
         assert accepted.label_id == created[0].id
         assert accepted.coder_type == "ai"
-        assert session.find(Coding, comment_id="c1", status="proposed") == []
+        assert session.find(Assignment, comment_id="c1", status="proposed") == []
         example = session.first(LabelExample, source_comment_id="c1")
         assert example.text == "The experiment only shows a correlation."
 
@@ -248,12 +248,12 @@ def test_apply_split_moves_leftover_labels_onto_ungrouped(db):
     with get_session() as session:
         kids = active_children(session.find(Label), source.id)
         ungrouped = next(row for row in kids if row.name == "ungrouped")
-        gone = session.first(Coding, comment_id="c-gone", status="accepted")
+        gone = session.first(Assignment, comment_id="c-gone", status="accepted")
         assert gone is not None
         assert gone.label_id == ungrouped.id
         assert not active_children(session.find(Label), ungrouped.id)
-        assert session.first(Coding, comment_id="c1", status="accepted").label_id == created[0].id
-        assert session.find(Coding, comment_id="c1", status="proposed") == []
+        assert session.first(Assignment, comment_id="c1", status="accepted").label_id == created[0].id
+        assert session.find(Assignment, comment_id="c1", status="proposed") == []
 
 
 def test_apply_split_undo_restores_leftover_label_to_source(db):
@@ -281,7 +281,7 @@ def test_apply_split_undo_restores_leftover_label_to_source(db):
     )
     undo()
     with get_session() as session:
-        gone = session.first(Coding, comment_id="c-gone", status="accepted")
+        gone = session.first(Assignment, comment_id="c-gone", status="accepted")
         assert gone is not None
         assert gone.label_id == source.id
         assert not active_children(session.find(Label), source.id)
@@ -336,8 +336,8 @@ def test_apply_split_header_creates_roots(db):
     with get_session() as session:
         assert is_labeled(session, "c1")
         assert is_labeled(session, "c2")
-        assert session.first(Coding, comment_id="c1", status="accepted") is not None
-        assert session.find(Coding, comment_id="c1", status="proposed") == []
+        assert session.first(Assignment, comment_id="c1", status="accepted") is not None
+        assert session.find(Assignment, comment_id="c1", status="proposed") == []
 
 
 def test_apply_split_refuses_type_with_children(db):
@@ -382,14 +382,14 @@ def test_keep_source_split_undo_restores_accepted_labels(db):
     with get_session() as session:
         assert session.get(Label, source.id).status == "active"
         assert session.get(Label, created[0].id).status == "inactive"
-        assert session.first(Coding, comment_id="c1", status="accepted") is not None
-        assert session.find(Coding, comment_id="c1", status="proposed") == []
+        assert session.first(Assignment, comment_id="c1", status="accepted") is not None
+        assert session.find(Assignment, comment_id="c1", status="proposed") == []
     redo()
     with get_session() as session:
         assert session.get(Label, created[0].id).status == "active"
-        child = session.first(Coding, comment_id="c1", status="accepted")
+        child = session.first(Assignment, comment_id="c1", status="accepted")
         assert child.label_id == created[0].id
-        assert session.find(Coding, comment_id="c1", status="proposed") == []
+        assert session.find(Assignment, comment_id="c1", status="proposed") == []
 
 
 def test_keep_source_split_is_invertible(db):

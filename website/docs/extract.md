@@ -17,7 +17,7 @@ The stored comment text is the brace body, empty lines dropped, remaining lines 
 
 ## Context
 
-Context is the insertion neighborhood — the same text the inspector and the coding prompt show.
+Context is the insertion neighborhood — the same text the inspector and the labeling prompt show.
 
 1. **Find complete configured macros** on the raw file (same brace rule as harvest, so a `}` after `%` still closes). A blank line *inside* `{...}` is still the argument, not an outer paragraph break. Harvest skips a macro whose opener sits after a `%` that is not inside a live configured argument. Context still strips that span — including an unclosed `% \command{` through the next configured command — so a commented-out body is not treated as prose.
 2. **Strip those macros.** Every configured command and its `{...}` body go (including a space before `{`, bodies that span lines, and `%`-commented macros). The rest of the line stays.
@@ -26,7 +26,7 @@ Context is the insertion neighborhood — the same text the inspector and the co
 5. **If that span is empty, walk up only**, skipping other blocks that are also empty after strip (a previous standalone remark). Consecutive heading / `\label` blocks above are context. A heading is a sectioning command (`\chapter` through `\subparagraph`, optional `*`) or `\label`. A prose paragraph immediately above (no heading between) is context. Never the next paragraph after a heading. If nothing qualifies, context is empty.
 6. **Keep source TeX.** Line breaks stay. No `Citations:` / `Refs:` footer.
 
-Extract also stores `context_offset`: the character index of this remark’s insertion hole in that neighborhood. Two configured commands on one line: the offset is this remark’s hole (opening line + command + normalized body; earlier `start` if that still ties). `extract_context` needs `source_command` and `raw_text` for that; without them the offset is omitted. The inspector draws a square there (with a parenthetical legend beside the heading that shows the same square). The coding prompt inserts `‹remark›` at the same index when the offset is a valid integer in `0..length`. The stored neighborhood text does not contain that token.
+Extract also stores `context_offset`: the character index of this remark’s insertion hole in that neighborhood. Two configured commands on one line: the offset is this remark’s hole (opening line + command + normalized body; earlier `start` if that still ties). `extract_context` needs `source_command` and `raw_text` for that; without them the offset is omitted. The inspector draws a square there (with a parenthetical legend beside the heading that shows the same square). The labeling prompt inserts `‹remark›` at the same index when the offset is a valid integer in `0..length`. The stored neighborhood text does not contain that token.
 
 A heading that shares a block with sentences counts as prose: that whole block is kept.
 

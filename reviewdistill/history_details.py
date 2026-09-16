@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from reviewdistill.db.models import Coding, Label, ProofreadingComment
+from reviewdistill.db.models import Assignment, Label, ProofreadingComment
 
 MISSING_LABEL = "a label that is no longer available"
 MISSING_COMMENT = "Comment is no longer available"
@@ -18,13 +18,13 @@ MISSING_COMMENT = "Comment is no longer available"
 class HistoryLookup:
     comments: dict[str, str]
     labels: dict[str, str]
-    coding_comments: dict[str, str]
+    assignment_comments: dict[str, str]
 
 
 def collect_ids(payload: dict) -> tuple[set[str], set[str], set[str]]:
     comment_ids: set[str] = set()
     label_ids: set[str] = set()
-    coding_ids: set[str] = set()
+    assignment_ids: set[str] = set()
 
     def add_comment(value: object) -> None:
         if isinstance(value, str) and value:
@@ -50,36 +50,36 @@ def collect_ids(payload: dict) -> tuple[set[str], set[str], set[str]]:
     # Persisted remove dumps keep the wrapper key "types".
     for row in payload.get("types") or []:
         add_label_id(row.get("id"))
-    for key in ("created", "replaced", "deleted_codings", "retired_accepted"):
+    for key in ("created", "replaced", "deleted_assignments", "retired_accepted"):
         for row in payload.get(key) or []:
             add_comment(row.get("comment_id"))
             add_label_id(row.get("label_id"))
             add_label_id(row.get("proposed_parent_id"))
-    coding = payload.get("coding")
+    coding = payload.get("assignment")
     if isinstance(coding, dict):
         add_comment(coding.get("comment_id"))
         add_label_id(coding.get("label_id"))
-    for row in payload.get("reassigned_codings") or []:
+    for row in payload.get("reassigned_assignments") or []:
         if row.get("id"):
-            coding_ids.add(row["id"])
+            assignment_ids.add(row["id"])
         add_comment(row.get("comment_id"))
         add_label_id(row.get("from_label_id"))
-    return comment_ids, label_ids, coding_ids
+    return comment_ids, label_ids, assignment_ids
 
 
 def build_lookup(session, events: list[tuple[str, dict]]) -> HistoryLookup:
     comment_ids: set[str] = set()
     label_ids: set[str] = set()
-    coding_ids: set[str] = set()
+    assignment_ids: set[str] = set()
     for _event_type, payload in events:
         comments, found_label_ids, codings = collect_ids(payload)
         comment_ids |= comments
         label_ids |= found_label_ids
-        coding_ids |= codings
-    coding_comments: dict[str, str] = {}
-    if coding_ids:
-        for row in session.find(Coding, id=coding_ids):
-            coding_comments[row.id] = row.comment_id
+        assignment_ids |= codings
+    assignment_comments: dict[str, str] = {}
+    if assignment_ids:
+        for row in session.find(Assignment, id=assignment_ids):
+            assignment_comments[row.id] = row.comment_id
             comment_ids.add(row.comment_id)
     comments: dict[str, str] = {}
     if comment_ids:
@@ -89,7 +89,7 @@ def build_lookup(session, events: list[tuple[str, dict]]) -> HistoryLookup:
     if label_ids:
         for row in session.find(Label, id=label_ids):
             labels[row.id] = row.name
-    return HistoryLookup(comments=comments, labels=labels, coding_comments=coding_comments)
+    return HistoryLookup(comments=comments, labels=labels, assignment_comments=assignment_comments)
 
 
 def event_details(event_type: str, payload: dict, lookup: HistoryLookup, *, summary: str) -> dict:
@@ -137,8 +137,8 @@ def _from_codings(
 ) -> list[dict]:
     items = []
     seen: set[str] = set()
-    for row in payload.get("reassigned_codings") or []:
-        comment_id = row.get("comment_id") or lookup.coding_comments.get(row.get("id"))
+    for row in payload.get("reassigned_assignments") or []:
+        comment_id = row.get("comment_id") or lookup.assignment_comments.get(row.get("id"))
         if not comment_id or comment_id in seen:
             continue
         seen.add(comment_id)
@@ -243,7 +243,7 @@ def _remove(payload: dict, lookup: HistoryLookup) -> dict:
         explanation = f"Removed {name}. Labeled comments on those labels returned to Unlabeled."
     return {
         "explanation": explanation,
-        "comments": _from_dumps(payload.get("deleted_codings") or [], lookup, None, skip_missing=True),
+        "comments": _from_dumps(payload.get("deleted_assignments") or [], lookup, None, skip_missing=True),
         "quotes": [],
     }
 
@@ -255,7 +255,7 @@ def _deactivate(payload: dict, lookup: HistoryLookup) -> dict:
             f"Deactivated {name}. Its children became siblings, "
             "and labeled comments on this label returned to Unlabeled."
         ),
-        "comments": _from_dumps(payload.get("deleted_codings") or [], lookup, None, skip_missing=True),
+        "comments": _from_dumps(payload.get("deleted_assignments") or [], lookup, None, skip_missing=True),
         "quotes": [],
     }
 
@@ -315,7 +315,7 @@ def _split(payload: dict, lookup: HistoryLookup) -> dict:
         explanation = f"Split {source}. Labeled comments on {source} returned to Unlabeled."
     return {
         "explanation": explanation,
-        "comments": _from_dumps(payload.get("deleted_codings") or [], lookup, None, skip_missing=True),
+        "comments": _from_dumps(payload.get("deleted_assignments") or [], lookup, None, skip_missing=True),
         "quotes": [],
     }
 
@@ -364,7 +364,7 @@ def _accept(payload: dict, lookup: HistoryLookup) -> dict:
 
 
 def _change(payload: dict, lookup: HistoryLookup) -> dict:
-    new_id = (payload.get("coding") or {}).get("label_id")
+    new_id = (payload.get("assignment") or {}).get("label_id")
     new_name = _name(lookup, new_id)
     old_name = None
     for row in payload.get("retired_accepted") or []:

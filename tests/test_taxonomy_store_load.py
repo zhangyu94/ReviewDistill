@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from reviewdistill.db.models import Coding, Label
+from reviewdistill.db.models import Assignment, Label
 from reviewdistill.db.session import get_session, init_db, reset_engine
 from reviewdistill.errors import CorruptStore
 from reviewdistill.taxonomy.operations import rename_label
@@ -62,7 +62,7 @@ def test_store_loads_issue_type_with_leftover_notes_and_drops_them_on_rewrite(rd
 
 def test_store_does_not_rewrite_proposed_issue_category(rd_home):
     reset_engine()
-    (rd_home / "codings.jsonl").write_text(
+    (rd_home / "assignments.jsonl").write_text(
         json.dumps(
             {
                 "id": "c1",
@@ -77,10 +77,10 @@ def test_store_does_not_rewrite_proposed_issue_category(rd_home):
     )
     init_db()
     with get_session() as session:
-        loaded = session.get(Coding, "c1")
+        loaded = session.get(Assignment, "c1")
         assert loaded is not None
         assert loaded.proposed_parent_id is None
-    saved = (rd_home / "codings.jsonl").read_text(encoding="utf-8")
+    saved = (rd_home / "assignments.jsonl").read_text(encoding="utf-8")
     assert "proposed_issue_category" in saved
     assert "proposed_parent_id" not in saved
 

@@ -14,7 +14,7 @@ import {
   mergeLabels,
   moveLabel,
   postInbox,
-  postInboxCode,
+  postInboxLabel,
   recycleUngrouped,
   removeLabel,
   revealInboxFile,
@@ -193,7 +193,7 @@ const locationRows = computed(() => {
 })
 
 const canLabelWithAi = computed(() =>
-  Boolean(inbox.value?.llm_provider && inbox.value.pending_code_count),
+  Boolean(inbox.value?.llm_provider && inbox.value.pending_ai_count),
 )
 
 const headerSplitEnabled = computed(() => canHeaderSplitFromState({
@@ -209,7 +209,7 @@ const headerRecycleEnabled = computed(() => canHeaderRecycleFromState({
 
 function labelWithAiTitle(): string {
   if (!inbox.value?.llm_provider) { return 'Configure the assistant in Settings first' }
-  if (!inbox.value.pending_code_count) { return 'No unlabeled comments need suggestions' }
+  if (!inbox.value.pending_ai_count) { return 'No unlabeled comments need suggestions' }
   return 'Ask the LLM to propose a label assignment for every unlabeled comment'
 }
 
@@ -227,9 +227,9 @@ function onSelectEntry(id: string) {
 }
 
 const runLabelWithAi = withProgressBar(async () => {
-  const result = await postInboxCode()
+  const result = await postInboxLabel()
   // Count 0 or a failed request leaves any previous snackbar in place.
-  store.setAssignmentNotice(assignmentNoticeText(result.coded))
+  store.setAssignmentNotice(assignmentNoticeText(result.assigned))
   await invalidate({ inbox: true, labels: true })
 })
 
@@ -531,7 +531,7 @@ watch(
           :label-on="labelOn"
           :loading="loading"
           :empty-copy="emptyCopy"
-          :show-label-with-ai="Boolean(inbox?.pending_code_count)"
+          :show-label-with-ai="Boolean(inbox?.pending_ai_count)"
           :labeling="labeling"
           :can-label-with-ai="canLabelWithAi"
           :label-with-ai-title="labelWithAiTitle()"

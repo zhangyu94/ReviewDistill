@@ -26,7 +26,7 @@ export function inboxItemFromObservation(row: TaxonomyCommentJson, label: LabelO
     in_manuscript: comment.status === 'active',
     labeled: true,
     label: accepted ?? label,
-    coding: null,
+    assignment: null,
     in_working_set: comment.status === 'active',
     local_file: false,
   }

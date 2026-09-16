@@ -1,4 +1,4 @@
-import type { CodingJson, LabelOption } from '../api/client.ts'
+import type { AssignmentJson, LabelOption } from '../api/client.ts'
 
 export interface AssignSuggestion {
   title: string
@@ -7,21 +7,21 @@ export interface AssignSuggestion {
 
 /** Stored proposal if usable. An unresolved existing type id is not a suggestion. */
 export function assignSuggestion(
-  coding: CodingJson | null | undefined,
+  assignment: AssignmentJson | null | undefined,
   labels: Pick<LabelOption, 'id' | 'name'>[],
 ): AssignSuggestion | null {
-  if (!coding) { return null }
-  if (coding.kind === 'new') {
-    const name = coding.proposed_label_name?.trim()
+  if (!assignment) { return null }
+  if (assignment.kind === 'new') {
+    const name = assignment.proposed_label_name?.trim()
     if (!name) { return null }
     return {
       title: `New: ${name}`,
-      rationale: coding.rationale,
+      rationale: assignment.rationale,
     }
   }
-  const match = labels.find((row) => row.id === coding.label_id)
+  const match = labels.find((row) => row.id === assignment.label_id)
   if (!match) { return null }
-  return { title: match.name, rationale: coding.rationale }
+  return { title: match.name, rationale: assignment.rationale }
 }
 
 export function shouldAssignOnSelect(

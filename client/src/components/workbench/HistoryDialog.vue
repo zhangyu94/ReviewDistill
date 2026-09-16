@@ -79,7 +79,7 @@ async function wrap(fn: () => Promise<unknown>) {
   <button
     class="ch-chip ch-chip-idle gap-1"
     type="button"
-    title="Chronological log of taxonomy and coding changes"
+    title="Chronological log of taxonomy and assignment changes"
     @click="show"
   >
     <span class="i-fa6-solid:clock-rotate-left h-3.5 w-3.5 shrink-0" aria-hidden="true" />

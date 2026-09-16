@@ -21,9 +21,9 @@ import yaml
 
 from reviewdistill.context.manuscript import _blocks, _is_structural_line
 from reviewdistill.db.models import (
-    CODING_ACCEPTED,
+    ASSIGNMENT_ACCEPTED,
     LABEL_ACTIVE,
-    Coding,
+    Assignment,
     Label,
     ProofreadingComment,
     in_working_set,
@@ -445,7 +445,7 @@ def load_types() -> list[TypeRef]:
 
 
 def load_gold() -> list[GoldComment]:
-    """Working-set comments with ≥1 accepted coding on an active type.
+    """Working-set comments with ≥1 accepted assignment on an active type.
 
     Passage is stored ``context_text``. ``raw_text`` is never loaded: it is
     the author's description of the issue and would leak the answer.
@@ -454,7 +454,7 @@ def load_gold() -> list[GoldComment]:
     with get_session() as session:
         active = {row.id: row for row in session.find(Label, status=LABEL_ACTIVE)}
         by_comment: dict[str, set[str]] = defaultdict(set)
-        for coding in session.find(Coding, status=CODING_ACCEPTED):
+        for coding in session.find(Assignment, status=ASSIGNMENT_ACCEPTED):
             if not coding.label_id:
                 continue
             label = active.get(coding.label_id)

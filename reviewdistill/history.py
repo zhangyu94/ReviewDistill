@@ -1,4 +1,4 @@
-"""Linear undo/redo over ``taxonomy_events``.
+"""Linear undo/redo over ``history.jsonl``.
 
 Undo/Redo mark ``undone`` on the tip instead of appending. A new forward
 action deletes the redo tail. Old merge/split rows without invert payload
@@ -13,12 +13,12 @@ from datetime import datetime
 from uuid import uuid4
 
 from reviewdistill.db.models import (
-    CODING_ACCEPTED,
-    CODING_MODIFIED,
-    CODING_PROPOSED,
+    ASSIGNMENT_ACCEPTED,
+    ASSIGNMENT_MODIFIED,
+    ASSIGNMENT_PROPOSED,
     LABEL_ACTIVE,
     LABEL_INACTIVE,
-    Coding,
+    Assignment,
     LabelExample,
     Label,
     ProofreadingComment,
@@ -85,12 +85,12 @@ def _parse_dt(value):
     return value
 
 
-def coding_from_dump(data: dict) -> Coding:
+def assignment_from_dump(data: dict) -> Assignment:
     data = dict(data)
     data.pop("proposed_issue_code", None)
     data.pop("code", None)
     data["created_at"] = _parse_dt(data.get("created_at")) or utcnow()
-    return Coding(**data)
+    return Assignment(**data)
 
 
 def comment_from_dump(data: dict) -> ProofreadingComment:
@@ -193,17 +193,17 @@ def can_invert(event: TaxonomyEvent) -> bool:
         return False
     payload = json.loads(event.payload_json)
     if event.event_type == "merge":
-        return "reassigned_codings" in payload
+        return "reassigned_assignments" in payload
     if event.event_type == "split":
         if payload.get("keep_source"):
             return "created" in payload
-        return "deleted_codings" in payload
+        return "deleted_assignments" in payload
     if event.event_type == "propose":
         return "created" in payload
     if event.event_type == "move":
         return "from_parent_id" in payload
     if event.event_type == "flatten":
-        return "reassigned_codings" in payload and "descendant_ids" in payload
+        return "reassigned_assignments" in payload and "descendant_ids" in payload
     if event.event_type == "remove":
         return "types" in payload
     if event.event_type == "delete":
@@ -391,8 +391,8 @@ def _apply_add(session, payload: dict) -> None:
 
 
 def _restore_reassigned(session, payload: dict) -> None:
-    for row in payload.get("reassigned_codings") or []:
-        coding = session.get(Coding, row["id"])
+    for row in payload.get("reassigned_assignments") or []:
+        coding = session.get(Assignment, row["id"])
         if coding is not None:
             coding.label_id = row["from_label_id"]
             session.add(coding)
@@ -404,8 +404,8 @@ def _restore_reassigned(session, payload: dict) -> None:
 
 
 def _apply_reassigned(session, payload: dict, target_id: str) -> None:
-    for row in payload.get("reassigned_codings") or []:
-        coding = session.get(Coding, row["id"])
+    for row in payload.get("reassigned_assignments") or []:
+        coding = session.get(Assignment, row["id"])
         if coding is not None:
             coding.label_id = target_id
             session.add(coding)
@@ -426,8 +426,8 @@ def _invert_deactivate(session, payload: dict) -> None:
         child = session.get(Label, row["id"])
         if child is not None:
             _place(session, child, row["from_parent_id"], row.get("from_position", 0))
-    for row in payload.get("deleted_codings") or []:
-        session.add(coding_from_dump(row))
+    for row in payload.get("deleted_assignments") or []:
+        session.add(assignment_from_dump(row))
 
 
 def _apply_deactivate(session, payload: dict) -> None:
@@ -441,15 +441,15 @@ def _apply_deactivate(session, payload: dict) -> None:
     session.add(label)
     for row in session.find(Label):
         session.add(row)
-    for row in payload.get("deleted_codings") or []:
-        existing = session.get(Coding, row["id"])
+    for row in payload.get("deleted_assignments") or []:
+        existing = session.get(Assignment, row["id"])
         if existing is not None:
             session.delete(existing)
 
 
 def _invert_propose(session, payload: dict) -> None:
     for row in payload.get("created") or []:
-        existing = session.get(Coding, row["id"])
+        existing = session.get(Assignment, row["id"])
         if existing is not None:
             session.delete(existing)
     for row in payload.get("examples") or []:
@@ -467,7 +467,7 @@ def _invert_propose(session, payload: dict) -> None:
         comment_id = row.get("comment_id")
         if comment_id and session.get(ProofreadingComment, comment_id) is None:
             continue
-        session.add(coding_from_dump(row))
+        session.add(assignment_from_dump(row))
 
 
 def _apply_propose(session, payload: dict) -> None:
@@ -483,21 +483,21 @@ def _apply_propose(session, payload: dict) -> None:
         session.add(created)
         _place(session, created, parent_id, position)
     for row in payload.get("replaced") or []:
-        existing = session.get(Coding, row["id"])
+        existing = session.get(Assignment, row["id"])
         if existing is not None:
             session.delete(existing)
     for row in payload.get("created") or []:
-        session.add(coding_from_dump(row))
+        session.add(assignment_from_dump(row))
     for row in payload.get("examples") or []:
         session.add(example_from_dump(row))
     _apply_example_updates(session, payload)
 
 
 def _invert_accept(session, payload: dict) -> None:
-    coding = session.get(Coding, payload["coding_id"])
+    coding = session.get(Assignment, payload["assignment_id"])
     if coding is None:
         return
-    coding.status = payload.get("previous_status") or CODING_PROPOSED
+    coding.status = payload.get("previous_status") or ASSIGNMENT_PROPOSED
     session.add(coding)
     if payload.get("example_created") and payload.get("example_id"):
         example = session.get(LabelExample, payload["example_id"])
@@ -507,10 +507,10 @@ def _invert_accept(session, payload: dict) -> None:
 
 
 def _apply_accept(session, payload: dict) -> None:
-    coding = session.get(Coding, payload["coding_id"])
+    coding = session.get(Assignment, payload["assignment_id"])
     if coding is None:
         return
-    coding.status = CODING_ACCEPTED
+    coding.status = ASSIGNMENT_ACCEPTED
     if payload.get("label_id"):
         coding.label_id = payload["label_id"]
     session.add(coding)
@@ -524,22 +524,22 @@ def _apply_accept(session, payload: dict) -> None:
 
 
 def _invert_change(session, payload: dict) -> None:
-    human = session.get(Coding, payload["coding_id"])
+    human = session.get(Assignment, payload["assignment_id"])
     if human is not None:
         session.delete(human)
     if payload.get("proposed_id"):
-        proposed = session.get(Coding, payload["proposed_id"])
+        proposed = session.get(Assignment, payload["proposed_id"])
         if proposed is not None:
-            proposed.status = CODING_PROPOSED
+            proposed.status = ASSIGNMENT_PROPOSED
             session.add(proposed)
     if payload.get("example_created") and payload.get("example_id"):
         example = session.get(LabelExample, payload["example_id"])
         if example is not None:
             session.delete(example)
     for row in payload.get("retired_accepted") or []:
-        coding = session.get(Coding, row["id"])
+        coding = session.get(Assignment, row["id"])
         if coding is not None:
-            coding.status = row.get("status") or CODING_ACCEPTED
+            coding.status = row.get("status") or ASSIGNMENT_ACCEPTED
             session.add(coding)
     for row in payload.get("deleted_examples") or []:
         session.add(example_from_dump(row))
@@ -547,16 +547,16 @@ def _invert_change(session, payload: dict) -> None:
 
 def _apply_change(session, payload: dict) -> None:
     if payload.get("proposed_id"):
-        proposed = session.get(Coding, payload["proposed_id"])
+        proposed = session.get(Assignment, payload["proposed_id"])
         if proposed is not None:
-            proposed.status = CODING_MODIFIED
+            proposed.status = ASSIGNMENT_MODIFIED
             session.add(proposed)
     for row in payload.get("retired_accepted") or []:
-        coding = session.get(Coding, row["id"])
+        coding = session.get(Assignment, row["id"])
         if coding is not None:
-            coding.status = CODING_MODIFIED
+            coding.status = ASSIGNMENT_MODIFIED
             session.add(coding)
-    session.add(coding_from_dump(payload["coding"]))
+    session.add(assignment_from_dump(payload["assignment"]))
     if payload.get("example_created") and payload.get("example"):
         session.add(example_from_dump(payload["example"]))
     for row in payload.get("deleted_examples") or []:
@@ -603,8 +603,8 @@ def _apply_delete(session, payload: dict) -> None:
     if comment is not None:
         session.delete_comment_graph(comment)
         return
-    for row in payload.get("codings") or []:
-        existing = session.get(Coding, row["id"])
+    for row in payload.get("assignments") or []:
+        existing = session.get(Assignment, row["id"])
         if existing is not None:
             session.delete(existing)
     for row in payload.get("examples") or []:
@@ -619,9 +619,9 @@ def _invert_delete(session, payload: dict) -> None:
         return
     if session.get(ProofreadingComment, payload["comment_id"]) is None:
         session.add(comment_from_dump(dumped))
-    for row in payload.get("codings") or []:
-        if session.get(Coding, row["id"]) is None:
-            session.add(coding_from_dump(row))
+    for row in payload.get("assignments") or []:
+        if session.get(Assignment, row["id"]) is None:
+            session.add(assignment_from_dump(row))
     for row in payload.get("examples") or []:
         if session.get(LabelExample, row["id"]) is None:
             session.add(example_from_dump(row))
@@ -642,8 +642,8 @@ def _apply(session, event: TaxonomyEvent) -> None:
 
 
 def _invert_merge(session, payload: dict) -> None:
-    for row in payload.get("reassigned_codings") or []:
-        coding = session.get(Coding, row["id"])
+    for row in payload.get("reassigned_assignments") or []:
+        coding = session.get(Assignment, row["id"])
         if coding is not None:
             coding.label_id = row["from_label_id"]
             session.add(coding)
@@ -679,8 +679,8 @@ def _apply_merge(session, payload: dict) -> None:
     target_id = payload["target_id"]
     dest_id = payload.get("ungrouped_id") or target_id
     _reactivate_parked_ungrouped(session, payload)
-    for row in payload.get("reassigned_codings") or []:
-        coding = session.get(Coding, row["id"])
+    for row in payload.get("reassigned_assignments") or []:
+        coding = session.get(Assignment, row["id"])
         if coding is not None:
             coding.label_id = dest_id
             session.add(coding)
@@ -722,13 +722,13 @@ def _invert_keep_source_split(session, payload: dict) -> None:
             session.add(created)
     _compact(session, payload.get("source_id"))
     for row in payload.get("created") or []:
-        existing = session.get(Coding, row["id"])
+        existing = session.get(Assignment, row["id"])
         if existing is not None:
             session.delete(existing)
-    for row in payload.get("deleted_codings") or []:
-        session.add(coding_from_dump(row))
+    for row in payload.get("deleted_assignments") or []:
+        session.add(assignment_from_dump(row))
     for row in payload.get("replaced") or []:
-        session.add(coding_from_dump(row))
+        session.add(assignment_from_dump(row))
     for row in payload.get("examples") or []:
         existing = session.get(LabelExample, row["id"])
         if existing is not None:
@@ -750,16 +750,16 @@ def _apply_keep_source_split(session, payload: dict) -> None:
         created.updated_at = utcnow()
         session.add(created)
         _place(session, created, parent_id, position)
-    for row in payload.get("deleted_codings") or []:
-        existing = session.get(Coding, row["id"])
+    for row in payload.get("deleted_assignments") or []:
+        existing = session.get(Assignment, row["id"])
         if existing is not None:
             session.delete(existing)
     for row in payload.get("replaced") or []:
-        existing = session.get(Coding, row["id"])
+        existing = session.get(Assignment, row["id"])
         if existing is not None:
             session.delete(existing)
     for row in payload.get("created") or []:
-        session.add(coding_from_dump(row))
+        session.add(assignment_from_dump(row))
     for row in payload.get("deleted_examples") or []:
         existing = session.get(LabelExample, row["id"])
         if existing is not None:
@@ -787,8 +787,8 @@ def _invert_split(session, payload: dict) -> None:
             created.updated_at = utcnow()
             session.add(created)
     _place(session, source, source.parent_id, source.position)
-    for row in payload.get("deleted_codings") or []:
-        session.add(coding_from_dump(row))
+    for row in payload.get("deleted_assignments") or []:
+        session.add(assignment_from_dump(row))
 
 
 def _apply_split(session, payload: dict) -> None:
@@ -811,16 +811,16 @@ def _apply_split(session, payload: dict) -> None:
         created.updated_at = utcnow()
         session.add(created)
         _place(session, created, parent_id, position)
-    for row in payload.get("deleted_codings") or []:
-        existing = session.get(Coding, row["id"])
+    for row in payload.get("deleted_assignments") or []:
+        existing = session.get(Assignment, row["id"])
         if existing is not None:
             session.delete(existing)
 
 
 def _invert_flatten(session, payload: dict) -> None:
     target_id = payload["label_id"]
-    for row in payload.get("reassigned_codings") or []:
-        coding = session.get(Coding, row["id"])
+    for row in payload.get("reassigned_assignments") or []:
+        coding = session.get(Assignment, row["id"])
         if coding is not None:
             coding.label_id = row["from_label_id"]
             session.add(coding)
@@ -841,8 +841,8 @@ def _invert_flatten(session, payload: dict) -> None:
 
 def _apply_flatten(session, payload: dict) -> None:
     target_id = payload["label_id"]
-    for row in payload.get("reassigned_codings") or []:
-        coding = session.get(Coding, row["id"])
+    for row in payload.get("reassigned_assignments") or []:
+        coding = session.get(Assignment, row["id"])
         if coding is not None:
             coding.label_id = target_id
             session.add(coding)
@@ -868,8 +868,8 @@ def _invert_remove(session, payload: dict) -> None:
         session.add(label_from_dump(row))
     for row in payload.get("examples") or []:
         session.add(example_from_dump(row))
-    for row in payload.get("deleted_codings") or []:
-        session.add(coding_from_dump(row))
+    for row in payload.get("deleted_assignments") or []:
+        session.add(assignment_from_dump(row))
     root = session.get(Label, payload["label_id"])
     if root is not None:
         _place(session, root, root.parent_id, root.position)
@@ -881,8 +881,8 @@ def _apply_remove(session, payload: dict) -> None:
         if row.get("id") == payload.get("label_id"):
             parent_id = row.get("parent_id")
             break
-    for row in payload.get("deleted_codings") or []:
-        existing = session.get(Coding, row["id"])
+    for row in payload.get("deleted_assignments") or []:
+        existing = session.get(Assignment, row["id"])
         if existing is not None:
             session.delete(existing)
     for row in payload.get("examples") or []:
@@ -898,7 +898,7 @@ def _apply_remove(session, payload: dict) -> None:
 
 def _invert_recycle(session, payload: dict) -> None:
     for row in payload.get("created") or []:
-        existing = session.get(Coding, row["id"])
+        existing = session.get(Assignment, row["id"])
         if existing is not None:
             session.delete(existing)
     for row in payload.get("examples") or []:
@@ -906,14 +906,14 @@ def _invert_recycle(session, payload: dict) -> None:
         if existing is not None:
             session.delete(existing)
     for row in payload.get("modified_proposed") or []:
-        proposed = session.get(Coding, row["id"])
+        proposed = session.get(Assignment, row["id"])
         if proposed is not None:
-            proposed.status = CODING_PROPOSED
+            proposed.status = ASSIGNMENT_PROPOSED
             session.add(proposed)
     for row in payload.get("retired_accepted") or []:
-        coding = session.get(Coding, row["id"])
+        coding = session.get(Assignment, row["id"])
         if coding is not None:
-            coding.status = row.get("status") or CODING_ACCEPTED
+            coding.status = row.get("status") or ASSIGNMENT_ACCEPTED
             session.add(coding)
     for row in payload.get("deleted_examples") or []:
         session.add(example_from_dump(row))
@@ -923,17 +923,17 @@ def _invert_recycle(session, payload: dict) -> None:
 def _apply_recycle(session, payload: dict) -> None:
     _apply_add(session, payload)
     for row in payload.get("modified_proposed") or []:
-        proposed = session.get(Coding, row["id"])
+        proposed = session.get(Assignment, row["id"])
         if proposed is not None:
-            proposed.status = CODING_MODIFIED
+            proposed.status = ASSIGNMENT_MODIFIED
             session.add(proposed)
     for row in payload.get("retired_accepted") or []:
-        coding = session.get(Coding, row["id"])
+        coding = session.get(Assignment, row["id"])
         if coding is not None:
-            coding.status = CODING_MODIFIED
+            coding.status = ASSIGNMENT_MODIFIED
             session.add(coding)
     for row in payload.get("created") or []:
-        session.add(coding_from_dump(row))
+        session.add(assignment_from_dump(row))
     for row in payload.get("examples") or []:
         session.add(example_from_dump(row))
     for row in payload.get("deleted_examples") or []:

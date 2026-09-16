@@ -4,9 +4,9 @@ Stored shape of a **project** (paper), a proofreading **observation**, and a **l
 
 Identity (when a source comment is new, a revision, a move, or gone) is defined in [`comment-identity.md`](comment-identity.md). Product spec: [`spec.md`](spec.md). This file is the schema of the rows that identity acts on.
 
-Implementation: one JSONL file per collection in the ReviewDistill home folder (default `~/.reviewdistill`): `projects.jsonl`, `comments.jsonl`, `codings.jsonl`, `labels.jsonl`, `label_examples.jsonl`, `taxonomy_events.jsonl`. One JSON object per line, sorted by `id`. `reviewdistill paths use` / `move` choose that folder. `comments.project_id` is the `projects.id` of the paper.
+Implementation: one JSONL file per collection in the ReviewDistill home folder (default `~/.reviewdistill`): `projects.jsonl`, `comments.jsonl`, `assignments.jsonl`, `labels.jsonl`, `label_examples.jsonl`, `history.jsonl`. One JSON object per line, sorted by `id`. `reviewdistill paths use` / `move` choose that folder. `comments.project_id` is the `projects.id` of the paper.
 
-The JSON object under `comment` in `GET /api/inbox` is the comment row (`created_at` as ISO-8601). `items` is the Unlabeled queue; `working_items` is every comment to distill (labeled included) so the UI can AND selectors without extra fetches. Each item has `in_working_set`. `progress.working_set` is the **to distill** headline. `progress` has no `absent` key; presence is `in_manuscript` on the item. Response extras (`project_name`, `permalink`, `guess`, `in_manuscript`, `labeled`, `label`, `coding`, `in_working_set`, `local_file`) are not columns on `comments`; `project_name` is `projects.name`. `in_manuscript` is `status == "active"`. `local_file` is true when `{projects.root_path}/{file_path}` resolves to a file that stays under that root (`..` does not count). The absolute path is not in the JSON. `POST /api/inbox/{comment_id}/reveal` (empty body) re-checks that path and selects the file in the OS file manager. Unknown comment is 404 (`Unknown comment {id}`); missing project, missing file, or path escape is 404 (`This file is not on this computer.`); file-manager failure is 400. Reveal does not write store rows or History.
+The JSON object under `comment` in `GET /api/inbox` is the comment row (`created_at` as ISO-8601). `items` is the Unlabeled queue; `working_items` is every comment to distill (labeled included) so the UI can AND selectors without extra fetches. Each item has `in_working_set`. `progress.working_set` is the **to distill** headline. `progress` has no `absent` key; presence is `in_manuscript` on the item. Response extras (`project_name`, `permalink`, `guess`, `in_manuscript`, `labeled`, `label`, `assignment`, `in_working_set`, `local_file`) are not columns on `comments`; `project_name` is `projects.name`. `in_manuscript` is `status == "active"`. `local_file` is true when `{projects.root_path}/{file_path}` resolves to a file that stays under that root (`..` does not count). The absolute path is not in the JSON. `POST /api/inbox/{comment_id}/reveal` (empty body) re-checks that path and selects the file in the OS file manager. Unknown comment is 404 (`Unknown comment {id}`); missing project, missing file, or path escape is 404 (`This file is not on this computer.`); file-manager failure is 400. Reveal does not write store rows or History.
 
 ---
 
@@ -105,7 +105,7 @@ Path of the `.tex` file relative to the project root, using the extractor’s pa
 
 What the reviewer wrote, after extract-time normalization: strip the command body, drop empty lines, join remaining lines with a single space.
 
-The AI never writes this field. Source-driven **revision** of a still-present comment updates it in place (same `id`). Coding reads it; Export / Label Details / skill-eval examples use `context_text` when `label_examples.source_comment_id` points at this comment.
+The AI never writes this field. Source-driven **revision** of a still-present comment updates it in place (same `id`). Assignments read it; Export / Label Details / skill-eval examples use `context_text` when `label_examples.source_comment_id` points at this comment.
 
 #### `context_text`
 
@@ -201,7 +201,7 @@ On unchanged, revised, moved, or resurrected rows, extract refreshes location an
 
 Live taxonomy node (`labels.jsonl`). The store is a forest: `parent_id` is null for a root, otherwise another label’s `id`. `position` is order among siblings (`0..n-1` after each sibling-list rewrite). A label may have children and its own accepted comments.
 
-A **label** is a category in the scheme. Whether a comment is **labeled** lives on `codings.label_id`, not on this row. YAML/JSON **export** dumps wrap the list in `labels` and default to `review-taxonomy.yaml` / `.json` (taxonomy = the scheme).
+A **label** is a category in the scheme. Whether a comment is **labeled** lives on `assignments.label_id`, not on this row. YAML/JSON **export** dumps wrap the list in `labels` and default to `review-taxonomy.yaml` / `.json` (taxonomy = the scheme).
 
 | Column | Type | Null | Default |
 | --- | --- | --- | --- |
@@ -215,7 +215,7 @@ A **label** is a category in the scheme. Whether a comment is **labeled** lives 
 
 An active label’s `parent_id` must be an active label; missing, inactive, or cyclic parents fail load. Inactive rows keep last `parent_id` / `position` for undo. Leftover `category` and `notes` keys in old files are ignored; they are not rewritten and `category` is not promoted into parent labels. `notes` is not a field. `detection_guidance` is used in retrieval and is not shown in Label Details.
 
-`codings.proposed_parent_id` is the parent for a proposed **new** label (`null` = root). Unknown or inactive ids are treated as root.
+`assignments.proposed_parent_id` is the parent for a proposed **new** label (`null` = root). Unknown or inactive ids are treated as root.
 
 ---
 
@@ -223,8 +223,8 @@ An active label’s `parent_id` must be an active label; missing, inactive, or c
 
 | Table | Relationship |
 | --- | --- |
-| `codings` | many `codings.comment_id` → one comment; AI/human interpretation lives here |
+| `assignments` | many `assignments.comment_id` → one comment; AI/human interpretation lives here |
 | `label_examples` | optional `source_comment_id`; `text` is the passage excerpt (`context_text`) when sourced, not the remark |
-| `taxonomy_events` | append-only history (`event_type`, `payload_json`, `undone`); Undo/Redo set `undone` rather than inserting a new row |
+| `history` | append-only undo log (`event_type`, `payload_json`, `undone`); Undo/Redo set `undone` rather than inserting a new row. File is `history.jsonl`. |
 
-A comment may have several `codings` over time (`proposed`, `accepted`, `modified`). The observation row stays the evidence; coding rows stay the interpretation. Not accepting a suggestion leaves the comment unlabeled.
+A comment may have several `assignments` over time (`proposed`, `accepted`, `modified`). The observation row stays the evidence; assignment rows stay the interpretation. Not accepting a suggestion leaves the comment unlabeled.
