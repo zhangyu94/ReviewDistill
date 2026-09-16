@@ -11,12 +11,14 @@
 <p align="center">
   <a href="https://zhangyu94.github.io/ReviewDistill/">Documentation</a>
   ·
+  <a href="https://pypi.org/project/reviewdistill/">PyPI</a>
+  ·
   <a href="https://github.com/zhangyu94/ReviewDistill">GitHub</a>
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/reviewdistill/"><img alt="PyPI" src="https://img.shields.io/pypi/v/reviewdistill"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-%3E%3D3.11-3776AB">
-  <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D22-5FA04E">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-lightgrey">
 </p>
 
@@ -28,13 +30,13 @@ You can add an API key if you want an LLM to suggest labels. Comments and keys s
 
 ## Start using it
 
-Clone this repository. You need **Python ≥ 3.11**. Then:
+You need **Python ≥ 3.11**. Then:
 
-`pip install -e .`
+`pip install reviewdistill`
 
-That puts the `reviewdistill` command on your `PATH` and compiles the workbench. You do not need Node to run the UI. Compiling it from this repository needs **Node ≥ 22** and [pnpm](https://pnpm.io/) once.
+That puts the `reviewdistill` command on your `PATH`.
 
-In a paper repository:
+In a LaTeX paper repository:
 
 1. `reviewdistill init --name paper-01 --command myremark`
 2. Proofread with `\myremark{...}` (or the commands you passed to `init`). Define `\newcommand{\myremark}[1]{#1}` in the preamble if needed.

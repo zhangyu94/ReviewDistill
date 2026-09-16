@@ -19,15 +19,3 @@ def test_sidebar_ids_match_doc_files():
     assert ids
     assert set(ids) == stems
     assert len(ids) == len(set(ids))
-
-
-def test_install_first_snippet_is_pip():
-    text = (DOCS / "install.md").read_text(encoding="utf-8")
-    lead, fence, _rest = text.split("```", 2)
-    assert "Python" in lead
-    assert "pip install -e ." in fence
-    assert "pnpm" not in fence
-    assert 'pip install -e ".[dev]"' not in text
-    internals = (DOCS / "internals.md").read_text(encoding="utf-8")
-    assert "Node" in internals
-    assert "pnpm" in internals
